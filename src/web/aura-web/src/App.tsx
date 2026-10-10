@@ -8,14 +8,23 @@ type PingResponse = {
   timestamp: string
 }
 
+type RiskLevel = 'Thấp' | 'Trung bình' | 'Cao'
+
 type Patient = {
   id: string
   name: string
   clinic: string
   date: string
-  status: 'Hoàn thành' | 'Đang xử lý' | 'Cần xem xét'
-  risk: 'Thấp' | 'Trung bình' | 'Cao'
-}
+} & (
+  | {
+      status: 'Đang xử lý'
+      risk: null
+    }
+  | {
+      status: 'Hoàn thành' | 'Cần xem xét'
+      risk: RiskLevel | null
+    }
+)
 
 const initialPatients: Patient[] = [
   {
@@ -32,7 +41,7 @@ const initialPatients: Patient[] = [
     clinic: 'Phòng khám trung tâm',
     date: '09/10/2026',
     status: 'Đang xử lý',
-    risk: 'Trung bình',
+    risk: null,
   },
   {
     id: 'AUR-2026-003',
@@ -194,18 +203,22 @@ function App() {
                   </span>
                 </td>
                 <td>
-                  <span
-                    className={`risk risk-${
-                      patient.risk === 'Thấp'
-                        ? 'low'
-                        : patient.risk === 'Trung bình'
-                          ? 'medium'
-                          : 'high'
-                    }`}
-                  >
-                    <span className="risk-dot" />
-                    {patient.risk}
-                  </span>
+                  {patient.risk === null ? (
+                    <span>Chưa có kết quả nguy cơ</span>
+                  ) : (
+                    <span
+                      className={`risk risk-${
+                        patient.risk === 'Thấp'
+                          ? 'low'
+                          : patient.risk === 'Trung bình'
+                            ? 'medium'
+                            : 'high'
+                      }`}
+                    >
+                      <span className="risk-dot" />
+                      {patient.risk}
+                    </span>
+                  )}
                 </td>
                 <td>
                   <button
@@ -423,7 +436,9 @@ function App() {
             </div>
             <div>
               <span>Mức nguy cơ minh họa</span>
-              <strong>{selectedPatient.risk}</strong>
+              <strong>
+                {selectedPatient.risk ?? 'Chưa có kết quả nguy cơ'}
+              </strong>
             </div>
           </div>
 
