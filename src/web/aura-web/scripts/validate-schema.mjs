@@ -37,6 +37,31 @@ const cases = [
     operationId: 'getAnalysis',
     status: '200',
   },
+  {
+    file: 'error-400.json',
+    operationId: 'createAnalysis',
+    status: '400',
+  },
+  {
+    file: 'error-401.json',
+    operationId: 'getAnalysis',
+    status: '401',
+  },
+  {
+    file: 'error-403.json',
+    operationId: 'getAnalysis',
+    status: '403',
+  },
+  {
+    file: 'error-402.json',
+    operationId: 'createAnalysis',
+    status: '402',
+  },
+  {
+    file: 'empty-list.json',
+    operationId: 'listAnalyses',
+    status: '200',
+  },
 ]
 
 const ajv = new Ajv({
