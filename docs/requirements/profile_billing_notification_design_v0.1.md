@@ -323,7 +323,7 @@ Test Plan sẽ bổ sung dữ liệu, bước chạy, môi trường và actual 
 | Identity/Profile | Yêu cầu và thiết kế nền tảng | Authentication thật, liên kết account, API Profile và kiểm tra quyền |
 | Billing | Catalog PostgreSQL/Redis PoC | Order, payment, ledger, reservation và đối soát |
 | Analysis frontend | MSW và test scenario local | API thật và luồng dữ liệu bền vững |
-| Notification UI | Permission UI, FCM demo và test local | API device, token thật, push thật và thu hồi |
+| Notification PoC | Device API có Firebase auth, token mã hóa, lifecycle frontend, PostgreSQL checks và push local foreground/background/click | Analysis event-to-notification, inbox/templates, token rotation thật, production và các kiểm chứng bổ sung |
 | AI | Mock runtime và benchmark offline | Tích hợp thuật toán thực, truy vết và kiểm chứng phù hợp |
 
 Bằng chứng frontend local đã ghi nhận 46 test PASS, lint/build PASS
@@ -341,9 +341,9 @@ hoặc FCM production đã hoàn thành.
 5. Payment provider, loại tiền và callback contract.
 6. Thời hạn credit và chính sách hoàn credit.
 7. Reservation, capture, release và đối soát giữa service.
-8. API đăng ký/hủy thiết bị.
-9. Chính sách foreground/background notification.
-10. Cách cập nhật token và xử lý đăng xuất mất mạng.
+8. Review contract device API đã có và tích hợp vào luồng nghiệp vụ.
+9. Chốt chính sách foreground/background cho production; PoC local đã kiểm chứng.
+10. Kiểm chứng token rotation thật và chính sách đăng xuất mất mạng; frontend hiện giữ phiên khi thao tác hủy/xóa token lỗi.
 11. Thời gian lưu thông báo, delivery và audit.
 12. Quy tắc cảnh báo nguy cơ và người nhận hợp lệ.
 
@@ -381,3 +381,32 @@ Hoàn thành tài liệu không đồng nghĩa đã triển khai toàn bộ modu
 | Phiên bản | Ngày | Nội dung |
 | --- | --- | --- |
 | 0.1 | 2026-10-11 | Hoàn thành thiết kế Profile, Billing và Notification |
+
+## Cập nhật Notification sau đợt sửa M2–M5
+
+Ngày thực thi: 2026-10-11.
+HEAD b2b3dde cùng working tree có các thay đổi chưa commit;
+không coi HEAD là phiên bản chứa toàn bộ bản sửa.
+
+- Frontend lần chạy cuối: 81/81 tests PASS trên 7 file.
+- NotificationSettings: 30; NotificationPushTestPanel: 9;
+  tokenLifecycle: 6; App: 7; handlers: 10;
+  FcmDemoPanel: 7; AnalysisDemoPanel: 12.
+- Lint: 0 warnings/errors; TypeScript và Vite build PASS.
+- Notification API Debug build PASS.
+- CryptoChecks: 12/12 PASS.
+- PostgreSQL checks PASS, gồm xóa có điều kiện và giữ token mới.
+- Browser xác nhận đăng ký/đồng bộ và foreground receipt.
+- Người thao tác xác nhận background hiển thị và click focus tab AURA đang mở.
+- Worker local và worker Vite phục vụ khớp SHA256.
+
+Một lần frontend có 80/81 PASS; test lỗi chạy riêng PASS,
+lần chạy toàn bộ tiếp theo 81/81 PASS. Chưa xác định nguyên nhân.
+
+Đăng ký lần đầu cần thao tác chủ động của người dùng.
+Sau đăng ký thành công trong phiên, focus/visible đồng bộ token.
+Không coi các kết quả trên là nghiệm thu Analysis event-to-notification,
+production TLS/RBAC, token rotation thật hoặc toàn bộ FR/NFR.
+
+- [Notification contract](../api/notification_service_contract_v0.1.md).
+- [Bằng chứng kiểm thử](../testing/m2_m5_notification_verification_2026-10-11.md).

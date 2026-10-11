@@ -116,8 +116,10 @@ Các nhóm test:
 | `src/mocks/handlers.test.ts` | 10 |
 | `src/components/AnalysisDemoPanel.test.tsx` | 12 |
 | `src/components/FcmDemoPanel.test.tsx` | 7 |
-| `src/components/NotificationSettings.test.tsx` | 10 |
-| Tổng | 46 |
+| `src/components/NotificationSettings.test.tsx` | 30 |
+| `src/components/NotificationPushTestPanel.test.tsx` | 9 |
+| `src/firebase/tokenLifecycle.test.ts` | 6 |
+| Tổng | 81 |
 
 Test UI bao gồm các kịch bản Analysis, timeout và việc ẩn panel khi mock tắt.
 
@@ -155,7 +157,7 @@ Ngày kiểm tra: 2026-10-11.
 
 Kiểm tra MIME ở frontend chưa xác minh nội dung ảnh, ảnh đáy mắt
 hoặc chất lượng ảnh thật. Demo chưa gửi tệp lên backend.
-## Kiểm tra bổ sung SCRUM-296
+## Kiểm tra bổ sung SCRUM-296 — mốc MSW trước tích hợp push thật
 
 Ngày kiểm tra: 2026-10-11.
 
@@ -177,9 +179,9 @@ Ngày kiểm tra: 2026-10-11.
 - `@grpc/grpc-js` được cố định bằng override ở phiên bản `1.14.6`.
   Kết quả `npm audit`: 0 vulnerabilities.
 
-Kết quả trên xác nhận demo và hành vi UI local.
-Chưa xác nhận lấy FCM token thật, đăng ký token với backend,
-nhận push foreground/background thật hoặc thu hồi token khi đăng xuất.
+Kết quả trên là snapshot lịch sử của demo MSW và UI local.
+Kết quả tích hợp Firebase/Notification mới được ghi trong mục
+"Cập nhật Notification sau đợt sửa M2–M5" bên dưới.
 ## Giới hạn hiện tại
 
 - Demo Analysis sử dụng dữ liệu giả lập và không tải ảnh thật lên backend.
@@ -194,3 +196,49 @@ nhận push foreground/background thật hoặc thu hồi token khi đăng xuấ
 - Kết quả minh họa không dùng để chẩn đoán y khoa.
 - Kiểm thử thông báo FCM thuộc phạm vi riêng, chưa được xác nhận
   bằng bộ test Analysis này.
+
+## Cập nhật Notification sau đợt sửa M2–M5
+
+Ngày thực thi: 2026-10-11.
+HEAD b2b3dde cùng working tree có các thay đổi chưa commit;
+không coi HEAD là phiên bản chứa toàn bộ bản sửa.
+
+- Frontend lần chạy cuối: 81/81 tests PASS trên 7 file.
+- NotificationSettings: 30; NotificationPushTestPanel: 9;
+  tokenLifecycle: 6; App: 7; handlers: 10;
+  FcmDemoPanel: 7; AnalysisDemoPanel: 12.
+- Lint: 0 warnings/errors; TypeScript và Vite build PASS.
+- Notification API Debug build PASS.
+- CryptoChecks: 12/12 PASS.
+- PostgreSQL checks PASS, gồm xóa có điều kiện và giữ token mới.
+- Browser xác nhận đăng ký/đồng bộ và foreground receipt.
+- Người thao tác xác nhận background hiển thị và click focus tab AURA đang mở.
+- Worker local và worker Vite phục vụ khớp SHA256.
+
+Một lần frontend có 80/81 PASS; test lỗi chạy riêng PASS,
+lần chạy toàn bộ tiếp theo 81/81 PASS. Chưa xác định nguyên nhân.
+
+Đăng ký lần đầu cần thao tác chủ động của người dùng.
+Sau đăng ký thành công trong phiên, focus/visible đồng bộ token.
+Không coi các kết quả trên là nghiệm thu Analysis event-to-notification,
+production TLS/RBAC, token rotation thật hoặc toàn bộ FR/NFR.
+
+- [Notification contract](../../../docs/api/notification_service_contract_v0.1.md).
+- [Bằng chứng kiểm thử](../../../docs/testing/m2_m5_notification_verification_2026-10-11.md).
+
+## Kiểm chứng bổ sung ngày 2026-10-12
+
+Nguồn: log PowerShell người thao tác cung cấp.
+Nhánh fix/sprint1-m2-m5-completion; thay đổi chưa commit.
+
+- Frontend: 7 file test, 82/82 test PASS.
+- tokenLifecycle: 7 test; NotificationSettings: 30 test.
+- Lint: 0 lỗi và 0 cảnh báo.
+- TypeScript và Vite production build: PASS.
+- Bổ sung kiểm tra phiên sau khi backend đăng ký hoàn tất.
+  Nếu phiên đã đổi, lifecycle trả cancelled thay vì ready.
+- Loại bỏ dòng gán operationInFlight bị lặp.
+
+Kết quả 81 test trước đó là bằng chứng của lần chạy trước.
+Kết quả mới không thay thế kiểm thử FCM thật, phân quyền
+backend, usability/accessibility hoặc nghiệm thu NFR.

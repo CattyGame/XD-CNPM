@@ -1,10 +1,10 @@
 import NotificationPushTestPanel from './NotificationPushTestPanel'
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { User } from 'firebase/auth'
 import { isMockEnabled } from '../api/client'
 import {
   NotificationDeviceError,
-  registerNotificationDevice,
+
   unregisterNotificationDevice,
 } from '../api/notificationDevices'
 import {
@@ -17,8 +17,8 @@ import {
   requestNotificationPermission,
   type NotificationResult,
 } from '../firebase/notificationPermission'
-import { obtainFcmToken } from '../firebase/messaging'
-import { clearFcmOnLogout } from '../firebase/tokenLifecycle'
+
+import { clearFcmOnLogout, refreshFcmToken } from '../firebase/tokenLifecycle'
 
 function permissionGuidance(permission: NotificationResult) {
   switch (permission) {
@@ -69,31 +69,117 @@ export default function NotificationSettings() {
   const [loading, setLoading] = useState(false)
   const [hasError, setHasError] = useState(false)
 
+  const [syncEnabled, setSyncEnabled] = useState(false)
+  const operationInFlight = useRef(false)
+  const pushInFlight = useRef(false)
+  const sessionUid = useRef<string | null>(null)
+
+  const handlePushBusyChange = useCallback((busy: boolean) => {
+    pushInFlight.current = busy
+    setLoading(operationInFlight.current || busy)
+  }, [])
+
   const secureContext = window.isSecureContext === true
 
   useEffect(() => {
-    return observeNotificationUser(setUser)
+    return observeNotificationUser((nextUser) => {
+      const nextUid = nextUser?.uid ?? null
+
+      if (sessionUid.current !== nextUid) {
+        setSyncEnabled(false)
+      }
+
+      sessionUid.current = nextUid
+      setUser(nextUser)
+    })
   }, [])
 
   useEffect(() => {
-    function refreshPermission() {
-      setPermission(getNotificationPermission())
+    let active = true
+
+    async function refreshPermission() {
+      const nextPermission = getNotificationPermission()
+      setPermission(nextPermission)
+
+      if (nextPermission !== 'granted') {
+        setSyncEnabled(false)
+        return
+      }
+
+      if (
+        !syncEnabled ||
+        !user ||
+        isMockEnabled ||
+        !secureContext ||
+        operationInFlight.current ||
+        pushInFlight.current
+      ) {
+        return
+      }
+
+      operationInFlight.current = true
+      setLoading(true)
+
+      try {
+        const result = await refreshFcmToken(
+          () =>
+            active &&
+            sessionUid.current === user.uid &&
+            getNotificationPermission() === 'granted',
+        )
+
+        if (!active || result.status === 'cancelled') {
+          return
+        }
+
+        if (result.status === 'ready') {
+          setHasError(false)
+          setMessage('Đã đồng bộ đăng ký thông báo với backend.')
+        } else {
+          setHasError(true)
+          setMessage(
+            'Chưa đồng bộ được thông báo. Kiểm tra quyền, cấu hình và kết nối rồi thử lại.',
+          )
+        }
+      } catch (error) {
+        if (active) {
+          setHasError(true)
+          setMessage(deviceErrorMessage(error))
+        }
+      } finally {
+        operationInFlight.current = false
+        setLoading(pushInFlight.current)
+      }
     }
 
-    window.addEventListener('focus', refreshPermission)
+    function handleFocus() {
+      void refreshPermission()
+    }
+
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') {
+        void refreshPermission()
+      }
+    }
+
+    window.addEventListener('focus', handleFocus)
+    document.addEventListener('visibilitychange', handleVisibility)
 
     return () => {
-      window.removeEventListener('focus', refreshPermission)
+      active = false
+      window.removeEventListener('focus', handleFocus)
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
-  }, [])
+  }, [user, syncEnabled, secureContext])
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    if (loading || isMockEnabled) {
+    if (operationInFlight.current || pushInFlight.current || loading || isMockEnabled) {
       return
     }
 
+    operationInFlight.current = true
     setLoading(true)
     setMessage('')
     setHasError(false)
@@ -101,6 +187,8 @@ export default function NotificationSettings() {
     try {
       const signedInUser = await loginForNotifications(email, password)
 
+      sessionUid.current = signedInUser.uid
+      setSyncEnabled(false)
       setUser(signedInUser)
       setMessage('Đăng nhập Firebase thành công. Có thể bật thông báo.')
     } catch {
@@ -110,12 +198,15 @@ export default function NotificationSettings() {
       )
     } finally {
       setPassword('')
-      setLoading(false)
+      operationInFlight.current = false
+      setLoading(pushInFlight.current)
     }
   }
 
   async function handleEnableNotification() {
     if (
+      operationInFlight.current ||
+      pushInFlight.current ||
       loading ||
       !user ||
       isMockEnabled ||
@@ -126,6 +217,7 @@ export default function NotificationSettings() {
       return
     }
 
+    operationInFlight.current = true
     setLoading(true)
     setMessage('')
     setHasError(false)
@@ -139,7 +231,13 @@ export default function NotificationSettings() {
         return
       }
 
-      const result = await obtainFcmToken()
+      const result = await refreshFcmToken(
+        () => sessionUid.current === user.uid,
+      )
+
+      if (result.status === 'cancelled') {
+        return
+      }
 
       if (result.status !== 'ready') {
         setHasError(true)
@@ -168,7 +266,9 @@ export default function NotificationSettings() {
         return
       }
 
-      await registerNotificationDevice(result.token)
+
+
+      setSyncEnabled(true)
 
       setMessage(
         'Đã đăng ký thiết bị với backend. Chưa kiểm chứng gửi và nhận push thật.',
@@ -177,21 +277,24 @@ export default function NotificationSettings() {
       setHasError(true)
       setMessage(deviceErrorMessage(error))
     } finally {
-      setLoading(false)
+      operationInFlight.current = false
+      setLoading(pushInFlight.current)
     }
   }
 
   async function handleLogout() {
-    if (loading || !user || isMockEnabled) {
+    if (operationInFlight.current || pushInFlight.current || loading || !user || isMockEnabled) {
       return
     }
 
+    operationInFlight.current = true
     setLoading(true)
     setMessage('')
     setHasError(false)
 
     try {
       await unregisterNotificationDevice()
+      setSyncEnabled(false)
 
       const result = await clearFcmOnLogout()
 
@@ -205,6 +308,7 @@ export default function NotificationSettings() {
 
       await logoutFirebaseNotificationSession()
 
+      sessionUid.current = null
       setUser(null)
       setPassword('')
       setMessage('Đã hủy liên kết thiết bị và đăng xuất.')
@@ -214,7 +318,8 @@ export default function NotificationSettings() {
         'Chưa hoàn tất hủy liên kết thiết bị. Phiên đăng nhập được giữ để bạn thử lại.',
       )
     } finally {
-      setLoading(false)
+      operationInFlight.current = false
+      setLoading(pushInFlight.current)
     }
   }
 
@@ -307,7 +412,7 @@ export default function NotificationSettings() {
         )}
       </p>
 
-      <NotificationPushTestPanel userId={user?.uid ?? null} parentBusy={loading} onBusyChange={setLoading} />
+      <NotificationPushTestPanel userId={user?.uid ?? null} parentBusy={loading} onBusyChange={handlePushBusyChange} />
 
       <p className="section-description">
         Phiên Firebase phục vụ kiểm thử thông báo, chưa cấp quyền nghiệp vụ

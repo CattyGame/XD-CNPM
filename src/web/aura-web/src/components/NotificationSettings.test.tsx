@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -55,9 +56,16 @@ vi.mock('../firebase/messaging', () => ({
   obtainFcmToken: mocks.obtainToken,
 }))
 
-vi.mock('../firebase/tokenLifecycle', () => ({
-  clearFcmOnLogout: mocks.clearFcm,
-}))
+vi.mock('../firebase/tokenLifecycle', async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import('../firebase/tokenLifecycle')
+  >()
+
+  return {
+    ...actual,
+    clearFcmOnLogout: mocks.clearFcm,
+  }
+})
 
 vi.mock('../api/notificationDevices', async (importOriginal) => {
   const actual = await importOriginal<
@@ -104,6 +112,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.restoreAllMocks()
   cleanup()
   vi.unstubAllGlobals()
 })
@@ -492,3 +501,192 @@ describe('Đăng nhập và đăng ký thông báo', () => {
   })
 })
 vi.mock('./NotificationPushTestPanel', () => ({ default: () => null }))
+
+describe('Đồng bộ tự động khi quay lại tab', () => {
+  async function enableForSync() {
+    mocks.getPermission.mockReturnValue('granted')
+    renderSignedIn()
+    enableNotifications()
+    await screen.findByText(/Đã đăng ký thiết bị với backend/)
+  }
+
+  it('focus lấy và đăng ký token mới sau khi đã bật thông báo', async () => {
+    await enableForSync()
+
+    mocks.obtainToken.mockResolvedValue({
+      status: 'ready',
+      token: 'synthetic-refreshed-token',
+    })
+
+    fireEvent(window, new Event('focus'))
+
+    await screen.findByText(
+      'Đã đồng bộ đăng ký thông báo với backend.',
+    )
+
+    expect(mocks.register).toHaveBeenCalledTimes(2)
+    expect(mocks.register).toHaveBeenLastCalledWith(
+      'synthetic-refreshed-token',
+    )
+    expect(mocks.requestPermission).toHaveBeenCalledTimes(1)
+  })
+
+  it('tab ẩn không đồng bộ, tab hiện lại thì đồng bộ', async () => {
+    await enableForSync()
+
+    const visibility = vi.spyOn(document, 'visibilityState', 'get')
+    visibility.mockReturnValue('hidden')
+
+    fireEvent(document, new Event('visibilitychange'))
+
+    expect(mocks.obtainToken).toHaveBeenCalledTimes(1)
+
+    visibility.mockReturnValue('visible')
+    fireEvent(document, new Event('visibilitychange'))
+
+    await screen.findByText(
+      'Đã đồng bộ đăng ký thông báo với backend.',
+    )
+
+    expect(mocks.obtainToken).toHaveBeenCalledTimes(2)
+  })
+
+  it('focus và visibility không tạo yêu cầu chồng nhau', async () => {
+    await enableForSync()
+
+    let finishToken!: (result: {
+      status: 'ready'
+      token: string
+    }) => void
+
+    mocks.obtainToken.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        finishToken = resolve
+      }),
+    )
+
+    vi.spyOn(document, 'visibilityState', 'get')
+      .mockReturnValue('visible')
+
+    fireEvent(window, new Event('focus'))
+    fireEvent(document, new Event('visibilitychange'))
+    fireEvent(window, new Event('focus'))
+
+    expect(mocks.obtainToken).toHaveBeenCalledTimes(2)
+
+    await act(async () => {
+      finishToken({
+        status: 'ready',
+        token: 'synthetic-coalesced-token',
+      })
+    })
+
+    await screen.findByText(
+      'Đã đồng bộ đăng ký thông báo với backend.',
+    )
+
+    expect(mocks.register).toHaveBeenCalledTimes(2)
+  })
+
+  it('đang đồng bộ khóa đăng xuất và sau đăng xuất không đồng bộ nữa', async () => {
+    await enableForSync()
+
+    let finishToken!: (result: {
+      status: 'ready'
+      token: string
+    }) => void
+
+    mocks.obtainToken.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        finishToken = resolve
+      }),
+    )
+
+    fireEvent(window, new Event('focus'))
+
+    const logoutButton = screen.getByRole('button', {
+      name: 'Đăng xuất',
+    })
+
+    expect(logoutButton).toHaveProperty('disabled', true)
+    fireEvent.click(logoutButton)
+    expect(mocks.unregister).not.toHaveBeenCalled()
+
+    await act(async () => {
+      finishToken({
+        status: 'ready',
+        token: 'synthetic-before-logout-token',
+      })
+    })
+
+    await screen.findByText(
+      'Đã đồng bộ đăng ký thông báo với backend.',
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Đăng xuất' }),
+    )
+
+    await screen.findByText(
+      'Đã hủy liên kết thiết bị và đăng xuất.',
+    )
+
+    fireEvent(window, new Event('focus'))
+
+    expect(mocks.obtainToken).toHaveBeenCalledTimes(2)
+    expect(mocks.unregister).toHaveBeenCalledTimes(1)
+    expect(mocks.logout).toHaveBeenCalledTimes(1)
+  })
+
+  it('backend lỗi thì cho phép đồng bộ lại lần focus sau', async () => {
+    await enableForSync()
+
+    mocks.register.mockRejectedValueOnce(
+      new NotificationDeviceError(503, 'ERR_STORAGE_UNAVAILABLE'),
+    )
+
+    fireEvent(window, new Event('focus'))
+    await screen.findByRole('alert')
+
+    fireEvent(window, new Event('focus'))
+
+    await screen.findByText(
+      'Đã đồng bộ đăng ký thông báo với backend.',
+    )
+
+    expect(mocks.register).toHaveBeenCalledTimes(3)
+  })
+
+  it('phiên đổi lúc lấy token thì không đăng ký token vào backend', async () => {
+    await enableForSync()
+
+    let finishToken!: (result: {
+      status: 'ready'
+      token: string
+    }) => void
+
+    mocks.obtainToken.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        finishToken = resolve
+      }),
+    )
+
+    fireEvent(window, new Event('focus'))
+
+    act(() => {
+      mocks.observeUser.mock.calls[0][0](null)
+    })
+
+    await act(async () => {
+      finishToken({
+        status: 'ready',
+        token: 'synthetic-cancelled-token',
+      })
+    })
+
+    expect(mocks.register).toHaveBeenCalledTimes(1)
+    expect(
+      screen.getByRole('button', { name: 'Đăng nhập thông báo' }),
+    ).toBeTruthy()
+  })
+})

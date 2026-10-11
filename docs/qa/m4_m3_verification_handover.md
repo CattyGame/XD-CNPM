@@ -23,7 +23,7 @@ Các sửa đổi sau PR #22 được kiểm tra trên nhánh
 
 Commit nguồn PR #22 là mốc tham chiếu lịch sử; kết quả bổ sung
 ngày 2026-10-10 áp dụng cho phiên bản local nêu trên.
-Chưa xác nhận các sửa đổi này đã push hoặc merge vào develop.
+Đã xác nhận commit nguồn 131d640 và commit merge PR #23 (3ea5ad9) nằm trong lịch sử HEAD b2b3dde ngày 2026-10-11. Điều này xác nhận tích hợp mã, không thay thế kết quả kiểm thử hoặc ký duyệt.
 
 Không coi PR đã merge, tài liệu đã lưu hoặc dry-run thành công
 là bằng chứng toàn bộ tính năng đã được kiểm thử.
@@ -275,3 +275,29 @@ Trạng thái xác nhận:
 - M1: chờ review phạm vi và quyết định nghiệm thu.
 
 Tài liệu này không ghi nhận chữ ký hoặc phê duyệt thay cho các thành viên.
+
+## Cập nhật kiểm chứng M2/M4 ngày 2026-10-11
+
+Nguồn: log PowerShell người thao tác cung cấp.
+Nhánh fix/sprint1-m2-m5-completion, HEAD b2b3dde,
+working tree có thay đổi chưa commit; chưa sửa mã AI/Analysis contract.
+
+- Commit nguồn 131d640 và merge PR #23 (3ea5ad9) là ancestor của HEAD.
+- AI OpenAPI YAML/JSON: đồng bộ.
+- AI mock: 29/29 tests PASS; 7 cảnh báo deprecation.
+- Public Analysis OpenAPI: 0.6.0 PASS.
+- Examples: REST 20, event 4, job 1.
+- Embedded example checks: 54 PASS.
+- Negative checks: PASS.
+- LF-normalized SHA256: 31 PASS.
+
+Validator có cảnh báo jsonschema.RefResolver deprecated.
+Chưa xử lý dependency/deprecation trong đợt sửa này.
+
+Các kết quả trên chỉ xác nhận contract và AI mock.
+Không xác nhận Analysis backend, phân quyền, Worker–AI,
+NiFi gửi Gateway, camera thật hoặc NFR toàn hệ thống.
+Không ghi nhận ký duyệt M1/M3 nếu chưa có xác nhận thực tế.
+
+Bằng chứng chi tiết:
+[m2_m4_alignment_verification_2026-10-11.md](m2_m4_alignment_verification_2026-10-11.md).

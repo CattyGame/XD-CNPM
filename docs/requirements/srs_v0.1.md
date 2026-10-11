@@ -1,27 +1,3 @@
-# AURA — Software Requirements Specification
-
-## 1. Thông tin tài liệu
-
-| Thuộc tính | Nội dung |
-| --- | --- |
-| Tên tiếng Anh | System for Retinal Vascular Health Screening |
-| Tên tiếng Việt | Hệ Thống Sàng Lọc Sức Khỏe Mạch Máu Võng Mạc |
-| Mã đề tài | SP26SE025 |
-| Tên hệ thống | AURA |
-| Phiên bản tài liệu | 0.1 |
-| Ngày biên soạn | 2026-10-11 |
-| Người biên soạn | Nguyễn Trương Hậu |
-| Phân công tiếp nhận | Công việc tuần 1 của M3 |
-| Task Jira | SCRUM-54 |
-| Trạng thái |
-
-**Bước tiếp theo — Điền nội dung SRS cho SCRUM-54**
-
-Mở `docs/requirements/srs_v0.1.md`, thay toàn bộ nội dung bằng bản dưới đây và nhấn **Ctrl + S**.
-
-Bản này mô tả **yêu cầu toàn dự án**, đồng thời phân biệt rõ phần đã kiểm chứng trong tuần 1 với chức năng còn phải triển khai.
-
-```markdown
 # AURA — Software Requirements Specification v0.1
 
 ## 1. Thông tin tài liệu
@@ -39,7 +15,7 @@ Bản này mô tả **yêu cầu toàn dự án**, đồng thời phân biệt r
 | Trạng thái | Dự thảo — chờ review |
 | Reviewer đề xuất | M2: nghiệp vụ; M4: AI; M5: giao diện |
 | Tài liệu đi kèm | requirements_traceability_matrix_v0.1.md |
-| Snapshot tham chiếu mã nguồn | develop tại 3ca294d |
+| Snapshot tham chiếu mã nguồn | develop tại b2b3dde; mốc trước đợt sửa M2–M5 |
 
 Tài liệu này xác định yêu cầu sản phẩm, không xác nhận toàn bộ
 yêu cầu đã được triển khai hoặc nghiệm thu.
@@ -366,6 +342,22 @@ PR #24 và các bình luận Jira ngày 2026-10-11 ghi nhận frontend
 Các kết quả này chỉ xác nhận phạm vi kiểm thử tương ứng,
 không xác nhận toàn bộ FR/NFR đã đạt.
 
+Mốc frontend trước khi sửa lifecycle ngày 2026-10-11 trên máy Windows:
+HEAD b2b3dde, nhánh fix/sprint1-m2-m5-completion,
+working tree đang sửa SRS/RTM; chưa sửa mã frontend.
+
+- Node.js v24.21.0; npm 11.19.0.
+- npm ci thành công.
+- Lint: 0 lỗi, 0 cảnh báo.
+- Vitest: 6 file test, 69/69 tests PASS.
+- TypeScript và Vite production build PASS.
+- npm audit --omit=dev: 0 vulnerabilities.
+
+Nguồn: log PowerShell người thao tác cung cấp.
+Phạm vi: frontend unit/component/MSW và build ứng dụng.
+Không xác nhận push thật, Firebase background/click,
+lifecycle token hoặc luồng Analysis toàn hệ thống.
+
 ### 9.2. Những phần chưa được nghiệm thu toàn luồng
 
 - Identity, token validation và RBAC trên API nghiệp vụ thật.
@@ -374,7 +366,7 @@ không xác nhận toàn bộ FR/NFR đã đạt.
 - Analysis database, outbox, queue và Worker.
 - Credit ledger và payment.
 - Doctor review, report PDF/CSV và chat.
-- FCM token binding, foreground/background push và revoke.
+- Analysis event-to-notification, token rotation thật và các kiểm chứng Notification còn lại; device/push PoC local có bằng chứng bổ sung bên dưới.
 - NiFi gửi qua Gateway đến persisted Analysis.
 - Batch tối thiểu 100 ảnh.
 - Hiệu năng, uptime, backup và security toàn hệ thống.
@@ -382,6 +374,35 @@ không xác nhận toàn bộ FR/NFR đã đạt.
 
 Không đưa các phần trên thành PASS trong RTM khi chưa có test
 và evidence phù hợp.
+
+### 9.3. Cập nhật kiểm chứng Notification trong đợt sửa M2–M5
+
+Ngày thực thi: 2026-10-11.
+Bản sửa nằm trong working tree của nhánh fix/sprint1-m2-m5-completion,
+HEAD b2b3dde; chưa commit.
+
+| Kiểm tra | Kết quả và phạm vi |
+| --- | --- |
+| Notification API | Debug build PASS |
+| TokenCipher | 12/12 PASS |
+| PostgreSQL | Registration/update/fingerprint/cleanup PASS; xóa có điều kiện giữ token mới và kiểm scope project/UID/device |
+| Frontend | Lần chạy cuối 81/81 PASS trên 7 file; lint 0 warnings/errors; TypeScript/Vite build PASS |
+| Browser registration/sync | Có ảnh giao diện xác nhận thành công |
+| Foreground FCM | Có ảnh receipt với mã gửi/nhận khớp |
+| Background FCM | PASS theo quan sát người thao tác |
+| Click notification | PASS theo quan sát người thao tác; focus tab AURA đang mở |
+| Worker | File local và nội dung Vite phục vụ có cùng SHA256 |
+
+Một lần frontend có 80/81 PASS; test lỗi chạy riêng PASS,
+lần chạy toàn bộ tiếp theo 81/81 PASS. Chưa xác định nguyên nhân.
+
+Token rotation được kiểm thử bằng mock.
+Repository cleanup được kiểm thử với PostgreSQL;
+chưa ép FCM thật trả Unregistered hoặc fault-inject endpoint.
+Chưa kiểm tra click mở cửa sổ mới khi AURA không còn mở.
+Chưa nghiệm thu Analysis event-to-notification hoặc NFR production.
+- [Notification contract](../api/notification_service_contract_v0.1.md).
+- [Bằng chứng kiểm thử](../testing/m2_m5_notification_verification_2026-10-11.md).
 
 ## 10. Các quyết định còn cần chốt
 
@@ -486,3 +507,20 @@ Chưa ghi nhận review hoặc nghiệm thu khi chưa có bằng chứng.
 | Phiên bản | Ngày | Người biên soạn | Nội dung |
 | --- | --- | --- | --- |
 | 0.1 | 2026-10-11 | Nguyễn Trương Hậu | Dự thảo SRS từ đề tài, baseline contract và tài liệu tuần 1; chờ review. |
+
+## Kiểm chứng bổ sung ngày 2026-10-12
+
+Nguồn: log PowerShell người thao tác cung cấp.
+Nhánh fix/sprint1-m2-m5-completion; thay đổi chưa commit.
+
+- Frontend: 7 file test, 82/82 test PASS.
+- tokenLifecycle: 7 test; NotificationSettings: 30 test.
+- Lint: 0 lỗi và 0 cảnh báo.
+- TypeScript và Vite production build: PASS.
+- Bổ sung kiểm tra phiên sau khi backend đăng ký hoàn tất.
+  Nếu phiên đã đổi, lifecycle trả cancelled thay vì ready.
+- Loại bỏ dòng gán operationInFlight bị lặp.
+
+Kết quả 81 test trước đó là bằng chứng của lần chạy trước.
+Kết quả mới không thay thế kiểm thử FCM thật, phân quyền
+backend, usability/accessibility hoặc nghiệm thu NFR.

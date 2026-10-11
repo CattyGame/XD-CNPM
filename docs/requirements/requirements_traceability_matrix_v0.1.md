@@ -10,7 +10,7 @@
 | Ngày biên soạn | 2026-10-11 |
 | Phiên bản | 0.1 |
 | SRS tham chiếu | srs_v0.1.md |
-| Snapshot mã nguồn tham chiếu | develop tại 3ca294d |
+| Snapshot mã nguồn tham chiếu | develop tại b2b3dde; mốc trước đợt sửa M2–M5 |
 | Trạng thái | Dự thảo — chờ review |
 | Reviewer đề xuất | M2: nghiệp vụ; M4: AI; M5: UI |
 
@@ -57,11 +57,11 @@ chưa có bằng chứng nghiệm thu đầy đủ.
 | REF-16 | NiFi runbook và camera ingestion PoC; SCRUM-63/290. |
 | REF-17 | Review AI và kế hoạch rủi ro; SCRUM-291. |
 | REF-18 | Frontend README, PR #24 và bình luận SCRUM-294/295/296/298 ngày 2026-10-11. |
-| REF-19 | Firebase bàn giao và checklist; SCRUM-286/296. |
+| REF-19 | docs/api/notification_service_contract_v0.1.md; docs/testing/m2_m5_notification_verification_2026-10-11.md; SCRUM-286/296. |
 | REF-20 | Compose, Gateway, CI và Redis PoC; SCRUM-46/47/48/276/277. |
-| REF-21 | Tài liệu cần hoàn thiện: Clinic, Admin, Profile/Billing/Notification và test plan; SCRUM-55/56/57/58. |
+| REF-21 | docs/requirements/clinic_campaign_use_cases_v0.1.md; docs/requirements/admin_configuration_use_cases_v0.1.md; docs/requirements/profile_billing_notification_design_v0.1.md; docs/testing/m3_test_plan_and_measurements_v0.1.md; SCRUM-55/56/57/58. |
 
-REF-21 là phạm vi task cần bàn giao.
+REF-21 trỏ đến các tài liệu đã có trong repository tại snapshot tham chiếu; test plan SCRUM-58 được tích hợp qua PR #26.
 Không được ghi là tài liệu đã được review hoàn chỉnh.
 
 ## 4. Functional Requirements
@@ -78,7 +78,7 @@ Không được ghi là tài liệu đã được review hoàn chỉnh.
 | FR-6 | Lịch sử phân tích cá nhân | REF-04, REF-08, REF-12 | SCRUM-50, SCRUM-66, SCRUM-280 | TC-FR-06: history, pagination, empty state và quyền sở hữu | DESIGN — chưa có API/database history thật được nghiệm thu. |
 | FR-7 | Báo cáo PDF/CSV | REF-04, REF-08 | SCRUM-50, SCRUM-280 | TC-FR-07: nội dung report, định dạng, version và download authorization | DESIGN — chưa có export/report hoàn chỉnh. |
 | FR-8 | Hồ sơ cá nhân/y tế | REF-04, REF-12, REF-21 | SCRUM-50, SCRUM-57, SCRUM-66 | TC-FR-08: xem/sửa own profile, validation, cấm sửa role/tenant | DESIGN — Profile backend và persistence chưa nghiệm thu. |
-| FR-9 | Thông báo kết quả sẵn sàng | REF-19, REF-18, REF-21 | SCRUM-57, SCRUM-286, SCRUM-296 | TC-FR-09: event-to-notification, permission, token binding và nhận push thật | PARTIAL — notification UI/MSW scaffold có test; token/backend/push thật chưa nghiệm thu. |
+| FR-9 | Thông báo kết quả sẵn sàng | REF-19, REF-18, REF-21 | SCRUM-57, SCRUM-286, SCRUM-296 | TC-FR-09: event-to-notification, permission, token binding và nhận push thật | PARTIAL — device API, crypto/database checks, lifecycle frontend và foreground/background/click PoC local có bằng chứng; Analysis event-to-notification chưa nghiệm thu. |
 | FR-10 | Nhắn tin bác sĩ được phân công | REF-04, REF-05, REF-21 | SCRUM-50, SCRUM-51, SCRUM-57 | TC-FR-10: gửi/nhận đúng quan hệ, unauthorized, revoke assignment | DESIGN — chat backend và delivery chưa nghiệm thu. |
 | FR-11 | Mua/gia hạn gói | REF-04, REF-06, REF-21 | SCRUM-50, SCRUM-52, SCRUM-57 | TC-FR-11: purchase/renew, payment failure, duplicate callback | PARTIAL — Billing package catalog PoC; chưa có giao dịch mua/gia hạn thật. |
 | FR-12 | Payment history và credit | REF-04, REF-06, REF-21 | SCRUM-50, SCRUM-52, SCRUM-57 | TC-FR-12: lịch sử, số dư, reserve/capture/release và retry không trừ hai lần | DESIGN — credit ledger/payment history chưa nghiệm thu. |
@@ -228,6 +228,33 @@ và các kiểm tra tương ứng.
 Không chứng minh backend upload, Analysis API thật,
 RBAC hoặc FCM push thật.
 
+### 7.3.1. Mốc frontend trước khi sửa lifecycle ngày 2026-10-11
+
+Nguồn: log PowerShell người thao tác cung cấp.
+Môi trường Windows, Node.js v24.21.0, npm 11.19.0.
+HEAD b2b3dde, nhánh fix/sprint1-m2-m5-completion;
+working tree đang sửa SRS/RTM, chưa sửa mã frontend.
+
+| Bộ test | Số test PASS |
+| --- | ---: |
+| App | 7 |
+| MSW handlers | 10 |
+| AnalysisDemoPanel | 12 |
+| FcmDemoPanel | 7 |
+| NotificationSettings | 24 |
+| NotificationPushTestPanel | 9 |
+| Tổng | 69 |
+
+npm ci thành công; lint 0 lỗi/0 cảnh báo;
+TypeScript và Vite production build PASS;
+npm audit --omit=dev ghi nhận 0 vulnerabilities.
+
+Đây là kết quả unit/component/MSW trên máy local.
+Tên bộ test NotificationPushTestPanel không thay thế
+bằng chứng nhận FCM thật trên trình duyệt.
+Background/click, lifecycle token và toàn luồng
+event-to-notification vẫn cần kiểm chứng riêng.
+
 ### 7.4. Hạ tầng
 
 SCRUM-277 ghi nhận chạy Compose trên Ubuntu mới,
@@ -237,21 +264,58 @@ Phạm vi: stack và PoC ở môi trường được ghi nhận.
 Không thay thế production uptime, backup/restore,
 security hoặc performance toàn hệ thống.
 
-## 8. Các khoảng trống cần xử lý
+### 7.5. Cập nhật kiểm chứng Notification trong đợt sửa M2–M5
 
-| Khoảng trống | Task liên quan |
+Ngày thực thi: 2026-10-11.
+Bản sửa nằm trong working tree của nhánh fix/sprint1-m2-m5-completion,
+HEAD b2b3dde; chưa commit.
+
+| Kiểm tra | Kết quả và phạm vi |
 | --- | --- |
-| Clinic/campaign use cases và quy tắc nghiệp vụ | SCRUM-55 |
-| Admin/configuration workflows và audit | SCRUM-56 |
-| Profile/Billing/Notification design | SCRUM-57 |
-| Test plan, test cases và phép đo NFR | SCRUM-58 |
-| Firebase config, authenticated token API và privacy | SCRUM-286 |
-| Đối chiếu kỹ thuật và kiểm chứng bổ sung | SCRUM-289 |
-| Checklist nghiệm thu tuần 1 và bằng chứng review | SCRUM-287 |
+| Notification API | Debug build PASS |
+| TokenCipher | 12/12 PASS |
+| PostgreSQL | Registration/update/fingerprint/cleanup PASS; xóa có điều kiện giữ token mới và kiểm scope project/UID/device |
+| Frontend | Lần chạy cuối 81/81 PASS trên 7 file; lint 0 warnings/errors; TypeScript/Vite build PASS |
+| Browser registration/sync | Có ảnh giao diện xác nhận thành công |
+| Foreground FCM | Có ảnh receipt với mã gửi/nhận khớp |
+| Background FCM | PASS theo quan sát người thao tác |
+| Click notification | PASS theo quan sát người thao tác; focus tab AURA đang mở |
+| Worker | File local và nội dung Vite phục vụ có cùng SHA256 |
 
-RTM phải được cập nhật khi các tài liệu trên được bàn giao.
+Một lần frontend có 80/81 PASS; test lỗi chạy riêng PASS,
+lần chạy toàn bộ tiếp theo 81/81 PASS. Chưa xác định nguyên nhân.
+
+Token rotation được kiểm thử bằng mock.
+Repository cleanup được kiểm thử với PostgreSQL;
+chưa ép FCM thật trả Unregistered hoặc fault-inject endpoint.
+Chưa kiểm tra click mở cửa sổ mới khi AURA không còn mở.
+Chưa nghiệm thu Analysis event-to-notification hoặc NFR production.
+- [Notification contract](../api/notification_service_contract_v0.1.md).
+- [Bằng chứng kiểm thử](../testing/m2_m5_notification_verification_2026-10-11.md).
+
+## 8. Các việc còn cần review và kiểm chứng
+
+Các tài liệu Clinic, Admin, Profile/Billing/Notification và
+test plan đã có trong repository tại snapshot b2b3dde.
+Sự tồn tại của tài liệu không chứng minh đã review hoặc
+triển khai đầy đủ yêu cầu sản phẩm.
+
+| Việc còn lại | Task liên quan |
+| --- | --- |
+| Review đặc tả Clinic/campaign và chốt các quyết định nghiệp vụ còn mở | SCRUM-55 |
+| Review đặc tả Admin/configuration, audit và rollback | SCRUM-56 |
+| Đồng bộ thiết kế Notification với device API, lifecycle token và phạm vi push thực tế | SCRUM-57, SCRUM-286, SCRUM-296 |
+| Review SRS/RTM và test plan; giữ rõ test dự kiến, test đã chạy và phép đo chưa thực hiện | SCRUM-54, SCRUM-58 |
+| Review contract và bằng chứng Notification; kiểm chứng bổ sung token rotation thật, endpoint FCM Unregistered và click mở cửa sổ mới khi cần theo phạm vi nghiệm thu | SCRUM-286, SCRUM-296 |
+| Đồng bộ bằng chứng kiểm chứng và giới hạn theo từng nhóm | SCRUM-284 (M2), SCRUM-293 (M4), SCRUM-298 (M5) |
+| Chỉnh bản xuất Patient, bổ sung nguồn Clinic/Admin và hoàn tất review usability/accessibility | SCRUM-65, SCRUM-66, SCRUM-68, SCRUM-69 |
+
+Kết quả frontend local 69/69 test PASS được ghi tại mục 7.3.1.
+Kết quả đó không đóng các khoảng trống Firebase thật,
+backend nghiệp vụ hoặc nghiệm thu NFR toàn hệ thống.
+
 Không chuyển trạng thái requirement thành VERIFIED
-chỉ vì task tài liệu chuyển Done.
+chỉ vì tài liệu đã tồn tại hoặc task Jira chuyển Done.
 
 ## 9. Quy trình cập nhật
 
@@ -301,3 +365,33 @@ Thay đổi phạm vi phải có quyết định được ghi nhận.
 | Phiên bản | Ngày | Người biên soạn | Nội dung |
 | --- | --- | --- | --- |
 | 0.1 | 2026-10-11 | Nguyễn Trương Hậu | Dự thảo RTM đủ 39 FR/23 NFR; phân biệt design, partial evidence và khoảng trống; chờ review. |
+
+## Kiểm chứng bổ sung ngày 2026-10-12
+
+Nguồn: log PowerShell người thao tác cung cấp.
+Nhánh fix/sprint1-m2-m5-completion; thay đổi chưa commit.
+
+- Frontend: 7 file test, 82/82 test PASS.
+- tokenLifecycle: 7 test; NotificationSettings: 30 test.
+- Lint: 0 lỗi và 0 cảnh báo.
+- TypeScript và Vite production build: PASS.
+- Bổ sung kiểm tra phiên sau khi backend đăng ký hoàn tất.
+  Nếu phiên đã đổi, lifecycle trả cancelled thay vì ready.
+- Loại bỏ dòng gán operationInFlight bị lặp.
+
+Kết quả 81 test trước đó là bằng chứng của lần chạy trước.
+Kết quả mới không thay thế kiểm thử FCM thật, phân quyền
+backend, usability/accessibility hoặc nghiệm thu NFR.
+
+## Bổ sung bàn giao wireframe M5 ngày 2026-10-12
+
+- [Danh mục PDF Patient và Clinic/Admin](../ux/wireframes/README.md).
+- [Checklist review M5](../qa/m5_wireframe_review_checklist.md).
+- Patient: bản xuất 9 trang đã khắc phục lỗi chia khung.
+  Tiêu đề Error States được giữ nguyên theo yêu cầu người thao tác.
+- Clinic/Admin: đã lưu PDF 8 trang; còn thiếu nguồn chỉnh sửa.
+- Checklist ghi rõ các mục chờ review và chưa xác minh.
+  Chưa có bằng chứng phê duyệt usability/accessibility.
+
+Việc bổ sung PDF không chuyển requirement thành VERIFIED
+và không xác nhận SCRUM-68/SCRUM-69 đã nghiệm thu đầy đủ.
