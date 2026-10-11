@@ -1,5 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
+import AnalysisDemoPanel from './components/AnalysisDemoPanel'
+import NotificationSettings from './components/NotificationSettings'
+import FcmDemoPanel from './components/FcmDemoPanel'
 
 type PingResponse = {
   service: string
@@ -7,14 +10,23 @@ type PingResponse = {
   timestamp: string
 }
 
+type RiskLevel = 'Thấp' | 'Trung bình' | 'Cao'
+
 type Patient = {
   id: string
   name: string
   clinic: string
   date: string
-  status: 'Hoàn thành' | 'Đang xử lý' | 'Cần xem xét'
-  risk: 'Thấp' | 'Trung bình' | 'Cao'
-}
+} & (
+  | {
+      status: 'Đang xử lý'
+      risk: null
+    }
+  | {
+      status: 'Hoàn thành' | 'Cần xem xét'
+      risk: RiskLevel | null
+    }
+)
 
 const initialPatients: Patient[] = [
   {
@@ -31,7 +43,7 @@ const initialPatients: Patient[] = [
     clinic: 'Phòng khám trung tâm',
     date: '09/10/2026',
     status: 'Đang xử lý',
-    risk: 'Trung bình',
+    risk: null,
   },
   {
     id: 'AUR-2026-003',
@@ -100,6 +112,109 @@ function App() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const uploadModalRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    if (!showUpload) return
+
+    const modal = uploadModalRef.current
+    if (!modal) return
+
+    const previousFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null
+
+    function getFocusableElements() {
+      if (!modal) return []
+
+      return Array.from(
+        modal.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), ' +
+            'select:not([disabled]), textarea:not([disabled]), ' +
+            'a[href], [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => {
+        const style = window.getComputedStyle(element)
+
+        return (
+          element.tabIndex >= 0 &&
+          !element.closest('[hidden], [inert]') &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden'
+        )
+      })
+    }
+
+    function focusFirstElement() {
+      const first = getFocusableElements()[0]
+      ;(first ?? modal)?.focus()
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        setShowUpload(false)
+        return
+      }
+
+      if (event.key !== 'Tab' || !modal) return
+
+      const elements = getFocusableElements()
+      const first = elements[0]
+      const last = elements[elements.length - 1]
+      const active = document.activeElement
+
+      if (!first || !last) {
+        event.preventDefault()
+        modal.focus()
+        return
+      }
+
+      if (
+        !modal.contains(active) ||
+        active === modal ||
+        !elements.some((element) => element === active)
+      ) {
+        event.preventDefault()
+        ;(event.shiftKey ? last : first).focus()
+        return
+      }
+
+      if (event.shiftKey && active === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    function handleFocusIn(event: FocusEvent) {
+      if (
+        modal &&
+        event.target instanceof Node &&
+        !modal.contains(event.target)
+      ) {
+        focusFirstElement()
+      }
+    }
+
+    focusFirstElement()
+
+    document.addEventListener('keydown', handleKeyDown, true)
+    document.addEventListener('focusin', handleFocusIn, true)
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, true)
+      document.removeEventListener('focusin', handleFocusIn, true)
+
+      if (previousFocus?.isConnected) {
+        previousFocus.focus()
+      }
+    }
+  }, [showUpload])
 
   const filteredPatients = useMemo(() => {
     const keyword = search.trim().toLowerCase()
@@ -146,6 +261,22 @@ function App() {
     setUploadMessage('')
   }
 
+  function handleFileSelection(file?: File) {
+    setUploadName('')
+    setUploadMessage('')
+
+    if (!file) return
+
+    const allowedTypes = ['image/jpeg', 'image/png']
+
+    if (!allowedTypes.includes(file.type)) {
+      setUploadMessage('Chỉ chấp nhận ảnh JPEG hoặc PNG. Hãy chọn ảnh khác.')
+      return
+    }
+
+    setUploadName(file.name)
+  }
+
   function handleUpload() {
     if (!uploadName) {
       setUploadMessage('Vui lòng chọn một tệp trước khi tiếp tục.')
@@ -181,18 +312,34 @@ function App() {
                 <td>{patient.date}</td>
                 <td>
                   <span
-                    className={`status status-${patient.status === 'Hoàn thành' ? 'done' : patient.status === 'Đang xử lý' ? 'processing' : 'review'}`}
+                    className={`status status-${
+                      patient.status === 'Hoàn thành'
+                        ? 'done'
+                        : patient.status === 'Đang xử lý'
+                          ? 'processing'
+                          : 'review'
+                    }`}
                   >
                     {patient.status}
                   </span>
                 </td>
                 <td>
-                  <span
-                    className={`risk risk-${patient.risk === 'Thấp' ? 'low' : patient.risk === 'Trung bình' ? 'medium' : 'high'}`}
-                  >
-                    <span className="risk-dot" />
-                    {patient.risk}
-                  </span>
+                  {patient.risk === null ? (
+                    <span>Chưa có kết quả nguy cơ</span>
+                  ) : (
+                    <span
+                      className={`risk risk-${
+                        patient.risk === 'Thấp'
+                          ? 'low'
+                          : patient.risk === 'Trung bình'
+                            ? 'medium'
+                            : 'high'
+                      }`}
+                    >
+                      <span className="risk-dot" />
+                      {patient.risk}
+                    </span>
+                  )}
                 </td>
                 <td>
                   <button
@@ -243,6 +390,7 @@ function App() {
             <strong>{patients.length.toLocaleString('vi-VN')}</strong>
             <span className="stat-note">Hồ sơ demo hiện có</span>
           </article>
+
           <article className="stat-card">
             <div className="stat-top">
               <span>Hoàn thành</span>
@@ -253,6 +401,7 @@ function App() {
             </strong>
             <span className="stat-note">Đã xử lý xong</span>
           </article>
+
           <article className="stat-card">
             <div className="stat-top">
               <span>Đang xử lý</span>
@@ -263,6 +412,7 @@ function App() {
             </strong>
             <span className="stat-note">Đang chờ kết quả</span>
           </article>
+
           <article className="stat-card">
             <div className="stat-top">
               <span>Cần xem xét</span>
@@ -300,10 +450,13 @@ function App() {
               </div>
               <span className="service-icon">⌁</span>
             </div>
+
             <div className="connection-line">
               <span className={`connection-dot ${result ? 'online' : ''}`} />
               <div>
-                <strong>{result ? 'Đã nhận phản hồi API' : 'Chưa kiểm tra'}</strong>
+                <strong>
+                  {result ? 'Đã nhận phản hồi API' : 'Chưa kiểm tra'}
+                </strong>
                 <p>
                   {result
                     ? result.service
@@ -311,12 +464,17 @@ function App() {
                 </p>
               </div>
             </div>
+
             {error && (
-  <p className="error-message" role="alert">
-    {error}
-  </p>
-)}
-            {result && <p className="success-message">{result.message}</p>}
+              <p className="error-message" role="alert">
+                {error}
+              </p>
+            )}
+
+            {result && (
+              <p className="success-message">{result.message}</p>
+            )}
+
             <button
               className="button button-outline"
               onClick={checkConnection}
@@ -333,6 +491,7 @@ function App() {
                 <p>Truy cập các chức năng thường dùng</p>
               </div>
             </div>
+
             <button
               className="quick-action"
               onClick={() => setShowUpload(true)}
@@ -344,6 +503,7 @@ function App() {
               </span>
               <span className="quick-arrow">→</span>
             </button>
+
             <button
               className="quick-action"
               onClick={() => choosePage('Hồ sơ phân tích')}
@@ -371,18 +531,38 @@ function App() {
           >
             ← Quay lại danh sách
           </button>
+
           <span className="eyebrow">CHI TIẾT HỒ SƠ</span>
           <h2>{selectedPatient.name}</h2>
           <p className="detail-description">
             Thông tin hồ sơ minh họa trong môi trường frontend demo.
           </p>
+
           <div className="detail-grid">
-            <div><span>Mã hồ sơ</span><strong>{selectedPatient.id}</strong></div>
-            <div><span>Cơ sở y tế</span><strong>{selectedPatient.clinic}</strong></div>
-            <div><span>Ngày tạo</span><strong>{selectedPatient.date}</strong></div>
-            <div><span>Trạng thái</span><strong>{selectedPatient.status}</strong></div>
-            <div><span>Mức nguy cơ minh họa</span><strong>{selectedPatient.risk}</strong></div>
+            <div>
+              <span>Mã hồ sơ</span>
+              <strong>{selectedPatient.id}</strong>
+            </div>
+            <div>
+              <span>Cơ sở y tế</span>
+              <strong>{selectedPatient.clinic}</strong>
+            </div>
+            <div>
+              <span>Ngày tạo</span>
+              <strong>{selectedPatient.date}</strong>
+            </div>
+            <div>
+              <span>Trạng thái</span>
+              <strong>{selectedPatient.status}</strong>
+            </div>
+            <div>
+              <span>Mức nguy cơ minh họa</span>
+              <strong>
+                {selectedPatient.risk ?? 'Chưa có kết quả nguy cơ'}
+              </strong>
+            </div>
           </div>
+
           <div className="notice">
             Đây là dữ liệu mẫu, không phải kết quả chẩn đoán y khoa thực tế.
           </div>
@@ -407,6 +587,7 @@ function App() {
               + Tạo hồ sơ demo
             </button>
           </div>
+
           <div className="filters">
             <input
               value={search}
@@ -414,6 +595,7 @@ function App() {
               placeholder="Tìm theo tên, mã hồ sơ, cơ sở..."
               aria-label="Tìm kiếm hồ sơ"
             />
+
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}
@@ -425,6 +607,7 @@ function App() {
               <option>Cần xem xét</option>
             </select>
           </div>
+
           {renderPatientTable()}
         </section>
       )
@@ -435,30 +618,38 @@ function App() {
         <section className="panel content-panel">
           <h3>Tải dữ liệu lên</h3>
           <p className="section-description">
-            Chọn tệp để xem trước luồng tải dữ liệu. Chức năng tải lên máy chủ
-            sẽ được tích hợp ở bước kết nối API.
+            Chọn một ảnh đáy mắt JPEG hoặc PNG để minh họa luồng chọn ảnh.
+            Demo chưa tải ảnh lên máy chủ hoặc đánh giá chất lượng ảnh.
           </p>
+
           <div className="upload-zone">
             <span className="upload-symbol">⇧</span>
             <h4>Chọn tệp dữ liệu</h4>
             <p>Chọn tệp từ máy tính để tiếp tục</p>
+
             <label className="button button-primary file-label">
               Chọn tệp
               <input
                 type="file"
-                accept=".csv,.xlsx,.xls,.json,.zip"
+                accept=".jpg,.jpeg,.png,image/jpeg,image/png"
                 onChange={(event) => {
-                  const file = event.target.files?.[0]
-                  setUploadName(file?.name ?? '')
-                  setUploadMessage('')
+                  handleFileSelection(event.target.files?.[0])
+                  event.target.value = ''
                 }}
               />
             </label>
-            {uploadName && <p className="selected-file">Đã chọn: {uploadName}</p>}
+
+            {uploadName && (
+              <p className="selected-file">Đã chọn: {uploadName}</p>
+            )}
+
             <button className="button button-outline" onClick={handleUpload}>
               Tiếp tục
             </button>
-            {uploadMessage && <p className="form-message">{uploadMessage}</p>}
+
+            {uploadMessage && (
+              <p className="form-message">{uploadMessage}</p>
+            )}
           </div>
         </section>
       )
@@ -471,6 +662,7 @@ function App() {
           <p className="section-description">
             Kiểm tra phản hồi từ API Gateway của hệ thống.
           </p>
+
           <button
             className="button button-primary"
             onClick={checkConnection}
@@ -478,11 +670,13 @@ function App() {
           >
             {loading ? 'Đang kiểm tra...' : 'Kiểm tra kết nối'}
           </button>
+
           {error && (
-  <p className="error-message" role="alert">
-    {error}
-  </p>
-)}
+            <p className="error-message" role="alert">
+              {error}
+            </p>
+          )}
+
           {result && (
             <div className="connection-result">
               <h4>Kết nối thành công</h4>
@@ -509,9 +703,9 @@ function App() {
         <span className="eyebrow">AURA MANAGEMENT</span>
         <h3>{activePage}</h3>
         <p className="section-description">
-          {descriptions[activePage] ??
-            'Khu vực chức năng của hệ thống AURA.'}
+          {descriptions[activePage] ?? 'Khu vực chức năng của hệ thống AURA.'}
         </p>
+
         <div className="coming-soon">
           <span>◷</span>
           <strong>Giao diện đang được xây dựng</strong>
@@ -553,14 +747,18 @@ function App() {
           {navigation.map((section) => (
             <div className="nav-section" key={section.group}>
               <div className="nav-group-label">{section.group}</div>
+
               {section.items.map((item) => (
                 <button
                   key={item.label}
-                  className={`nav-item ${activePage === item.label ? 'active' : ''}`}
+                  className={`nav-item ${
+                    activePage === item.label ? 'active' : ''
+                  }`}
                   onClick={() => choosePage(item.label)}
                 >
                   <span className="nav-icon">{item.icon}</span>
                   <span>{item.label}</span>
+
                   {item.label === 'Hồ sơ phân tích' && (
                     <span className="nav-count">{patients.length}</span>
                   )}
@@ -576,6 +774,7 @@ function App() {
             <strong>Cần hỗ trợ?</strong>
             <p>Liên hệ quản trị viên nếu bạn gặp vấn đề.</p>
           </div>
+
           <div className="sidebar-version">
             <span className="version-dot" />
             AURA Web · Demo v0.1
@@ -593,17 +792,22 @@ function App() {
             >
               ☰
             </button>
+
             <div className="breadcrumb">
               <span>Workspace</span>
               <span className="breadcrumb-separator">/</span>
-              <strong>{selectedPatient ? 'Chi tiết hồ sơ' : activePage}</strong>
+              <strong>
+                {selectedPatient ? 'Chi tiết hồ sơ' : activePage}
+              </strong>
             </div>
           </div>
+
           <div className="topbar-right">
             <span className="environment-badge">
               <span /> DEMO
             </span>
             <div className="topbar-divider" />
+
             <div className="user-profile">
               <div className="avatar">AD</div>
               <div className="user-copy">
@@ -625,12 +829,17 @@ function App() {
                   : 'Hệ thống sàng lọc sức khỏe mạch máu võng mạc.'}
               </p>
             </div>
+
             <div className="current-date">
               <span>◷</span> 09 tháng 10, 2026
             </div>
           </div>
 
           {renderPageContent()}
+
+          <AnalysisDemoPanel />
+          <NotificationSettings />
+          <FcmDemoPanel />
 
           <footer className="page-footer">
             <span>© 2026 AURA · Retinal Health Screening System</span>
@@ -643,20 +852,25 @@ function App() {
         <div
           className="modal-backdrop"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setShowUpload(false)
+            if (event.target === event.currentTarget) {
+              setShowUpload(false)
+            }
           }}
         >
           <section
+            ref={uploadModalRef}
             className="modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="upload-modal-title"
+            tabIndex={-1}
           >
             <div className="modal-heading">
               <div>
                 <span className="eyebrow">AURA WORKSPACE</span>
                 <h3 id="upload-modal-title">Tải dữ liệu lên</h3>
               </div>
+
               <button
                 className="modal-close"
                 onClick={() => setShowUpload(false)}
@@ -665,22 +879,32 @@ function App() {
                 ×
               </button>
             </div>
+
             <p>
-              Chọn tệp để minh họa quy trình tiếp nhận dữ liệu sàng lọc.
+              Chọn một ảnh đáy mắt JPEG hoặc PNG. Demo chỉ ghi nhận tên tệp,
+              chưa tải ảnh lên máy chủ hoặc đánh giá chất lượng ảnh.
             </p>
+
             <label className="button button-outline file-label modal-file">
               ⇧ &nbsp; Chọn tệp từ máy tính
               <input
                 type="file"
-                accept=".csv,.xlsx,.xls,.json,.zip"
+                accept=".jpg,.jpeg,.png,image/jpeg,image/png"
                 onChange={(event) => {
-                  setUploadName(event.target.files?.[0]?.name ?? '')
-                  setUploadMessage('')
+                  handleFileSelection(event.target.files?.[0])
+                  event.target.value = ''
                 }}
               />
             </label>
-            {uploadName && <p className="selected-file">{uploadName}</p>}
-            {uploadMessage && <p className="form-message">{uploadMessage}</p>}
+
+            {uploadName && (
+              <p className="selected-file">{uploadName}</p>
+            )}
+
+            {uploadMessage && (
+              <p className="form-message">{uploadMessage}</p>
+            )}
+
             <div className="modal-actions">
               <button
                 className="button button-outline"
@@ -688,7 +912,11 @@ function App() {
               >
                 Hủy
               </button>
-              <button className="button button-primary" onClick={handleUpload}>
+
+              <button
+                className="button button-primary"
+                onClick={handleUpload}
+              >
                 Tiếp tục
               </button>
             </div>
