@@ -156,6 +156,22 @@ function App() {
     setUploadMessage('')
   }
 
+  function handleFileSelection(file?: File) {
+    setUploadName('')
+    setUploadMessage('')
+
+    if (!file) return
+
+    const allowedTypes = ['image/jpeg', 'image/png']
+
+    if (!allowedTypes.includes(file.type)) {
+      setUploadMessage('Chỉ chấp nhận ảnh JPEG hoặc PNG. Hãy chọn ảnh khác.')
+      return
+    }
+
+    setUploadName(file.name)
+  }
+
   function handleUpload() {
     if (!uploadName) {
       setUploadMessage('Vui lòng chọn một tệp trước khi tiếp tục.')
@@ -497,8 +513,8 @@ function App() {
         <section className="panel content-panel">
           <h3>Tải dữ liệu lên</h3>
           <p className="section-description">
-            Chọn tệp để xem trước luồng tải dữ liệu. Chức năng tải lên máy chủ
-            sẽ được tích hợp ở bước kết nối API.
+            Chọn một ảnh đáy mắt JPEG hoặc PNG để minh họa luồng chọn ảnh.
+            Demo chưa tải ảnh lên máy chủ hoặc đánh giá chất lượng ảnh.
           </p>
 
           <div className="upload-zone">
@@ -510,11 +526,10 @@ function App() {
               Chọn tệp
               <input
                 type="file"
-                accept=".csv,.xlsx,.xls,.json,.zip"
+                accept=".jpg,.jpeg,.png,image/jpeg,image/png"
                 onChange={(event) => {
-                  const file = event.target.files?.[0]
-                  setUploadName(file?.name ?? '')
-                  setUploadMessage('')
+                  handleFileSelection(event.target.files?.[0])
+                  event.target.value = ''
                 }}
               />
             </label>
@@ -757,17 +772,18 @@ function App() {
             </div>
 
             <p>
-              Chọn tệp để minh họa quy trình tiếp nhận dữ liệu sàng lọc.
+              Chọn một ảnh đáy mắt JPEG hoặc PNG. Demo chỉ ghi nhận tên tệp,
+              chưa tải ảnh lên máy chủ hoặc đánh giá chất lượng ảnh.
             </p>
 
             <label className="button button-outline file-label modal-file">
               ⇧ &nbsp; Chọn tệp từ máy tính
               <input
                 type="file"
-                accept=".csv,.xlsx,.xls,.json,.zip"
+                accept=".jpg,.jpeg,.png,image/jpeg,image/png"
                 onChange={(event) => {
-                  setUploadName(event.target.files?.[0]?.name ?? '')
-                  setUploadMessage('')
+                  handleFileSelection(event.target.files?.[0])
+                  event.target.value = ''
                 }}
               />
             </label>
