@@ -1,5 +1,5 @@
-
 import { getApp, getApps, initializeApp } from 'firebase/app'
+import { getAuth } from 'firebase/auth'
 import { getMessaging, isSupported } from 'firebase/messaging'
 
 const firebaseConfig = {
@@ -12,25 +12,40 @@ const firebaseConfig = {
 
 export function isFirebaseConfigured() {
   return Object.values(firebaseConfig).every(
-    (value) => typeof value === 'string' && value.length > 0
+    (value) => typeof value === 'string' && value.trim().length > 0,
   )
 }
 
-export async function getFirebaseMessaging() {
-  // Chưa được cấp cấu hình thì không khởi tạo Firebase.
+export function getFirebaseApp() {
   if (!isFirebaseConfigured()) {
     return null
   }
 
-  // Kiểm tra trình duyệt có hỗ trợ Firebase Messaging không.
+  const hasDefaultApp = getApps().some(
+    (app) => app.name === '[DEFAULT]',
+  )
+
+  return hasDefaultApp
+    ? getApp()
+    : initializeApp(firebaseConfig)
+}
+
+export function getFirebaseAuth() {
+  const app = getFirebaseApp()
+
+  return app ? getAuth(app) : null
+}
+
+export async function getFirebaseMessaging() {
+  if (!isFirebaseConfigured()) {
+    return null
+  }
+
   if (!(await isSupported())) {
     return null
   }
 
-  // Tránh khởi tạo Firebase App nhiều lần.
-  const app = getApps().length > 0
-    ? getApp()
-    : initializeApp(firebaseConfig)
+  const app = getFirebaseApp()
 
-  return getMessaging(app)
+  return app ? getMessaging(app) : null
 }
