@@ -1,5 +1,5 @@
 import { http, HttpResponse, delay } from 'msw'
-
+import { fcmHandlers } from './fcmHandlers'
 import queued from './fixtures/queued.json'
 import processing from './fixtures/processing.json'
 import completed from './fixtures/completed.json'
@@ -15,6 +15,7 @@ import emptyList from './fixtures/empty-list.json'
 // Ví dụ: /api/v1/analyses/123?scenario=failed
 
 export const handlers = [
+  ...fcmHandlers,
   // Tạo yêu cầu phân tích.
   http.post('/api/v1/analyses', async ({ request }) => {
     const url = new URL(request.url)

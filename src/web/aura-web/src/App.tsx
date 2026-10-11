@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import AnalysisDemoPanel from './components/AnalysisDemoPanel'
+import NotificationSettings from './components/NotificationSettings'
+import FcmDemoPanel from './components/FcmDemoPanel'
 
 type PingResponse = {
   service: string
@@ -836,6 +838,8 @@ function App() {
           {renderPageContent()}
 
           <AnalysisDemoPanel />
+          <NotificationSettings />
+          <FcmDemoPanel />
 
           <footer className="page-footer">
             <span>© 2026 AURA · Retinal Health Screening System</span>

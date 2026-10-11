@@ -115,7 +115,9 @@ Các nhóm test:
 | `src/App.test.tsx` | 7 |
 | `src/mocks/handlers.test.ts` | 10 |
 | `src/components/AnalysisDemoPanel.test.tsx` | 12 |
-| Tổng | 29 |
+| `src/components/FcmDemoPanel.test.tsx` | 7 |
+| `src/components/NotificationSettings.test.tsx` | 10 |
+| Tổng | 46 |
 
 Test UI bao gồm các kịch bản Analysis, timeout và việc ẩn panel khi mock tắt.
 
@@ -153,6 +155,31 @@ Ngày kiểm tra: 2026-10-11.
 
 Kiểm tra MIME ở frontend chưa xác minh nội dung ảnh, ảnh đáy mắt
 hoặc chất lượng ảnh thật. Demo chưa gửi tệp lên backend.
+## Kiểm tra bổ sung SCRUM-296
+
+Ngày kiểm tra: 2026-10-11.
+
+- FCM API demo chỉ hiển thị khi bật mock ở development.
+- Endpoint `/api/v1/demo/fcm-token` chỉ dùng cho MSW demo,
+  chưa phải contract đăng ký token với backend.
+- Trình duyệt đã kiểm tra các tình huống 200, 401, 403, 500 và timeout.
+- Timeout khóa nút và dropdown trong khi chờ; sau khoảng 3 giây
+  hiển thị hướng thử lại và mở khóa điều khiển.
+- Khi tắt mock và khởi động lại, panel FCM API demo biến mất.
+- Trang không tự yêu cầu quyền thông báo.
+- Cài đặt thông báo có hướng dẫn khi quyền bị chặn,
+  trình duyệt không hỗ trợ hoặc môi trường không an toàn.
+- Test FCM demo: 7/7 PASS.
+- Test UI cài đặt thông báo với quyền và Service Worker giả lập:
+  10/10 PASS.
+- Kiểm tra toàn bộ: fixtures khớp examples, schema PASS,
+  lint 0 warnings/errors, 46/46 test PASS và build PASS.
+- `@grpc/grpc-js` được cố định bằng override ở phiên bản `1.14.6`.
+  Kết quả `npm audit`: 0 vulnerabilities.
+
+Kết quả trên xác nhận demo và hành vi UI local.
+Chưa xác nhận lấy FCM token thật, đăng ký token với backend,
+nhận push foreground/background thật hoặc thu hồi token khi đăng xuất.
 ## Giới hạn hiện tại
 
 - Demo Analysis sử dụng dữ liệu giả lập và không tải ảnh thật lên backend.
