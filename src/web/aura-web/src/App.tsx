@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import AnalysisDemoPanel from './components/AnalysisDemoPanel'
 
@@ -110,6 +110,109 @@ function App() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const uploadModalRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    if (!showUpload) return
+
+    const modal = uploadModalRef.current
+    if (!modal) return
+
+    const previousFocus =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null
+
+    function getFocusableElements() {
+      if (!modal) return []
+
+      return Array.from(
+        modal.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), ' +
+            'select:not([disabled]), textarea:not([disabled]), ' +
+            'a[href], [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => {
+        const style = window.getComputedStyle(element)
+
+        return (
+          element.tabIndex >= 0 &&
+          !element.closest('[hidden], [inert]') &&
+          style.display !== 'none' &&
+          style.visibility !== 'hidden'
+        )
+      })
+    }
+
+    function focusFirstElement() {
+      const first = getFocusableElements()[0]
+      ;(first ?? modal)?.focus()
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        event.stopPropagation()
+        setShowUpload(false)
+        return
+      }
+
+      if (event.key !== 'Tab' || !modal) return
+
+      const elements = getFocusableElements()
+      const first = elements[0]
+      const last = elements[elements.length - 1]
+      const active = document.activeElement
+
+      if (!first || !last) {
+        event.preventDefault()
+        modal.focus()
+        return
+      }
+
+      if (
+        !modal.contains(active) ||
+        active === modal ||
+        !elements.some((element) => element === active)
+      ) {
+        event.preventDefault()
+        ;(event.shiftKey ? last : first).focus()
+        return
+      }
+
+      if (event.shiftKey && active === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    function handleFocusIn(event: FocusEvent) {
+      if (
+        modal &&
+        event.target instanceof Node &&
+        !modal.contains(event.target)
+      ) {
+        focusFirstElement()
+      }
+    }
+
+    focusFirstElement()
+
+    document.addEventListener('keydown', handleKeyDown, true)
+    document.addEventListener('focusin', handleFocusIn, true)
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, true)
+      document.removeEventListener('focusin', handleFocusIn, true)
+
+      if (previousFocus?.isConnected) {
+        previousFocus.focus()
+      }
+    }
+  }, [showUpload])
 
   const filteredPatients = useMemo(() => {
     const keyword = search.trim().toLowerCase()
@@ -751,10 +854,12 @@ function App() {
           }}
         >
           <section
+            ref={uploadModalRef}
             className="modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="upload-modal-title"
+            tabIndex={-1}
           >
             <div className="modal-heading">
               <div>
