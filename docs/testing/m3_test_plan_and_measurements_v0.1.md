@@ -25,7 +25,7 @@ Nguồn chuẩn:
 - [Ma trận quyền và negative cases — SCRUM-281](https://nguyentruonghau2202.atlassian.net/wiki/spaces/XPMHIT/pages/1966110).
 - [Firebase/FCM implementation — PR #25](https://github.com/CattyGame/XD-PMHDT/pull/25).
 
-Đọc các nguồn repo tại baseline trên khi tái lập. RTM là snapshot trước phần Firebase vừa merge:
+Đọc các nguồn repo tại baseline trên khi tái lập. RTM có cập nhật mới trong đợt sửa M2–M5; khi dùng snapshot cũ:
 không sao chép trạng thái cũ thành kết luận mới và không đổi toàn bộ requirement sang VERIFIED từ test một module.
 Mỗi nhóm TC có nhiều biến thể; khi ghi kết quả dùng hậu tố, ví dụ TC-FR-09-foreground, TC-NFR-09-token và TC-NFR-09-TLS.
 
@@ -667,7 +667,7 @@ Cho FCM-BG/CLICK dùng cửa sổ test độc lập hoặc backend test runner �
 Ghi visibility, permission, worker version/state và test ID; không ghi payload chứa thông tin bệnh nhân.
 Service worker được bundle/minify nên kiểm bằng registration/behavior, không dựa vào tìm literal tên SDK trong bundle.
 
-## 9. Kết quả hiện có tại thời điểm biên soạn
+## 9. Snapshot kết quả khi biên soạn, trước đợt sửa M2–M5
 
 Nguồn là log người thực hiện đã gửi trong phiên làm việc và PR #25.
 Các test dưới đây không được chạy lại bởi lần biên soạn tài liệu này.
@@ -689,6 +689,35 @@ Không gán SHA của từng lần chạy khi log không ghi SHA; baseline mã n
 RTM có kết quả AI mock/offline và hạ tầng của mốc trước; tham chiếu nguồn đó theo scope.
 Không nâng những kết quả này thành full E2E hoặc clinical acceptance.
 Task này hoàn tất phần thiết kế kiểm thử; các lượt chưa chạy là backlog thực thi, không là lý do giả PASS.
+
+### 9.1. Cập nhật kiểm chứng Notification trong đợt sửa M2–M5
+
+Ngày thực thi: 2026-10-11.
+Bản sửa nằm trong working tree của nhánh fix/sprint1-m2-m5-completion,
+HEAD b2b3dde; chưa commit.
+
+| Kiểm tra | Kết quả và phạm vi |
+| --- | --- |
+| Notification API | Debug build PASS |
+| TokenCipher | 12/12 PASS |
+| PostgreSQL | Registration/update/fingerprint/cleanup PASS; xóa có điều kiện giữ token mới và kiểm scope project/UID/device |
+| Frontend | Lần chạy cuối 81/81 PASS trên 7 file; lint 0 warnings/errors; TypeScript/Vite build PASS |
+| Browser registration/sync | Có ảnh giao diện xác nhận thành công |
+| Foreground FCM | Có ảnh receipt với mã gửi/nhận khớp |
+| Background FCM | PASS theo quan sát người thao tác |
+| Click notification | PASS theo quan sát người thao tác; focus tab AURA đang mở |
+| Worker | File local và nội dung Vite phục vụ có cùng SHA256 |
+
+Một lần frontend có 80/81 PASS; test lỗi chạy riêng PASS,
+lần chạy toàn bộ tiếp theo 81/81 PASS. Chưa xác định nguyên nhân.
+
+Token rotation được kiểm thử bằng mock.
+Repository cleanup được kiểm thử với PostgreSQL;
+chưa ép FCM thật trả Unregistered hoặc fault-inject endpoint.
+Chưa kiểm tra click mở cửa sổ mới khi AURA không còn mở.
+Chưa nghiệm thu Analysis event-to-notification hoặc NFR production.
+- [Notification contract](../api/notification_service_contract_v0.1.md).
+- [Bằng chứng kiểm thử](m2_m5_notification_verification_2026-10-11.md).
 
 ## 10. Mẫu ghi kết quả và báo cáo
 
@@ -772,7 +801,7 @@ Các lệnh schema/fixture lấy từ README/script repo tại baseline, tránh 
 
 | Phần | Việc tiếp theo | Owner cần phối hợp |
 | --- | --- | --- |
-| Firebase | Chạy SDK background và click sau worker build cuối; event-to-notification khi analysis backend có | M3/backend + UI |
+| Firebase | Review bằng chứng background/click PoC local đã có; kiểm tra cửa sổ mới, token rotation thật và event-to-notification theo giai đoạn triển khai | M3/backend + UI |
 | Nghiệp vụ/quyền | Chạy TC-FR-* và bộ negative cases trên API/resource thật khi có implementation | M2 + backend + M3 |
 | AI | Chốt latency boundary/gate, clinical explanation và workload; chạy AI thật/Worker integration | M4 + backend |
 | Hiệu năng/vận hành | Chốt staging load; uptime đủ window; backup/restore; TLS và at-rest toàn phạm vi | Hạ tầng |
@@ -784,3 +813,20 @@ Các lệnh schema/fixture lấy từ README/script repo tại baseline, tránh 
 | Phiên bản | Ngày | Nội dung |
 | --- | --- | --- |
 | 0.1 | 2026-10-11 | Thiết kế 39 FR cases và 23 NFR protocols; định nghĩa metric, dữ liệu/môi trường, regression Firebase, execution template và giới hạn kết quả hiện có |
+
+## Kiểm chứng bổ sung ngày 2026-10-12
+
+Nguồn: log PowerShell người thao tác cung cấp.
+Nhánh fix/sprint1-m2-m5-completion; thay đổi chưa commit.
+
+- Frontend: 7 file test, 82/82 test PASS.
+- tokenLifecycle: 7 test; NotificationSettings: 30 test.
+- Lint: 0 lỗi và 0 cảnh báo.
+- TypeScript và Vite production build: PASS.
+- Bổ sung kiểm tra phiên sau khi backend đăng ký hoàn tất.
+  Nếu phiên đã đổi, lifecycle trả cancelled thay vì ready.
+- Loại bỏ dòng gán operationInFlight bị lặp.
+
+Kết quả 81 test trước đó là bằng chứng của lần chạy trước.
+Kết quả mới không thay thế kiểm thử FCM thật, phân quyền
+backend, usability/accessibility hoặc nghiệm thu NFR.

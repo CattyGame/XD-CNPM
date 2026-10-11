@@ -98,9 +98,11 @@ public static class NotificationTestPushEndpoints
 
                 timeout.CancelAfter(TimeSpan.FromSeconds(15));
 
+                string? token = null;
+
                 try
                 {
-                    var token = await repository.GetTokenAsync(
+                    token = await repository.GetTokenAsync(
                         projectId,
                         uid,
                         deviceId,
@@ -161,6 +163,47 @@ public static class NotificationTestPushEndpoints
                         exception.MessagingErrorCode ==
                         MessagingErrorCode.Unregistered)
                     {
+                        try
+                        {
+                            if (token is not null)
+                            {
+                                await repository.DeleteIfTokenMatchesAsync(
+                                    projectId,
+                                    uid,
+                                    deviceId,
+                                    token,
+                                    timeout.Token);
+                            }
+                        }
+                        catch (NpgsqlException)
+                        {
+                            return Error(
+                                context,
+                                503,
+                                "ERR_STORAGE_UNAVAILABLE",
+                                "Chưa hoàn tất xóa đăng ký token hết hiệu lực.",
+                                true);
+                        }
+                        catch (TimeoutException)
+                        {
+                            return Error(
+                                context,
+                                503,
+                                "ERR_STORAGE_UNAVAILABLE",
+                                "Chưa xác nhận xóa đăng ký token hết hiệu lực.",
+                                true);
+                        }
+                        catch (OperationCanceledException)
+                            when (!context.RequestAborted.IsCancellationRequested)
+                        {
+                            return Error(
+                                context,
+                                503,
+                                "ERR_STORAGE_UNAVAILABLE",
+                                "Chưa xác nhận xóa đăng ký token hết hiệu lực.",
+                                true);
+                        }
+
                         return Error(
                             context,
                             410,

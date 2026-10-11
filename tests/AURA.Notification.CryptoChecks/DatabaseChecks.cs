@@ -137,6 +137,94 @@ public static class DatabaseChecks
             Console.WriteLine(
                 "PASS: cập nhật token vẫn chỉ có một bản ghi thiết bị.");
 
+            await repository.DeleteIfTokenMatchesAsync(
+                projectId,
+                firebaseUid,
+                deviceId,
+                firstToken,
+                CancellationToken.None);
+
+            Require(
+                await repository.GetTokenAsync(
+                    projectId,
+                    firebaseUid,
+                    deviceId,
+                    CancellationToken.None) == secondToken,
+                "Phản hồi hết hiệu lực của token cũ đã xóa token mới.");
+
+            Console.WriteLine(
+                "PASS: token cũ không xóa registration đã cập nhật token mới.");
+
+            await repository.DeleteIfTokenMatchesAsync(
+                "another-test-project",
+                firebaseUid,
+                deviceId,
+                secondToken,
+                CancellationToken.None);
+
+            Require(
+                await CountAsync(dataSource, projectId, deviceId) == 1,
+                "Sai project vẫn xóa được registration.");
+
+            Console.WriteLine(
+                "PASS: sai project không xóa được registration.");
+
+            await repository.DeleteIfTokenMatchesAsync(
+                projectId,
+                "another-test-user",
+                deviceId,
+                secondToken,
+                CancellationToken.None);
+
+            Require(
+                await CountAsync(dataSource, projectId, deviceId) == 1,
+                "Sai UID vẫn xóa được registration.");
+
+            Console.WriteLine(
+                "PASS: sai UID không xóa được registration.");
+
+            await repository.DeleteIfTokenMatchesAsync(
+                projectId,
+                firebaseUid,
+                Guid.NewGuid(),
+                secondToken,
+                CancellationToken.None);
+
+            Require(
+                await CountAsync(dataSource, projectId, deviceId) == 1,
+                "Sai device vẫn xóa được registration.");
+
+            Console.WriteLine(
+                "PASS: sai device không xóa được registration.");
+
+            await repository.DeleteIfTokenMatchesAsync(
+                projectId,
+                firebaseUid,
+                deviceId,
+                secondToken,
+                CancellationToken.None);
+
+            Require(
+                await CountAsync(dataSource, projectId, deviceId) == 0,
+                "Token khớp nhưng registration chưa được xóa.");
+
+            Console.WriteLine(
+                "PASS: token khớp xóa được registration.");
+
+            await repository.DeleteIfTokenMatchesAsync(
+                projectId,
+                firebaseUid,
+                deviceId,
+                secondToken,
+                CancellationToken.None);
+
+            Require(
+                await CountAsync(dataSource, projectId, deviceId) == 0,
+                "Xóa lặp có kết quả không đúng.");
+
+            Console.WriteLine(
+                "PASS: xóa có điều kiện lặp không lỗi.");
+
             result = 0;
         }
         catch (Exception exception)

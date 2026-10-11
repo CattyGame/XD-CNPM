@@ -125,6 +125,33 @@ public sealed class DeviceRegistrationRepository
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    public async Task DeleteIfTokenMatchesAsync(
+        string projectId,
+        string firebaseUid,
+        Guid deviceId,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            DELETE FROM notification.device_registrations
+            WHERE project_id = @project_id
+              AND firebase_uid = @firebase_uid
+              AND device_id = @device_id
+              AND token_hash = @token_hash;
+            """;
+
+        await using var command = dataSource.CreateCommand(sql);
+
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("firebase_uid", firebaseUid);
+        command.Parameters.AddWithValue("device_id", deviceId);
+        command.Parameters.AddWithValue(
+            "token_hash",
+            TokenCipher.Fingerprint(token));
+
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     public async Task<string?> GetTokenAsync(
         string projectId,
         string firebaseUid,
