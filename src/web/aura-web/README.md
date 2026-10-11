@@ -112,10 +112,10 @@ Các nhóm test:
 
 | File | Số test |
 | --- | ---: |
-| `src/App.test.tsx` | 2 |
+| `src/App.test.tsx` | 7 |
 | `src/mocks/handlers.test.ts` | 10 |
 | `src/components/AnalysisDemoPanel.test.tsx` | 12 |
-| Tổng | 24 |
+| Tổng | 29 |
 
 Test UI bao gồm các kịch bản Analysis, timeout và việc ẩn panel khi mock tắt.
 
@@ -136,6 +136,23 @@ Ngày kiểm tra: 2026-10-10.
 Các kết quả này là bằng chứng local, không thay thế kết quả CI
 hoặc review trên pull request.
 
+## Kiểm tra bổ sung SCRUM-294
+
+Ngày kiểm tra: 2026-10-11.
+
+- Hồ sơ mẫu đang xử lý có `risk: null`.
+- Bảng và trang chi tiết hiển thị “Chưa có kết quả nguy cơ”.
+- Trang upload và modal chỉ nhận MIME JPEG/PNG do trình duyệt cung cấp.
+- Chọn tệp không hợp lệ sẽ xóa tên ảnh cũ và hiển thị hướng chọn ảnh khác.
+- Kiểm tra trình duyệt xác nhận nhận ảnh hợp lệ và từ chối tệp khác
+  ở cả trang upload lẫn modal.
+- Modal đưa focus vào trong khi mở, giữ vòng Tab/Shift+Tab,
+  đóng bằng Esc và trả focus về nút mở.
+- 5 test bàn phím modal PASS; người kiểm tra xác nhận trên trình duyệt.
+- Kiểm tra toàn bộ: lint 0 warnings/errors, 29/29 test PASS và build PASS.
+
+Kiểm tra MIME ở frontend chưa xác minh nội dung ảnh, ảnh đáy mắt
+hoặc chất lượng ảnh thật. Demo chưa gửi tệp lên backend.
 ## Giới hạn hiện tại
 
 - Demo Analysis sử dụng dữ liệu giả lập và không tải ảnh thật lên backend.
