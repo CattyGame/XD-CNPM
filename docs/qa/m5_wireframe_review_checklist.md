@@ -51,3 +51,16 @@ Khi thực hiện review, ghi từng phát hiện, màn hình liên quan,
 mức độ ảnh hưởng, người xử lý và bằng chứng kiểm tra lại.
 Không đánh dấu checklist đạt chỉ vì tài liệu đã được tạo
 hoặc task Jira đã chuyển Done.
+
+## Bản draw.io nhập từ PDF ngày 2026-10-12
+
+Đã bổ sung [Clinic/Admin draw.io](../ux/wireframes/clinic_admin_wireframes_v0.1.drawio)
+với 8 tab chứa ảnh màn hình từ PDF.
+
+File hỗ trợ mở và sao chép các màn hình trong draw.io.
+Chưa hỗ trợ chỉnh sửa riêng từng chữ, nút hoặc ô nhập.
+Không coi file này là nguồn thiết kế gốc.
+
+Phạm vi bàn giao hiện tại gồm PDF và bản draw.io chứa ảnh.
+Yêu cầu nguồn chỉnh sửa từng thành phần, nếu còn áp dụng,
+vẫn chưa được đáp ứng.
