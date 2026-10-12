@@ -34,3 +34,17 @@ Ngày tổng hợp: 2026-10-12.
 - SCRUM-69 cần bằng chứng review, kết quả và các vấn đề còn mở.
 - Giữ nguyên các bản PDF cũ trên Jira/Confluence làm lịch sử;
   bản trong thư mục này là tài liệu bổ sung của đợt sửa M2–M5.
+
+## Bản draw.io nhập từ PDF ngày 2026-10-12
+
+Đã bổ sung [Clinic/Admin draw.io](clinic_admin_wireframes_v0.1.drawio),
+gồm 8 tab tương ứng với PDF hiện có.
+
+Các màn hình được lưu dưới dạng ảnh:
+có thể sao chép, di chuyển và đổi kích thước trong draw.io.
+Chữ, nút và ô nhập chưa phải các đối tượng chỉnh sửa riêng.
+
+Đây là bản nhập từ PDF, không phải nguồn thiết kế gốc.
+PDF vẫn là bản tham chiếu nội dung.
+Các ghi chú thiếu nguồn trước đó nói đến nguồn chỉnh sửa
+từng thành phần; bản nhập này chưa khôi phục nguồn đó.
