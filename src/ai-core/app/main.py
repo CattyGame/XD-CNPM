@@ -1,31 +1,50 @@
 """
-AURA AI Core Service (Module M4).
-Integrates platform endpoints (health, ping) and AI analysis endpoints.
+AURA AI Core: platform endpoints and mock analysis API.
 """
-from datetime import datetime, timezone
+import logging
 import time
-from typing import Optional
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-from pydantic import BaseModel
 
-from .schemas.analysis import AnalysisRequest, AnalysisResponse
-from .services.mock_service import process_mock_analysis
+from .schemas.common import AnalysisMode
+from .schemas.health import HealthResponse, PingResponse
+from .schemas.analysis import (
+    AnalysisRequest,
+    AnalysisResponse,
+    ErrorResponse,
+)
+from .services.mock_service import (
+    process_mock_analysis,
+    InvalidImagePayloadError,
+    MockLowQualityImageError,
+)
 
 APP_START_TIME = time.time()
 SERVICE_NAME = "AURA.AiCore"
 VERSION = "0.1.0"
+API_VERSION = "1.1.0"
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="AURA AI Core",
-    description="Microservice phân tích mạch máu võng mạc và đánh giá rủi ro tim mạch (Module M4).",
-    version=VERSION,
+    title="AURA AI Analysis Service API",
+    description=(
+        "AI API nội bộ của AURA. Runtime hiện là Mock Service phục vụ "
+        "kiểm thử giao tiếp, chưa tích hợp thuật toán phân vùng thật. "
+        "WARNING có kết quả hợp lệ không tự đồng nghĩa LOW_QUALITY."
+    ),
+    version=API_VERSION,
+    contact={
+        "name": "Dao Duy Quan (M4 Lead)",
+        "email": "quandd2937@ut.edu.vn",
+    },
 )
 
-# Enable CORS for Frontend (M5) and Gateway (M1)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,45 +54,76 @@ app.add_middleware(
 )
 
 
-class HealthResponse(BaseModel):
-    status: str
-    service: str
-    model_loaded: bool
-
-
-class PingResponse(BaseModel):
-    service: str
-    message: str
-    timestamp: datetime
-
-
 @app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """Handles 422 JSON validation errors with standard ErrorResponse schema."""
-    error_payload = {
-        "error_code": "SCHEMA_VALIDATION_ERROR",
-        "message": "Dữ liệu gửi lên không đúng định dạng hoặc thiếu trường bắt buộc.",
-        "details": {"errors": exc.errors()},
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-    return JSONResponse(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, content=error_payload)
+async def validation_exception_handler(
+    request: Request,
+    exc: RequestValidationError,
+):
+    errors = exc.errors()
+
+    for error in errors:
+        if "mode" in error.get("loc", ()):
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content={
+                    "error_code": "UNSUPPORTED_MODE",
+                    "message": (
+                        "Chế độ phân tích không được hỗ trợ; "
+                        "chỉ chấp nhận retina_vessels."
+                    ),
+                    "details": {
+                        "supported_modes": ["retina_vessels"],
+                        "received_mode": str(error.get("input", "")),
+                        "errors": jsonable_encoder(errors),
+                    },
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "error_code": "SCHEMA_VALIDATION_ERROR",
+            "message": (
+                "Dữ liệu không đúng định dạng hoặc thiếu trường bắt buộc."
+            ),
+            "details": {"errors": jsonable_encoder(errors)},
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+    )
 
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    """Handles standard HTTP errors."""
-    error_payload = {
-        "error_code": f"HTTP_{exc.status_code}",
-        "message": exc.detail if isinstance(exc.detail, str) else "Lỗi xử lý yêu cầu.",
-        "details": exc.detail if isinstance(exc.detail, dict) else None,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-    return JSONResponse(status_code=exc.status_code, content=error_payload)
+    error_code = f"HTTP_{exc.status_code}"
+    message = "Lỗi xử lý yêu cầu."
+    details = None
+
+    if isinstance(exc.detail, dict):
+        error_code = exc.detail.get("error_code", error_code)
+        message = exc.detail.get("message", message)
+        details = exc.detail.get("details")
+    elif isinstance(exc.detail, str):
+        message = exc.detail
+        if "unsupported_modality" in message.lower():
+            error_code = "UNSUPPORTED_MODALITY"
+        elif "invalid_image_payload" in message.lower():
+            error_code = "INVALID_IMAGE_PAYLOAD"
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error_code": error_code,
+            "message": message,
+            "details": details,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+        headers=exc.headers,
+    )
 
 
-@app.get("/", tags=["Info"])
+@app.get("/", include_in_schema=False)
 def root():
-    """Root info endpoint."""
     return {
         "service": SERVICE_NAME,
         "version": VERSION,
@@ -84,51 +134,155 @@ def root():
     }
 
 
-@app.get("/health", response_model=HealthResponse, tags=["Platform"])
+@app.get("/health", response_model=HealthResponse, tags=["Health"])
 def health():
     return HealthResponse(
         status="ok",
+        version=VERSION,
         service=SERVICE_NAME,
+        device="cpu",
         model_loaded=False,
+        uptime_seconds=round(time.time() - APP_START_TIME, 2),
     )
 
 
-@app.get("/api/v1/platform/ping", response_model=PingResponse, tags=["Platform"])
+@app.get(
+    "/api/v1/platform/ping",
+    response_model=PingResponse,
+    tags=["Platform"],
+)
 def ping():
     return PingResponse(
         service=SERVICE_NAME,
         message="AI Core template is running",
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(timezone.utc).isoformat(),
     )
 
 
-@app.post("/api/v1/analyze", response_model=AnalysisResponse, tags=["Analysis"])
+@app.post(
+    "/api/v1/analyze",
+    response_model=AnalysisResponse,
+    responses={
+        400: {
+            "model": ErrorResponse,
+            "description": (
+                "Base64 hỏng, không phải ảnh, ảnh hỏng hoặc vượt giới hạn."
+            ),
+        },
+        422: {
+            "model": ErrorResponse,
+            "description": (
+                "Sai schema, modality/mode không được hỗ trợ hoặc LOW_QUALITY_IMAGE."
+            ),
+        },
+        500: {
+            "model": ErrorResponse,
+            "description": "Lỗi nội bộ hoặc cấu hình mock không hợp lệ.",
+        },
+    },
+    tags=["Analysis"],
+)
 def analyze_retina(request: AnalysisRequest):
     """
-    Endpoint phân tích ảnh võng mạc (Mock Engine cho tuần 1 - SCRUM-62).
-    Nhận chuỗi ảnh Base64 và thông tin yêu cầu, trả về kết quả phân vùng và chỉ số hình học.
+    API nội bộ nhận ảnh Base64 và trả kết quả giả lập.
+
+    Mặc định SUCCESS. WARNING được bật bằng cấu hình kiểm thử
+    phía server và vẫn trả kết quả đầy đủ. LOW_QUALITY trả lỗi 422;
+    INFERENCE_ERROR trả lỗi 500. Các kịch bản bổ sung cần bật rõ ràng.
     """
+    if not request.image_base64 or not request.image_base64.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "INVALID_IMAGE_PAYLOAD",
+                "message": "Chuỗi image_base64 không được để trống.",
+                "details": None,
+            },
+        )
+
+    norm_modality = (
+        request.modality.strip().upper()
+        if request.modality else "FUNDUS"
+    )
+
+    if norm_modality == "OCT":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error_code": "UNSUPPORTED_MODALITY",
+                "message": "OCT chưa được hỗ trợ; chỉ chấp nhận FUNDUS.",
+                "details": {
+                    "supported_modalities": ["FUNDUS"],
+                    "received_modality": request.modality,
+                },
+            },
+        )
+
+    if norm_modality != "FUNDUS":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error_code": "INVALID_MODALITY",
+                "message": "Modality không hợp lệ; chỉ chấp nhận FUNDUS.",
+                "details": {
+                    "supported_modalities": ["FUNDUS"],
+                    "received_modality": request.modality,
+                },
+            },
+        )
+
+    if request.mode != AnalysisMode.RETINA_VESSELS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error_code": "UNSUPPORTED_MODE",
+                "message": "Chỉ hỗ trợ chế độ retina_vessels.",
+                "details": {
+                    "supported_modes": ["retina_vessels"],
+                    "received_mode": request.mode.value,
+                },
+            },
+        )
+
     try:
-        # Check blank image
-        if not request.image_base64 or len(request.image_base64.strip()) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Chuỗi image_base64 không được để trống.",
-            )
+        return process_mock_analysis(request)
 
-        # OCT modality check (Task requirement: OCT returns 422 unsupported_modality)
-        if request.modality and request.modality.upper() == "OCT":
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="unsupported_modality: Định dạng ảnh OCT chưa được hỗ trợ trong phiên bản hiện tại (chỉ hỗ trợ Fundus).",
-            )
+    except InvalidImagePayloadError as error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error_code": "INVALID_IMAGE_PAYLOAD",
+                "message": str(error),
+                "details": {
+                    "supported_formats": ["PNG", "JPEG", "WEBP"]
+                },
+            },
+        ) from error
 
-        result = process_mock_analysis(request)
-        return result
+    except MockLowQualityImageError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "error_code": "LOW_QUALITY_IMAGE",
+                "message": str(error),
+                "details": {
+                    "is_mock": True,
+                    "reason": "MOCK_LOW_QUALITY",
+                    "quality_assessment_performed": False,
+                },
+            },
+        ) from error
+
     except HTTPException:
         raise
-    except Exception as e:
+
+    except Exception as error:
+        logger.exception("AI analysis processing failed.")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Lỗi nội bộ khi xử lý mô hình AI: {str(e)}",
-        )
+            detail={
+                "error_code": "INFERENCE_RUNTIME_ERROR",
+                "message": "Lỗi nội bộ khi xử lý AI.",
+                "details": None,
+            },
+        ) from error

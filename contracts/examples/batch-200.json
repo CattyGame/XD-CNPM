@@ -1,25 +1,26 @@
 {
   "batchId": "b0000000-0000-4000-8000-000000000001",
-  "batchStatus": "PARTIAL_FAILED",
+  "batchStatus": "IN_PROGRESS",
   "createdAt": "2026-10-08T03:15:00Z",
   "items": [
     {
       "analysisId": "3f6c1d52-8a41-4c5e-9b0a-6d2f7a1e0001",
       "fileName": "fundus-01.jpg",
-      "processingStatus": "AI_COMPLETED",
-      "reviewStatus": "REVIEW_PENDING",
+      "processingStatus": "COMPLETED",
+      "reviewStatus": "PENDING",
       "riskLevel": "MODERATE",
       "job": {
         "jobId": "a0000000-0000-4000-8000-000000000001",
-        "status": "SUCCESS",
-        "retryCount": 0
+        "status": "SUCCEEDED",
+        "retryCount": 0,
+        "attemptNo": 1
       }
     },
     {
       "analysisId": "3f6c1d52-8a41-4c5e-9b0a-6d2f7a1e0002",
       "fileName": "fundus-02.jpg",
       "processingStatus": "FAILED",
-      "reviewStatus": "NOT_APPLICABLE",
+      "reviewStatus": "NOT_REQUIRED",
       "error": {
         "code": "ERR_TIMEOUT",
         "message": "Quá thời gian xử lý.",
@@ -29,8 +30,27 @@
       "job": {
         "jobId": "a0000000-0000-4000-8000-000000000002",
         "status": "FAILED",
-        "retryCount": 3
+        "retryCount": 3,
+        "attemptNo": 4
       }
     }
-  ]
+  ],
+  "summary": {
+    "total": 2,
+    "active": 1,
+    "succeeded": 1,
+    "failed": 0,
+    "duplicate": 0,
+    "byStatus": {
+      "PENDING": 0,
+      "QUEUED": 0,
+      "PROCESSING": 0,
+      "COMPLETED": 1,
+      "FAILED": 1,
+      "RETRY_READY": 0,
+      "LOW_QUALITY": 0,
+      "REJECTED": 0,
+      "DUPLICATE": 0
+    }
+  }
 }
