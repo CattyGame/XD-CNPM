@@ -109,6 +109,7 @@ export default function NotificationSettings() {
       if (
         !syncEnabled ||
         !user ||
+        sessionUid.current !== user.uid ||
         isMockEnabled ||
         !secureContext ||
         operationInFlight.current ||
