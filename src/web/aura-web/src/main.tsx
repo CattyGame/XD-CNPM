@@ -3,6 +3,10 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import AppRouter from './routes/AppRouter'
+import ForbiddenPage from './pages/ForbiddenPage'
+import ServerErrorPage from './pages/ServerErrorPage'
 
 async function startApp() {
   const enableMock =
@@ -36,7 +40,14 @@ async function startApp() {
             DEMO MODE — Dữ liệu giả lập
           </div>
         )}
-        <App />
+        <BrowserRouter>
+  <Routes>
+    <Route path="/403" element={<ForbiddenPage />} />
+    <Route path="/500" element={<ServerErrorPage />} />
+    <Route path="/router-demo/*" element={<AppRouter />} />
+    <Route path="/*" element={<App />} />
+  </Routes>
+</BrowserRouter>
       </>
     </StrictMode>,
   )

@@ -1,0 +1,53 @@
+
+/* Modal dùng chung cho AURA */
+.aura-modal {
+  width: min(480px, calc(100% - 32px));
+  box-sizing: border-box;
+  padding: 28px;
+  border: none;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #101828;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+}
+
+/* Nền phía sau Modal */
+.aura-modal::backdrop {
+  background: rgba(16, 24, 40, 0.55);
+}
+
+/* Tiêu đề */
+.aura-modal h2 {
+  margin: 0 0 16px;
+  font-size: 22px;
+  color: #101828;
+}
+
+/* Nội dung */
+.aura-modal-content {
+  margin-bottom: 24px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: #475467;
+}
+
+/* Nút đóng */
+.aura-modal button {
+  padding: 10px 24px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #344054;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.aura-modal button:hover {
+  background: #f2f4f7;
+}
+
+.aura-modal button:focus-visible {
+  outline: 2px solid #155eef;
+  outline-offset: 3px;
+}

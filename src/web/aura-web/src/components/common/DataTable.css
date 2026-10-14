@@ -1,0 +1,48 @@
+
+/* Bảng dữ liệu dùng chung AURA */
+.aura-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+/* Tiêu đề các cột */
+.aura-data-table th {
+  background: #f8fafc;
+  color: #475467;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  padding: 16px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+/* Nội dung từng ô */
+.aura-data-table td {
+  padding: 16px;
+  font-size: 14px;
+  color: #344054;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+/* Hiệu ứng khi di chuột vào dòng */
+.aura-data-table tbody tr:hover {
+  background: #f0f9ff;
+}
+
+/* Bỏ đường kẻ dưới dòng cuối */
+.aura-data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Hỗ trợ màn hình nhỏ */
+@media (max-width: 768px) {
+  .aura-data-table th,
+  .aura-data-table td {
+    padding: 12px;
+    font-size: 13px;
+  }
+}
