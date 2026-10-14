@@ -11,4 +11,3 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   CLINIC: 'Cơ sở y tế',
   SYSTEM_ADMIN: 'Quản trị hệ thống',
 }
-
