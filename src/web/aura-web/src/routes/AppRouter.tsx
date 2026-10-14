@@ -57,7 +57,7 @@ export default function AppRouter() { const demoUserRole: UserRole = 'SYSTEM_ADM
     </RouteGuard>
   }
 />
-        
+
 <Route
   path="admin/table-demo"
   element={
@@ -81,7 +81,7 @@ export default function AppRouter() { const demoUserRole: UserRole = 'SYSTEM_ADM
     </RouteGuard>
   }
 />
-        
+
 
 <Route
   path="patient/dashboard"
@@ -132,7 +132,7 @@ export default function AppRouter() { const demoUserRole: UserRole = 'SYSTEM_ADM
       <AdminDashboard />
     </RouteGuard>
   }
-  
+
 />
 
 <Route

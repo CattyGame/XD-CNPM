@@ -32,18 +32,18 @@ export const roleMenus: Record<UserRole, MenuItem[]> = {
     {
       label: 'Dashboard',
       path: '/router-demo/admin/dashboard',
-      
+
     },
     {
       label: 'Quản lý tài khoản',
       path: '/router-demo/admin/accounts',
     },
-    
+
     {
       label: 'Cấu hình AI',
       path: '/router-demo/admin/ai-config',
     },
-    
+
     {
       label: 'Nhật ký hệ thống',
       path: '/router-demo/admin/audit-logs',
