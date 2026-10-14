@@ -1,0 +1,46 @@
+
+/* Component FormField dùng chung cho AURA */
+.aura-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+  max-width: 420px;
+}
+
+/* Nhãn ô nhập */
+.aura-form-field label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #344054;
+}
+
+/* Ô nhập liệu */
+.aura-form-field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: white;
+  font-size: 15px;
+  color: #101828;
+}
+
+/* Khi người dùng chọn ô nhập */
+.aura-form-field input:focus {
+  outline: 2px solid #155eef;
+  outline-offset: 1px;
+}
+
+/* Khi dữ liệu nhập bị lỗi */
+.aura-form-field input[aria-invalid="true"] {
+  border-color: #b42318;
+}
+
+/* Thông báo lỗi */
+.aura-form-field p[role="alert"] {
+  margin: 0;
+  color: #b42318;
+  font-size: 13px;
+}
