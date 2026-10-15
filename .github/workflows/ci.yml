@@ -98,11 +98,15 @@ jobs:
       - name: Build
         run: npm run build
 
-  docker-smoke:
+   docker-smoke:
     name: Docker and Gateway checks
     needs: [dotnet, python]
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    env:
+      # Placeholder for Compose interpolation; Billing is not started by this job.
+      BILLING_DB_PASSWORD: ci-placeholder-not-a-real-password
 
     steps:
       - name: Checkout
