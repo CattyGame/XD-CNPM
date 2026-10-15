@@ -57,7 +57,7 @@ app.UseSwaggerUI();
 
 await app.Services
     .GetRequiredService<PackageRepository>()
-    .InitializeAsync(CancellationToken.None);
+    .VerifyDatabaseAsync(CancellationToken.None);
 
 app.MapHealthChecks("/health");
 
