@@ -1,9 +1,9 @@
 > **Dự án**: AURA — Phân tích mạch máu võng mạc hỗ trợ đánh giá sức khỏe
-> **Mã Jira**: SCRUM-59 — Kiểm tra dataset và giấy phép; SCRUM-290 — Version NiFi và dữ liệu huấn luyện
+> **Mã Jira**: SCRUM-59, SCRUM-290; SCRUM-308 / SCRUM-310 (Sprint 2 — Tiền xử lý chuẩn hóa & Contract Worker–AI)
 > **Người biên soạn ban đầu**: Đào Duy Quân (M4 — AI Engineer)
-> **Phiên bản tài liệu**: 1.2.0
-> **Ngày cập nhật**: 2026-10-09
-> **Trạng thái**: Đã kiểm tra CHASE_DB1, tạo manifest và chia tập theo đối tượng; đã đánh giá baseline Frangi v0.2 trên validation/test. Chất lượng còn hạn chế; chưa nghiệm thu hiệu năng toàn luồng hoặc hiệu quả lâm sàng.
+> **Phiên bản tài liệu**: 1.3.0
+> **Ngày cập nhật**: 2026-10-16
+> **Trạng thái**: Đã chuẩn hóa quy trình tiền xử lý ảnh võng mạc (FOV crop, Green-channel, CLAHE) và bộ lọc chất lượng tự động; đồng bộ Worker–AI Contract theo chuẩn Sprint 2 v1.0.
 
 ---
 
@@ -296,3 +296,23 @@ Không sử dụng kết quả demo để tự động chẩn đoán, loại tr�
 - [ ] Đã review và merge thay đổi tài liệu/script.
 
 Việc hoàn thành SCRUM-59 không đồng nghĩa thuật toán đã đạt độ chính xác hoặc hiệu năng mục tiêu.
+
+---
+
+## 11. Quy trình Tiền xử lý Chuẩn hóa và Bộ lọc Chất lượng Ảnh (Sprint 2 — W2-M4-01 / W2-M4-03)
+
+Nhằm chuẩn bị dữ liệu đầu vào tối ưu cho mô hình suy luận và ngăn ngừa xử lý lãng phí trên ảnh lỗi/kém chất lượng, Sprint 2 bổ sung module chuẩn hóa tiền xử lý ảnh võng mạc (`app/services/preprocessing.py`):
+
+1. **Phát hiện vùng quan sát tròn (FOV Detection)**:
+   - Tự động tách biệt mô võng mạc có chiếu sáng khỏi viền đen xung quanh camera bằng ngưỡng phân ngưỡng thích ứng và toán tử hình thái học đóng (*morphological closing*).
+2. **Cắt gọn và Căn giữa 1:1 (Centering & Crop)**:
+   - Cắt bỏ viền đen không mang thông tin lâm sàng, duy trì tỷ lệ khung hình vuông 1:1 cân đối.
+3. **Trích xuất kênh Xanh lá (Green-channel Extraction)**:
+   - Kênh màu Xanh lá hấp thụ tối đa bước sóng của hemoglobin mạch máu, mang lại độ tương phản cao nhất giữa thành mạch và đáy mắt.
+4. **Tăng cường tương phản cục bộ (Adaptive Contrast Stretching & Unsharp Mask)**:
+   - Cải thiện độ sắc nét của vi mao mạch mỏng mà không làm khuếch đại nhiễu nền.
+5. **Chuẩn hóa kích thước độ phân giải**:
+   - Resampling chuẩn về $512\times512$ pixel bằng bộ lọc Lanczos chất lượng cao.
+6. **Bộ đánh giá chất lượng đa chiều (Multi-dimensional Quality Filter)**:
+   - Tự động đo lường độ sáng trung bình (*mean luminance*), độ tương phản (*RMS contrast*), độ sắc nét biên (*Laplacian sharpness*) và tỷ lệ diện tích FOV.
+   - Ảnh bị từ chối nếu quá tối ($<15.0$), cháy sáng ($>240.0$), mất nét nghiêm trọng hoặc không nhận diện được võng mạc, lập tức trả về mã lỗi `422 LOW_QUALITY_IMAGE` cho Worker/Analysis xử lý bồi hoàn credit an toàn.
