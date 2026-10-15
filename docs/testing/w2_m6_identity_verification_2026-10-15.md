@@ -44,18 +44,18 @@
 
 ### 3.2. Truy vấn đối chiếu Database PostgreSQL:
 ```sql
-SELECT account_id, firebase_uid, account_status, profile_provisioning_status 
+SELECT account_id, firebase_uid, account_status, profile_provisioning_status
 FROM identity.accounts WHERE firebase_uid = 'hoang_dev_1';
 
-              account_id              | firebase_uid | account_status | profile_provisioning_status 
+              account_id              | firebase_uid | account_status | profile_provisioning_status
 --------------------------------------+--------------+----------------+-----------------------------
  668c4a32-5342-4d8b-b505-07d548732120 | hoang_dev_1  | ACTIVE         | PENDING
 
 
-SELECT * FROM identity.account_roles 
+SELECT * FROM identity.account_roles
 WHERE account_id = '668c4a32-5342-4d8b-b505-07d548732120';
 
-              account_id              | role_name |          granted_at          
+              account_id              | role_name |          granted_at
 --------------------------------------+-----------+------------------------------
  668c4a32-5342-4d8b-b505-07d548732120 | PATIENT   | 2026-10-15 15:07:43.04979+00
 ```
