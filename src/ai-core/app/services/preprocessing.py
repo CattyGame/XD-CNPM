@@ -319,7 +319,7 @@ def preprocess_fundus_image(
 ) -> PreprocessResult:
     """
     Main entry point for standardized Fundus Preprocessing Pipeline.
-    
+
     Pipeline Steps:
     1. Load, verify, and normalize input to RGB PIL Image.
     2. Segment and extract binary FOV mask.
