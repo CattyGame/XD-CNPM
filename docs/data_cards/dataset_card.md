@@ -315,4 +315,4 @@ Nhằm chuẩn bị dữ liệu đầu vào tối ưu cho mô hình suy luận v
    - Resampling chuẩn về $512\times512$ pixel bằng bộ lọc Lanczos chất lượng cao.
 6. **Bộ đánh giá chất lượng đa chiều (Multi-dimensional Quality Filter)**:
    - Tự động đo lường độ sáng trung bình (*mean luminance*), độ tương phản (*RMS contrast*), độ sắc nét biên (*Laplacian sharpness*) và tỷ lệ diện tích FOV.
-   - Ảnh bị từ chối nếu quá tối ($<15.0$), cháy sáng ($>240.0$), mất nét nghiêm trọng hoặc không nhận diện được võng mạc, lập tức trả về mã lỗi `422 LOW_QUALITY_IMAGE` cho Worker/Analysis xử lý bồi hoàn credit an toàn.
+   - Ảnh bị từ chối nếu quá tối ($<15.0$), cháy sáng ($>240.0$), mất nét nghiêm trọng hoặc không nhận diện được võng mạc, lập tức trả về mã lỗi `422 LOW_QUALITY_IMAGE` cho Worker/Analysis xử lý bồi hoàn credit an toàn.

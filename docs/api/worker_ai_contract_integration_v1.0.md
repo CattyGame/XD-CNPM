@@ -1,12 +1,12 @@
 # ĐẶC TẢ HỢP ĐỒNG TÍCH HỢP WORKER — AI CORE (AURA MODULE M4 — M2)
 
-> **Dự án**: AURA — AI Retinal Analysis Platform  
-> **Mã công việc Jira**: SCRUM-310 (W2-M4-03)  
-> **Người biên soạn**: Đào Duy Quân (quandd2937@ut.edu.vn — M4: AI Engineer & NiFi)  
-> **Phối hợp kỹ thuật**: Võ Hữu Duy (M2 — Analysis Service & Worker)  
-> **Người duyệt**: Nguyễn Trương Hậu (M1 — Tech Lead)  
-> **Phiên bản tài liệu**: v1.0.0  
-> **Ngày hiệu lực**: 16/10/2026 (Khóa chuẩn Sprint 2)  
+> **Dự án**: AURA — AI Retinal Analysis Platform
+> **Mã công việc Jira**: SCRUM-310 (W2-M4-03)
+> **Người biên soạn**: Đào Duy Quân (quandd2937@ut.edu.vn — M4: AI Engineer & NiFi)
+> **Phối hợp kỹ thuật**: Võ Hữu Duy (M2 — Analysis Service & Worker)
+> **Người duyệt**: Nguyễn Trương Hậu (M1 — Tech Lead)
+> **Phiên bản tài liệu**: v1.0.0
+> **Ngày hiệu lực**: 16/10/2026 (Khóa chuẩn Sprint 2)
 > **Tài liệu căn cứ**: `AURA_Sprint2_Contract_Cau_hinh_chung_v1.0.md` (Mục 9)
 
 ---
@@ -124,5 +124,5 @@ Worker có trách nhiệm ánh xạ chính xác kết quả phân tích từ AI 
 - [x] Test suite 43/43 tests tự động bao phủ toàn bộ các kịch bản thành công, cảnh báo, từ chối định dạng và ảnh kém chất lượng.
 
 ---
-*Biên soạn bởi: Đào Duy Quân (M4 — AI & NiFi)*  
+*Biên soạn bởi: Đào Duy Quân (M4 — AI & NiFi)*
 *Xác nhận phối hợp: Module M4 (AI Core) & Module M2 (Analysis Worker)*
