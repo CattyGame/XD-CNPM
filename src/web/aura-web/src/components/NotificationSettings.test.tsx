@@ -604,11 +604,16 @@ describe('Đồng bộ tự động khi quay lại tab', () => {
 
     fireEvent(window, new Event('focus'))
 
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'Đăng xuất' }),
+      ).toHaveProperty('disabled', true)
+    })
+
     const logoutButton = screen.getByRole('button', {
       name: 'Đăng xuất',
     })
 
-    expect(logoutButton).toHaveProperty('disabled', true)
     fireEvent.click(logoutButton)
     expect(mocks.unregister).not.toHaveBeenCalled()
 
