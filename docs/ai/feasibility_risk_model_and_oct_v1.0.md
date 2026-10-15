@@ -1,11 +1,11 @@
 # BÁO CÁO ĐÁNH GIÁ KHẢ THI MÔ HÌNH NGUY CƠ (RISK MODEL) VÀ MODALITY OCT — AURA AI
 
-> **Dự án**: AURA — AI Retinal Analysis Platform  
-> **Mã công việc Jira**: SCRUM-309 (W2-M4-02)  
-> **Người thực hiện**: Đào Duy Quân (quandd2937@ut.edu.vn — M4: AI Engineer & NiFi)  
-> **Người tiếp nhận / Reviewer**: Nguyễn Trương Hậu (M1 — Tech Lead), Võ Hữu Duy (M2 — Analysis Backend)  
-> **Phiên bản tài liệu**: v1.0.0  
-> **Ngày lập**: 16/10/2026  
+> **Dự án**: AURA — AI Retinal Analysis Platform
+> **Mã công việc Jira**: SCRUM-309 (W2-M4-02)
+> **Người thực hiện**: Đào Duy Quân (quandd2937@ut.edu.vn — M4: AI Engineer & NiFi)
+> **Người tiếp nhận / Reviewer**: Nguyễn Trương Hậu (M1 — Tech Lead), Võ Hữu Duy (M2 — Analysis Backend)
+> **Phiên bản tài liệu**: v1.0.0
+> **Ngày lập**: 16/10/2026
 > **Trạng thái**: Đã nghiệm thu khảo sát kỹ thuật; chốt kết luận vận hành cho Sprint 2.
 
 ---
@@ -52,7 +52,7 @@ Mục tiêu cốt lõi: Xác định căn cứ khoa học, yêu cầu dữ liệ
   - **Kết luận**: **KHÔNG KHẢ THI** trong khuôn khổ Sprint 2 và tài nguyên hiện tại.
 
 #### Hướng tiếp cận B: Trích xuất chỉ số hình thái mạch máu (Biomarker Morphometry Pipeline)
-- **Phương pháp**: 
+- **Phương pháp**:
   1. Sử dụng kết quả phân đoạn mạch máu (*Segmentation Mask*) đã qua tiền xử lý chuẩn hóa.
   2. Dùng thuật toán xử lý ảnh hình thái học (*morphological thinning, distance transform, skeleton graph*) để đo đạc khách quan: $AVR$, Mật độ mạch (*Vessel Density*), Chỉ số uốn lượn (*Tortuosity*).
   3. Đối chiếu các chỉ số này với các ngưỡng tham chiếu y văn (*normal clinical ranges*).
@@ -128,5 +128,5 @@ Nếu hỗ trợ OCT trong thời điểm này, toàn bộ hệ sinh thái AURA 
 3. Báo cáo này hoàn thành 100% yêu cầu nghiệm thu của task **SCRUM-309 (W2-M4-02)** theo văn bản chỉ đạo của Tech Lead Trương Hậu.
 
 ---
-*Biên soạn bởi: Đào Duy Quân — M4 (AI Engineer & NiFi)*  
+*Biên soạn bởi: Đào Duy Quân — M4 (AI Engineer & NiFi)*
 *Chữ ký kỹ thuật: Daoduyquan*
