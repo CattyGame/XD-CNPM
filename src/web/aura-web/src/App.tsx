@@ -3,6 +3,9 @@ import './App.css'
 import AnalysisDemoPanel from './components/AnalysisDemoPanel'
 import NotificationSettings from './components/NotificationSettings'
 import FcmDemoPanel from './components/FcmDemoPanel'
+import { useNavigate } from 'react-router-dom'
+import { signOut } from 'firebase/auth'
+import { getFirebaseAuth } from './firebase/config'
 
 type PingResponse = {
   service: string
@@ -100,6 +103,22 @@ const navigation = [
 ]
 
 function App() {
+  const navigate = useNavigate()
+
+async function handleLogout() {
+  try {
+    const auth = getFirebaseAuth()
+
+    if (auth) {
+      await signOut(auth)
+    }
+
+    navigate('/login', { replace: true })
+  } catch (error) {
+    console.error('Đăng xuất thất bại:', error)
+    alert('Không thể đăng xuất. Vui lòng thử lại.')
+  }
+}
   const [activePage, setActivePage] = useState('Dashboard')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('Tất cả trạng thái')
@@ -814,7 +833,13 @@ function App() {
                 <strong>Quản trị viên</strong>
                 <small>System Admin</small>
               </div>
-              <span className="user-chevron">⌄</span>
+              <button
+                type="button"
+                onClick={() => void handleLogout()}
+                className="logout-button"
+              >
+                Đăng xuất
+              </button>
             </div>
           </div>
         </header>

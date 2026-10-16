@@ -7,6 +7,9 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import AppRouter from './routes/AppRouter'
 import ForbiddenPage from './pages/ForbiddenPage'
 import ServerErrorPage from './pages/ServerErrorPage'
+import LoginPage from './pages/LoginPage'
+import ProtectedRoute from './routes/ProtectedRoute'
+import UploadPage from './pages/UploadPage'
 
 async function startApp() {
   const enableMock =
@@ -42,11 +45,29 @@ async function startApp() {
         )}
         <BrowserRouter>
   <Routes>
-    <Route path="/403" element={<ForbiddenPage />} />
-    <Route path="/500" element={<ServerErrorPage />} />
-    <Route path="/router-demo/*" element={<AppRouter />} />
-    <Route path="/*" element={<App />} />
-  </Routes>
+  <Route path="/login" element={<LoginPage />} />
+  <Route path="/403" element={<ForbiddenPage />} />
+  <Route path="/500" element={<ServerErrorPage />} />
+  <Route path="/router-demo/*" element={<AppRouter />} />
+
+  <Route
+    path="/upload"
+    element={
+      <ProtectedRoute>
+        <UploadPage />
+      </ProtectedRoute>
+    }
+  />
+
+  <Route
+    path="/*"
+    element={
+      <ProtectedRoute>
+        <App />
+      </ProtectedRoute>
+    }
+  />
+</Routes>
 </BrowserRouter>
       </>
     </StrictMode>,
