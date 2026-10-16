@@ -35,6 +35,19 @@ jobs:
       - name: Build
         run: dotnet build AURA.sln --configuration Release --no-restore
 
+      - name: Check service identity setup
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          dotnet run \
+            --project tools/AURA.ServiceIdentity.Setup/AURA.ServiceIdentity.Setup.csproj \
+            --configuration Release \
+            --no-launch-profile \
+            -- \
+            --registry "$GITHUB_WORKSPACE/infra/service-auth/clients.example.json" \
+            --output "$RUNNER_TEMP/aura-service-auth-check"
+
   python:
     name: Python tests
     runs-on: ubuntu-latest
