@@ -1,0 +1,85 @@
+
+/* Layout dùng chung cho 4 vai trò */
+.app-layout {
+  display: flex;
+  min-height: 100vh;
+  background: #f4f7fa;
+}
+
+/* Sidebar */
+.app-layout aside {
+  width: 260px;
+  flex-shrink: 0;
+  background: #112b45;
+  color: white;
+  padding: 24px 16px;
+}
+
+.app-layout aside h2 {
+  font-size: 24px;
+  margin: 0 0 32px;
+  color: white;
+}
+
+/* Danh sách menu */
+.app-layout nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Mỗi mục menu */
+.app-layout nav a {
+  color: #c5d7e8;
+  text-decoration: none;
+  padding: 12px 16px;
+  border-radius: 8px;
+  display: block;
+}
+
+/* Menu đang được chọn */
+.app-layout nav a.active {
+  background: #196d84;
+  color: white;
+  font-weight: 600;
+}
+
+.app-layout nav a:hover {
+  background: #24506b;
+}
+
+/* Khu vực nội dung */
+.app-layout .app-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.app-layout .app-content header {
+  background: white;
+  padding: 20px 32px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.app-layout .app-content header h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.app-layout .app-content main {
+  padding: 32px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .app-layout {
+    flex-direction: column;
+  }
+
+  .app-layout aside {
+    width: 100%;
+  }
+
+  .app-layout .app-content main {
+    padding: 16px;
+  }
+}
