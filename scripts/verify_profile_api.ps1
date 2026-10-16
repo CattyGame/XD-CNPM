@@ -51,7 +51,7 @@ try {
     Write-Host "   PatientId: $($res02.patientId)"
     Write-Host "   PersonalTenantId: $($res02.personalTenantId)"
     Write-Host "   ProfileVersion: $($res02.profileVersion)"
-    
+
     if ($res02.accountId -ne $res02.patientId -and $res02.patientId -ne $res02.personalTenantId) {
         Write-Host "-> DA XAC NHAN: accountId != patientId != personalTenantId (Dung chuan tach biet ID)" -ForegroundColor Green
     } else {
@@ -91,7 +91,7 @@ try {
     $patchRes = Invoke-WebRequest -Uri "$baseUrl/api/v1/profiles/me" -Method Patch `
         -Headers @{ Authorization = $testToken; "If-Match" = $etag } `
         -Body $updatePayload -ContentType "application/json" -UseBasicParsing
-    
+
     $newEtag = $patchRes.Headers.ETag
     $updatedData = $patchRes.Content | ConvertFrom-Json
     Write-Host "-> PASS: Cap nhat thanh cong voi ETag moi: $newEtag" -ForegroundColor Green
