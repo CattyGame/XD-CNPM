@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { MemoryRouter } from 'react-router-dom'
 
 afterEach(() => {
   cleanup()
@@ -20,7 +21,11 @@ describe('AURA connection check', () => {
 
     vi.stubGlobal('fetch', fetchMock)
 
-    render(<App />)
+    render(
+  <MemoryRouter>
+    <App />
+  </MemoryRouter>,
+)
 
     fireEvent.click(
       screen.getByRole('button', { name: 'Kiểm tra kết nối' }),
@@ -39,7 +44,11 @@ describe('AURA connection check', () => {
       }),
     )
 
-    render(<App />)
+    render(
+  <MemoryRouter>
+    <App />
+  </MemoryRouter>,
+)
 
     fireEvent.click(
       screen.getByRole('button', { name: 'Kiểm tra kết nối' }),
@@ -52,7 +61,11 @@ describe('AURA connection check', () => {
 })
 describe('AURA upload modal keyboard', () => {
   function openUploadModal() {
-    render(<App />)
+    render(
+  <MemoryRouter>
+    <App />
+  </MemoryRouter>,
+)
 
     const trigger = screen.getByRole('button', {
       name: /Tải dữ liệu lên.*Chọn tệp dữ liệu cần xử lý/,
