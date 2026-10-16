@@ -98,7 +98,7 @@ jobs:
       - name: Build
         run: npm run build
 
-   docker-smoke:
+  docker-smoke:
     name: Docker and Gateway checks
     needs: [dotnet, python]
     runs-on: ubuntu-latest
