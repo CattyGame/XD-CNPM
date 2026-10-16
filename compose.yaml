@@ -122,6 +122,26 @@ services:
       - aura_network
     restart: unless-stopped
 
+  profile-api:
+    build:
+      context: .
+      dockerfile: src/services/AURA.Profile.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: "8080"
+      ConnectionStrings__Postgres: >-
+        Host=postgres;Port=5432;Database=${POSTGRES_DB};
+        Username=aura_profile_app;Password=aura_profile_pass;
+        Timeout=5;Command Timeout=10
+    ports:
+      - "127.0.0.1:5005:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aura_network
+    restart: unless-stopped
+
 networks:
   aura_network:
     name: ${AURA_DOCKER_NETWORK:-aura_network}
