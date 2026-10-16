@@ -15,7 +15,8 @@ var projectId = RequiredConfiguration("Firebase:ProjectId");
 
 var databaseSettings = new NpgsqlConnectionStringBuilder
 {
-    Host = "127.0.0.1",
+    Host = builder.Configuration["NotificationDatabase:Host"]
+        ?? "127.0.0.1",
     Port = builder.Configuration.GetValue(
         "NotificationDatabase:Port",
         5432),
@@ -26,8 +27,8 @@ var databaseSettings = new NpgsqlConnectionStringBuilder
     CommandTimeout = 10,
     IncludeErrorDetail = false,
 
-    // Kết nối PostgreSQL local qua loopback.
-    // Triển khai từ xa cần cấu hình TLS riêng.
+    // Local: loopback on host or private Docker network.
+    // Remote deployments require a separate TLS configuration.
     SslMode = SslMode.Disable
 };
 

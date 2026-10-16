@@ -1,0 +1,55 @@
+services:
+  api-gateway:
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      ASPNETCORE_ENVIRONMENT: Development
+      Firebase__ProjectId: ${FIREBASE_PROJECT_ID:?Set FIREBASE_PROJECT_ID}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-service-account.json
+      Gateway__UploadTimeoutSeconds: "120"
+      ReverseProxy__Clusters__identity-cluster__Destinations__identity-api__Address: "http://identity-api:8080/"
+      ReverseProxy__Clusters__profile-cluster__Destinations__profile-api__Address: "http://profile-api:8080/"
+      ReverseProxy__Clusters__analysis-cluster__Destinations__analysis-api__Address: "http://analysis-api:8080/"
+      ReverseProxy__Clusters__billing-cluster__Destinations__billing-api__Address: "http://billing-api:8080/"
+      ReverseProxy__Clusters__notification-cluster__Destinations__notification-api__Address: "http://notification-api:8080/"
+    volumes:
+      - type: bind
+        source: ${FIREBASE_SERVICE_ACCOUNT_PATH:?Set FIREBASE_SERVICE_ACCOUNT_PATH}
+        target: /run/secrets/firebase-service-account.json
+        read_only: true
+        bind:
+          create_host_path: false
+
+  notification-api:
+    image: aura-notification-api:sprint2
+    build:
+      context: .
+      dockerfile: src/services/AURA.Notification.Api/Dockerfile
+    environment:
+      DOTNET_ENVIRONMENT: Development
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: "8080"
+      Firebase__ProjectId: ${FIREBASE_PROJECT_ID:?Set FIREBASE_PROJECT_ID}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-service-account.json
+      NotificationDatabase__Host: postgres
+      NotificationDatabase__Port: "5432"
+      NotificationDatabase__Database: ${POSTGRES_DB:?Set POSTGRES_DB}
+      NotificationDatabase__Username: aura_notification_app
+      NotificationDatabase__Password: ${NOTIFICATION_DB_PASSWORD:?Set NOTIFICATION_DB_PASSWORD}
+      Notification__EncryptionKeyId: ${NOTIFICATION_ENCRYPTION_KEY_ID:?Set NOTIFICATION_ENCRYPTION_KEY_ID}
+      Notification__EncryptionKey: ${NOTIFICATION_ENCRYPTION_KEY:?Set NOTIFICATION_ENCRYPTION_KEY}
+      Notification__EnableTestPush: "false"
+    ports:
+      - "127.0.0.1:5003:8080"
+    volumes:
+      - type: bind
+        source: ${FIREBASE_SERVICE_ACCOUNT_PATH:?Set FIREBASE_SERVICE_ACCOUNT_PATH}
+        target: /run/secrets/firebase-service-account.json
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - aura_network
+    restart: unless-stopped
