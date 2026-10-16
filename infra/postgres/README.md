@@ -185,3 +185,66 @@ các service này chưa được xác nhận trong bước bàn giao này.
 Các kiểm tra trên xác nhận quyền database local, không thay thế
 
 kiểm thử phân quyền tài khoản, tenant hoặc tài nguyên tại API.
+## Bổ sung SCRUM-300 — Bootstrap và quyền Analysis (2026-10-16)
+
+### Bootstrap database mới
+
+Migration `002_service_database_roles.sql` luôn tạo schema
+`billing_poc` nếu chưa tồn tại, với owner `aura_billing_migrator`.
+Sau đó chạy `003_billing_poc_packages.sql` để tạo bảng và seed.
+
+Không cần chạy Billing API bằng tài khoản quản trị để tạo bảng.
+Seed không ghi đè các gói đã tồn tại.
+
+### Ngoại lệ quyền của Analysis
+
+Quyền CRUD chung không áp dụng cho mọi bảng Analysis.
+
+| Bảng/phạm vi | Quyền aura_analysis_app |
+| --- | --- |
+| analysis_results | SELECT, INSERT |
+| doctor_reviews | SELECT, INSERT |
+| audit_logs | SELECT, INSERT |
+| Bảng Analysis mới qua default privileges | SELECT, INSERT |
+| Bảng nghiệp vụ cần cập nhật, ví dụ images | Migration service cấp UPDATE rõ ràng |
+
+Runtime không có UPDATE, DELETE hoặc TRUNCATE trên ba bảng
+append-only nêu trên.
+
+Migration role 002 thu hồi UPDATE/DELETE trên các bảng append-only
+đã tồn tại và điều chỉnh default privileges của
+`aura_analysis_migrator` và `aura_dev`.
+
+Migration Analysis cũng thu hồi cả UPDATE và DELETE trên ba bảng
+append-only. Chạy lại migration không được mở lại các quyền này.
+
+### Cách chạy migration Analysis hiện tại
+
+File `analysis/001_analysis_core.sql` hiện vẫn chứa CREATE SCHEMA.
+Với phiên bản này, chạy bằng tài khoản quản trị bootstrap;
+không chạy trực tiếp bằng runtime role hoặc SET ROLE migrator.
+
+Sau khi chạy migration Analysis, chạy lại migration role 002
+để chuyển ownership các bảng về `aura_analysis_migrator`
+và áp dụng lại chính sách quyền.
+
+### Kiểm thử đã thực hiện
+
+Trên PostgreSQL 17 tạm, không dùng volume database hiện tại:
+
+- Bootstrap database mới và seed ba gói Billing: PASS.
+- Quyền append-only sau migration Analysis: PASS.
+- Chạy lại migration role rồi kiểm tra quyền: PASS.
+- Chạy lại migration Analysis/Billing rồi kiểm tra quyền: PASS.
+- Dữ liệu gói đã chỉnh sửa được giữ nguyên: PASS.
+- Bảng mới do aura_analysis_migrator tạo chỉ có
+  default SELECT/INSERT cho runtime: PASS.
+
+Trên database local hiện tại:
+
+- Đã backup và đọc được danh mục backup trước khi áp dụng.
+- Migration role 002 đã COMMIT.
+- Schema analysis/billing_poc có đúng owner migrator.
+- Billing/Notification runtime role vẫn có LOGIN.
+- Ba bảng Analysis append-only chưa tồn tại tại thời điểm kiểm tra;
+  không ghi nhận kiểm thử quyền trên các bảng này ở database local.

@@ -78,11 +78,7 @@ BEGIN
 
         schema_names := ARRAY[service_name];
 
-        IF service_name = 'billing'
-           AND EXISTS (
-               SELECT 1 FROM pg_namespace WHERE nspname = 'billing_poc'
-           )
-        THEN
+        IF service_name = 'billing' THEN
             schema_names := array_append(schema_names, 'billing_poc');
         END IF;
 
@@ -193,6 +189,40 @@ BEGIN
                 );
             END LOOP;
         END LOOP;
+    END LOOP;
+END
+$$;
+
+-- SCRUM-300: preserve Analysis append-only permissions.
+-- New Analysis tables receive SELECT/INSERT by default.
+-- Service migrations explicitly grant UPDATE where required.
+DO $$
+DECLARE
+    creator_role text;
+    table_name text;
+BEGIN
+    FOREACH creator_role IN ARRAY ARRAY[
+        'aura_analysis_migrator', 'aura_dev'
+    ]
+    LOOP
+        EXECUTE format(
+            'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA analysis '
+            'REVOKE UPDATE, DELETE ON TABLES FROM aura_analysis_app',
+            creator_role
+        );
+    END LOOP;
+
+    FOREACH table_name IN ARRAY ARRAY[
+        'analysis_results', 'doctor_reviews', 'audit_logs'
+    ]
+    LOOP
+        IF to_regclass(format('analysis.%I', table_name)) IS NOT NULL THEN
+            EXECUTE format(
+                'REVOKE UPDATE, DELETE ON TABLE analysis.%I '
+                'FROM aura_analysis_app',
+                table_name
+            );
+        END IF;
     END LOOP;
 END
 $$;

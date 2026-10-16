@@ -250,7 +250,7 @@ BEGIN
         GRANT USAGE ON SCHEMA analysis TO aura_analysis_app;
         GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA analysis TO aura_analysis_app;
         -- Bang append-only: khong cap UPDATE/DELETE
-        REVOKE UPDATE ON analysis.analysis_results, analysis.doctor_reviews, analysis.audit_logs FROM aura_analysis_app;
+        REVOKE UPDATE, DELETE ON analysis.analysis_results, analysis.doctor_reviews, analysis.audit_logs FROM aura_analysis_app;
     END IF;
 END
 $$;
