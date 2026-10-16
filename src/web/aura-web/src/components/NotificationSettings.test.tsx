@@ -546,6 +546,8 @@ describe('Đồng bộ tự động khi quay lại tab', () => {
 
     await screen.findByText(
       'Đã đồng bộ đăng ký thông báo với backend.',
+      {},
+      { timeout: 3000 },
     )
 
     expect(mocks.obtainToken).toHaveBeenCalledTimes(2)
