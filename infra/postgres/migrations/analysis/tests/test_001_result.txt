@@ -1,0 +1,69 @@
+--- chuan bi: tenant A, B
+INSERT 0 1
+T1 mong doi LOI uq_analysis_requests_idempotency (cung tenant/requester/key)
+psql:/home/claude/outputs/analysis-migration/test_001.sql:13: ERROR:  duplicate key value violates unique constraint "uq_analysis_requests_idempotency"
+T2 mong doi OK (cung key, tenant khac)
+INSERT 0 1
+T3 mong doi LOI ck_analysis_requests_fingerprint
+psql:/home/claude/outputs/analysis-migration/test_001.sql:19: ERROR:  new row for relation "analysis_requests" violates check constraint "ck_analysis_requests_fingerprint"
+T4 mong doi OK image hop le
+INSERT 0 1
+T5 mong doi LOI fk_images_request (batch thuoc tenant khac)
+psql:/home/claude/outputs/analysis-migration/test_001.sql:25: ERROR:  insert or update on table "images" violates foreign key constraint "fk_images_request"
+T6 mong doi LOI ck_images_modality (OCT)
+psql:/home/claude/outputs/analysis-migration/test_001.sql:28: ERROR:  new row for relation "images" violates check constraint "ck_images_modality"
+T7 mong doi LOI ck_images_duplicate_ref (DUPLICATE thieu existing_analysis_id)
+psql:/home/claude/outputs/analysis-migration/test_001.sql:31: ERROR:  new row for relation "images" violates check constraint "ck_images_duplicate_ref"
+T8 mong doi OK DUPLICATE co existing_analysis_id
+INSERT 0 1
+T9 mong doi LOI ck_images_mime (gif)
+psql:/home/claude/outputs/analysis-migration/test_001.sql:37: ERROR:  new row for relation "images" violates check constraint "ck_images_mime"
+T10 mong doi LOI uq_images_object_key
+psql:/home/claude/outputs/analysis-migration/test_001.sql:40: ERROR:  duplicate key value violates unique constraint "uq_images_object_key"
+T11 mong doi OK job attempt 1
+INSERT 0 1
+T12 mong doi LOI uq_jobs_image_attempt
+psql:/home/claude/outputs/analysis-migration/test_001.sql:46: ERROR:  duplicate key value violates unique constraint "uq_jobs_image_attempt"
+T13 mong doi LOI uq_jobs_message_id
+psql:/home/claude/outputs/analysis-migration/test_001.sql:49: ERROR:  duplicate key value violates unique constraint "uq_jobs_message_id"
+T14 mong doi OK retry attempt 2
+INSERT 0 1
+T15 mong doi LOI fk_jobs_image (job tenant B tro anh tenant A)
+psql:/home/claude/outputs/analysis-migration/test_001.sql:55: ERROR:  insert or update on table "jobs" violates foreign key constraint "fk_jobs_image"
+T16 mong doi LOI ck_jobs_status
+psql:/home/claude/outputs/analysis-migration/test_001.sql:58: ERROR:  new row for relation "jobs" violates check constraint "ck_jobs_status"
+T17 mong doi OK result v1
+INSERT 0 1
+T18 mong doi LOI uq_results_job (1 attempt toi da 1 ket qua)
+psql:/home/claude/outputs/analysis-migration/test_001.sql:64: ERROR:  duplicate key value violates unique constraint "uq_results_job"
+T19 mong doi LOI uq_results_image_version
+psql:/home/claude/outputs/analysis-migration/test_001.sql:67: ERROR:  duplicate key value violates unique constraint "uq_results_image_version"
+T20 mong doi OK outbox
+INSERT 0 1
+T21 mong doi LOI fk_outbox_image (anh tenant B khong ton tai)
+psql:/home/claude/outputs/analysis-migration/test_001.sql:73: ERROR:  insert or update on table "outbox_events" violates foreign key constraint "fk_outbox_image"
+T22 mong doi LOI ck_reviews_correction (hieu chinh thieu ly do)
+psql:/home/claude/outputs/analysis-migration/test_001.sql:76: ERROR:  new row for relation "doctor_reviews" violates check constraint "ck_reviews_correction"
+T23 mong doi OK review xac nhan v1
+INSERT 0 1
+T24 mong doi LOI uq_reviews_image_version
+psql:/home/claude/outputs/analysis-migration/test_001.sql:82: ERROR:  duplicate key value violates unique constraint "uq_reviews_image_version"
+T25 mong doi OK annotation MASK; T26 LOI uq_annotation_result_type (MASK lan 2)
+INSERT 0 1
+psql:/home/claude/outputs/analysis-migration/test_001.sql:87: ERROR:  duplicate key value violates unique constraint "uq_annotation_result_type"
+T27 mong doi OK audit
+INSERT 0 1
+T28 mong doi LOI ck_audit_outcome
+psql:/home/claude/outputs/analysis-migration/test_001.sql:93: ERROR:  new row for relation "audit_logs" violates check constraint "ck_audit_outcome"
+T29 mong doi OK: index partial outbox duoc dung / kiem tra ton tai
+       indexname       
+-----------------------
+ ix_outbox_unpublished
+(1 row)
+
+T30 so bang trong schema analysis (mong doi 8)
+ count 
+-------
+     8
+(1 row)
+

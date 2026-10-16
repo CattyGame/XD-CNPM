@@ -59,10 +59,31 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.33.0
+    command:
+      - azurite-blob
+      - --blobHost
+      - 0.0.0.0
+      - --blobPort
+      - "10000"
+      - --location
+      - /data
+      - --disableProductStyleUrl
+    ports:
+      - "127.0.0.1:10000:10000"
+    volumes:
+      - azurite_data:/data
+    networks:
+      - aura_network
+    restart: unless-stopped
+
   analysis-api:
     build:
       context: .
       dockerfile: src/services/AURA.Analysis.Api/Dockerfile
+    env_file:
+      - ./infra/storage/storage.docker.env.example
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_HTTP_PORTS: "8080"
@@ -71,7 +92,6 @@ services:
     networks:
       - aura_network
     restart: unless-stopped
-
   api-gateway:
     build:
       context: .
@@ -108,7 +128,8 @@ services:
       ASPNETCORE_HTTP_PORTS: "8080"
       ConnectionStrings__Postgres: >-
         Host=postgres;Port=5432;Database=${POSTGRES_DB};
-        Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};
+        Username=aura_billing_app;
+        Password="${BILLING_DB_PASSWORD:?Set BILLING_DB_PASSWORD}";
         Timeout=5;Command Timeout=5
       ConnectionStrings__Redis: "redis:6379"
       Cache__PackageCatalogKey: "aura:local:billing:poc:packages:v1"
@@ -151,3 +172,6 @@ volumes:
   postgres_data:
   redis_data:
   rabbitmq_data:
+  azurite_data:
+    external: true
+    name: aura_azurite_data

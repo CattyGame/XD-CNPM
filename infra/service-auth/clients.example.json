@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "issuer": "aura-identity-local",
+  "algorithm": "RS256",
+  "tokenLifetimeSeconds": 300,
+  "clients": [
+    {
+      "clientId": "analysis-api",
+      "principalId": "a1000000-0000-4000-8000-000000000001",
+      "allowedTargets": {
+        "aura-identity": [
+          "identity:context"
+        ],
+        "aura-profile": [
+          "profile:resolve"
+        ],
+        "aura-billing": [
+          "billing:reserve",
+          "billing:read",
+          "billing:release"
+        ]
+      }
+    },
+    {
+      "clientId": "identity-api",
+      "principalId": "a1000000-0000-4000-8000-000000000002",
+      "allowedTargets": {
+        "aura-profile": [
+          "profile:provision"
+        ]
+      }
+    },
+    {
+      "clientId": "billing-api",
+      "principalId": "a1000000-0000-4000-8000-000000000003",
+      "allowedTargets": {
+        "aura-profile": [
+          "profile:resolve"
+        ]
+      }
+    }
+  ]
+}
