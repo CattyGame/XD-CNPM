@@ -363,3 +363,195 @@ Nguồn: log PowerShell người thao tác cung cấp.
 \- Chưa kiểm chứng đăng nhập/FCM delivery qua Gateway.
 
 \- Chưa kiểm chứng tải lớn, rate limiting hoặc môi trường production.
+
+\## Bổ sung SCRUM-299 — Firebase, CORS và timeout (2026-10-16)
+
+
+
+\### Xác thực tại Gateway
+
+
+
+Gateway xác minh Firebase ID token cho các đường dẫn /api/v1
+
+cần đăng nhập, sử dụng FirebaseAdmin 3.7.0 và checkRevoked=true.
+
+
+
+Các ngoại lệ:
+
+\- GET /api/v1/platform/ping.
+
+\- GET /api/v1/billing/packages.
+
+\- OPTIONS phục vụ CORS preflight.
+
+\- Health endpoint nằm ngoài /api/v1.
+
+
+
+Thiếu hoặc sai token trả 401 ERR\_UNAUTHORIZED.
+
+Không xác minh được do cấu hình/dependency trả
+
+503 ERR\_AUTH\_UNAVAILABLE; không chuyển tiếp request.
+
+
+
+Gateway giữ Authorization để API đích tiếp tục xác minh.
+
+Gateway không suy ra accountId, tenant hoặc role nội bộ từ UID.
+
+API nghiệp vụ vẫn kiểm tra account active, role và quyền resource.
+
+
+
+Cấu hình backend khi chạy trên host:
+
+\- Firebase\_\_ProjectId: project Firebase dev.
+
+\- GOOGLE\_APPLICATION\_CREDENTIALS: đường dẫn file service account
+
+&#x20; nằm ngoài repository.
+
+
+
+Firebase client được khởi tạo khi có request cần xác minh.
+
+Health/ping không chứng minh cấu hình Firebase đã hoạt động.
+
+Không log ID token, service account hoặc mật khẩu.
+
+
+
+\### Header và route
+
+
+
+Gateway loại các header do client gửi:
+
+\- X-Account-Id.
+
+\- X-Role.
+
+\- X-Tenant-Id.
+
+\- X-User-Authorization.
+
+
+
+Giữ X-Clinic-Id như lựa chọn context; backend phải kiểm membership.
+
+Giữ Authorization, Idempotency-Key và X-Correlation-Id.
+
+
+
+CORS cho phép X-Clinic-Id và expose Idempotent-Replayed.
+
+Response lỗi xác thực/timeout vẫn có CORS cho origin được phép.
+
+
+
+Route Billing bao phủ /api/v1/billing/{\*\*catch-all}.
+
+Không mở route public tới /internal/v1.
+
+
+
+\### Timeout upload
+
+
+
+Route analysis-upload:
+
+\- POST /api/v1/analyses.
+
+\- Order = -10.
+
+\- TimeoutPolicy = analysis-upload.
+
+
+
+Gateway\_\_UploadTimeoutSeconds mặc định trong appsettings.json
+
+là 120 giây. Analysis cluster ActivityTimeout là 130 giây.
+
+
+
+Có middleware nối trạng thái route timeout về Request Timeouts
+
+để tránh trường hợp YARP trả 400 khi request bị hủy do deadline.
+
+
+
+Nếu response chưa bắt đầu, timeout trả:
+
+\- HTTP 504.
+
+\- error.code = ERR\_GATEWAY\_TIMEOUT.
+
+\- retryable = true.
+
+\- X-Correlation-Id và Cache-Control: no-store.
+
+
+
+Nếu response đã bắt đầu, Gateway không thể thay lại status/body.
+
+
+
+Timeout không xác nhận backend đã rollback thao tác.
+
+Khi thử lại upload, client phải giữ nguyên Idempotency-Key
+
+và nội dung request để backend xử lý idempotency.
+
+
+
+\### Kiểm thử local đã đạt
+
+
+
+\- Gateway build thành công.
+
+\- Health không cần token.
+
+\- CORS preflight trả 204, cho phép X-Clinic-Id.
+
+\- Các prefix Identity/Profile/Analysis/Billing/Notification
+
+&#x20; thiếu token trả 401 với correlation ID và CORS.
+
+\- Token sai trả 401.
+
+\- Firebase token thật được xác minh và chuyển tiếp tới backend thử.
+
+\- Backend nhận Authorization, X-Clinic-Id, Idempotency-Key
+
+&#x20; và correlation ID.
+
+\- Backend không nhận bốn header giả mạo nêu trên.
+
+\- Override timeout 2 giây, backend chờ 5 giây:
+
+&#x20; Gateway trả 504 sau 2,11 giây, có ERR\_GATEWAY\_TIMEOUT,
+
+&#x20; correlation ID và CORS.
+
+
+
+Kiểm thử token thật dùng tài khoản Firebase thử nghiệm.
+
+Backend kiểm thử không in hoặc trả nội dung token.
+
+
+
+Giá trị production/local baseline vẫn là 120 giây;
+
+không ghi nhận đã chờ đủ 120 giây trong phép thử này.
+
+
+
+Cấu hình credentials/mount và địa chỉ các service khi Gateway
+
+chạy trong Docker tiếp tục được hoàn thiện trong SCRUM-301.

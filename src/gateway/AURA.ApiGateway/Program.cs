@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Http.Timeouts;
+using AURA.ApiGateway;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -49,7 +51,45 @@ builder.WebHost.ConfigureKestrel(options =>
 
 builder.Services.AddProblemDetails();
 builder.Services.AddHealthChecks();
+var uploadTimeoutSeconds = builder.Configuration.GetValue<int>(
+    "Gateway:UploadTimeoutSeconds");
 
+if (uploadTimeoutSeconds <= 0)
+{
+    throw new InvalidOperationException(
+        "Gateway:UploadTimeoutSeconds must be positive.");
+}
+
+builder.Services.AddRequestTimeouts(options =>
+{
+    options.AddPolicy("analysis-upload", new RequestTimeoutPolicy
+    {
+        Timeout = TimeSpan.FromSeconds(uploadTimeoutSeconds),
+        TimeoutStatusCode = StatusCodes.Status504GatewayTimeout,
+        WriteTimeoutResponse = async context =>
+        {
+            context.Response.Headers["Cache-Control"] = "no-store";
+
+            // The request timeout token has already been cancelled.
+            // Use a separate bounded token to write the error response.
+            using var responseTimeout =
+                new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+            await context.Response.WriteAsJsonAsync(
+                new
+                {
+                    error = new
+                    {
+                        code = "ERR_GATEWAY_TIMEOUT",
+                        message = "Yêu cầu vượt thời gian xử lý cho phép.",
+                        correlationId = context.TraceIdentifier,
+                        retryable = true
+                    }
+                },
+                cancellationToken: responseTimeout.Token);
+        }
+    });
+});
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(corsPolicyName, policy =>
@@ -68,10 +108,12 @@ builder.Services.AddCors(options =>
                 "Content-Type",
                 "Idempotency-Key",
                 correlationHeader,
+                "X-Clinic-Id",
                 "If-Match",
                 "If-None-Match")
             .WithExposedHeaders(
                 correlationHeader,
+                "Idempotent-Replayed",
                 "Location",
                 "Retry-After",
                 "ETag");
@@ -82,7 +124,7 @@ builder.Services
     .AddReverseProxy()
     .LoadFromConfig(
         builder.Configuration.GetSection("ReverseProxy"));
-
+        builder.Services.AddGatewayFirebaseAuth(builder.Configuration);
 var app = builder.Build();
 
 app.Use(async (context, next) =>
@@ -117,8 +159,41 @@ app.Use(async (context, next) =>
 
 app.UseExceptionHandler();
 
+app.Use(async (context, next) =>
+{
+    context.Request.Headers.Remove("X-Account-Id");
+    context.Request.Headers.Remove("X-Role");
+    context.Request.Headers.Remove("X-Tenant-Id");
+    context.Request.Headers.Remove("X-User-Authorization");
+
+    await next(context);
+});
+
 app.UseRouting();
 app.UseCors(corsPolicyName);
+app.UseRequestTimeouts();
+
+app.Use(async (context, next) =>
+{
+    await next(context);
+
+    var timeoutFeature = context.Features
+        .Get<IHttpRequestTimeoutFeature>();
+
+    if (
+        timeoutFeature is not null &&
+        timeoutFeature.RequestTimeoutToken.IsCancellationRequested &&
+        !context.Response.HasStarted)
+    {
+        // YARP may return normally after cancellation with status 400.
+        // Let the outer request-timeout middleware produce the 504 response.
+        throw new OperationCanceledException(
+            "Gateway request deadline exceeded.",
+            timeoutFeature.RequestTimeoutToken);
+    }
+});
+
+app.UseMiddleware<GatewayFirebaseAuthMiddleware>();
 
 app.Use(async (context, next) =>
 {
