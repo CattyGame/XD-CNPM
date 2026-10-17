@@ -188,7 +188,7 @@ Ràng buộc:
 
 ### 5.6. Chính sách Billing trong Sprint 2 — SCRUM-305
 
-**Trạng thái:** Draft for review  
+**Trạng thái:** Draft for review
 **Phạm vi:** Credit, reservation, capture/release, Billing Owner, price snapshot, idempotency và payment provider.
 
 #### 5.6.1. Đơn vị credit và điều kiện tính phí
