@@ -47,7 +47,7 @@ describe('SCRUM-313 - UploadPage', () => {
       screen.getByRole('button', { name: 'Gửi ảnh phân tích' }),
     ).toBeTruthy()
   })
-  
+
 it('từ chối file không phải JPG hoặc PNG', async () => {
   render(<UploadPage />)
 
