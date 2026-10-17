@@ -19,11 +19,15 @@ internal sealed class FakeAccess : IPatientAccessResolver
     public bool Allowed = true;
     public bool Down;
     public int Calls;
+    public Guid TenantOverride = Guid.Empty;
+    public string? LastAction;
     public Task<AccessDecision> ResolveAsync(PatientAccessRequest request, CancellationToken ct)
     {
         Calls++;
+        LastAction = request.Action;
         if (Down) throw new HttpRequestException("profile down");
-        return Task.FromResult(new AccessDecision(Allowed, Tenant, "CLINIC", request.RequesterId, "CLINIC:" + Tenant, 1));
+        var tenant = TenantOverride == Guid.Empty ? Tenant : TenantOverride;
+        return Task.FromResult(new AccessDecision(Allowed, tenant, "CLINIC", request.RequesterId, "CLINIC:" + tenant, 1));
     }
 }
 
@@ -80,8 +84,26 @@ internal sealed class FakeStorage : IPrivateFileStorage
         lock (Deleted) Deleted.Add(key);
         return Task.CompletedTask;
     }
-    public Task<FileReadAccess> CreateReadAccessAsync(string container, string key, TimeSpan ttl, CancellationToken ct) =>
-        throw new NotSupportedException();
+    public (string Container, string Key, TimeSpan Ttl)? LastReadAccess;
+    public bool ReadAccessDown;
+    public Task<FileReadAccess> CreateReadAccessAsync(string container, string key, TimeSpan ttl, CancellationToken ct)
+    {
+        if (ReadAccessDown) throw new IOException("storage down");
+        LastReadAccess = (container, key, ttl);
+        return Task.FromResult(new FileReadAccess(new Uri("http://127.0.0.1:10000/devstoreaccount1/" + container + "/" + key + "?sig=demo"),
+            DateTimeOffset.UtcNow.Add(ttl)));
+    }
+}
+
+internal sealed class FakeFileRepo : IFileAccessRepository
+{
+    public readonly List<StoredFileRecord> Records = new();
+    public bool Down;
+    public Task<StoredFileRecord?> FindAsync(Guid analysisId, Guid fileId, CancellationToken ct)
+    {
+        if (Down) throw new InvalidOperationException("db down");
+        return Task.FromResult(Records.FirstOrDefault(r => r.AnalysisId == analysisId && r.FileId == fileId));
+    }
 }
 
 internal sealed class FakeRepo : IUploadRepository
