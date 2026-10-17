@@ -1,0 +1,454 @@
+openapi: 3.0.3
+info:
+  title: AURA Profile Service API
+  description: |
+    API quản lý hồ sơ cá nhân, hồ sơ bệnh nhân, cơ cấu tổ chức phòng khám và phân giải quyền truy cập cho hệ thống AURA.
+    Đặc tính kỹ thuật cốt lõi:
+    - Tách biệt định danh: accountId != patientId != clinicId != tenantId.
+    - Chống sửa role qua Profile: Loại bỏ triệt để nguy cơ leo thang đặc quyền.
+    - Optimistic Concurrency Control: Kiểm soát cập nhật xung đột bằng header If-Match và ETag ("<profileVersion>").
+    - Phân giải quyền (Access Resolution): Xác định quyền thao tác ảnh đáy mắt cho Analysis Service.
+  version: 1.0.0
+  contact:
+    name: AURA Team - Module M6 (Identity & Profile)
+    url: https://github.com/CattyGame/XD-PMHDT
+servers:
+  - url: http://127.0.0.1:5000
+    description: Qua API Gateway (Đường dẫn Public)
+  - url: http://127.0.0.1:5005
+    description: Trực tiếp Localhost Development
+paths:
+  /api/v1/profiles/me:
+    get:
+      summary: Xem hồ sơ cá nhân của người dùng hiện tại
+      description: |
+        Truy vấn thông tin hồ sơ của chính người dùng đã đăng nhập.
+        Trả về header `ETag: "<profileVersion>"` phục vụ cho các thao tác cập nhật tiếp theo.
+        Nếu tài khoản chưa hoàn tất bootstrap, trả về `409 ERR_PROFILE_NOT_READY` (`retryable: true`).
+      operationId: getMyProfile
+      tags:
+        - Profile Public
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      responses:
+        '200':
+          description: Lấy hồ sơ thành công.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETagHeader'
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationIdHeader'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileDto'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '409':
+          description: Hồ sơ chưa khởi tạo xong (đang chờ bootstrap hoặc provision).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: ERR_PROFILE_NOT_READY
+              message: Hồ sơ chưa được khởi tạo. Hãy gọi bootstrap trước.
+              correlationId: a0000000-0000-4000-8000-000000000001
+              retryable: true
+
+    patch:
+      summary: Cập nhật thông tin hồ sơ cá nhân (Chống sửa Role & Kiểm soát ETag)
+      description: |
+        Chỉ cho phép cập nhật `displayName` (1-100 ký tự) và `phone` (tối đa 30 ký tự).
+        Bắt buộc truyền header `If-Match` mang giá trị ETag của phiên bản hiện tại.
+        Tuyệt đối không nhận các trường `role`, `roles`, `accountId`, `tenantId`, `patientId` (bảo vệ chống leo thang đặc quyền).
+      operationId: updateMyProfile
+      tags:
+        - Profile Public
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatchHeader'
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Cập nhật hồ sơ thành công. Trả về hồ sơ mới và ETag phiên bản mới.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETagHeader'
+            X-Correlation-Id:
+              $ref: '#/components/headers/CorrelationIdHeader'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileDto'
+        '400':
+          description: Thiếu header If-Match hoặc dữ liệu body không hợp lệ (ERR_VALIDATION).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: ERR_VALIDATION
+              message: Thiếu header If-Match bắt buộc để cập nhật hồ sơ.
+              correlationId: a0000000-0000-4000-8000-000000000001
+              retryable: false
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '404':
+          description: Không tìm thấy hồ sơ để cập nhật.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: Xung đột phiên bản ETag / If-Match (Optimistic Locking failure).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: ERR_PROFILE_VERSION_CONFLICT
+              message: Phiên bản hồ sơ không khớp (xung đột dữ liệu). Hãy tải lại hồ sơ mới nhất.
+              correlationId: a0000000-0000-4000-8000-000000000001
+              retryable: false
+
+  /internal/v1/profile/provision:
+    post:
+      summary: Khởi tạo hồ sơ và Personal Tenant nội bộ (Idempotent)
+      description: |
+        Được gọi bởi Identity Service trong quá trình bootstrap tài khoản người dùng mới.
+        Tự động tạo:
+        1. Một Personal Tenant (`tenant_kind = 'PERSONAL'`).
+        2. Một Hồ sơ người dùng (`profile.profiles`) với `profile_version = 1`.
+        3. Một Hồ sơ bệnh nhân mặc định (`profile.patients`).
+        Đảm bảo tách biệt tuyệt đối 3 định danh: `accountId` != `patientId` != `personalTenantId`.
+      operationId: provisionProfile
+      tags:
+        - Profile Internal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProvisionProfileRequest'
+      responses:
+        '200':
+          description: Khởi tạo hồ sơ thành công hoặc trả về hồ sơ đã tồn tại.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProfileDto'
+        '400':
+          $ref: '#/components/responses/400BadRequest'
+        '500':
+          $ref: '#/components/responses/500InternalError'
+
+  /internal/v1/profile/access/resolve:
+    post:
+      summary: Phân giải quyền truy cập hồ sơ bệnh nhân cho Analysis Service
+      description: |
+        Được gọi nội bộ bởi Analysis Service trước khi tiếp nhận ảnh upload hoặc đọc kết quả phân tích.
+        Hệ thống kiểm tra ngữ cảnh:
+        - Ngữ cảnh chính chủ (`OWN`): actorAccountId trùng với linkedAccountId / ownerPrincipalId của bệnh nhân.
+        - Phân công bác sĩ (`ASSIGNED`): actorAccountId có phân công bác sĩ (`profile.doctor_assignments`) còn hiệu lực (`ACTIVE`).
+        - Ngữ cảnh phòng khám (`TENANT`): actorAccountId có membership trong phòng khám sở hữu bệnh nhân.
+        Nếu không có quyền hoặc bệnh nhân không tồn tại, trả về `allowed: false` mà không làm lộ dữ liệu.
+      operationId: resolveAccess
+      tags:
+        - Profile Internal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccessResolveRequest'
+      responses:
+        '200':
+          description: Kết quả phân giải quyền truy cập.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessResolveResponse'
+
+  /health:
+    get:
+      summary: Kiểm tra trạng thái hoạt động của dịch vụ Profile
+      operationId: checkHealth
+      tags:
+        - Platform
+      responses:
+        '200':
+          description: Dịch vụ đang hoạt động bình thường.
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Healthy
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Firebase ID Token của người dùng.
+
+  parameters:
+    CorrelationIdHeader:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: Mã truy vết luồng xử lý.
+      schema:
+        type: string
+        maxLength: 64
+        example: a0000000-0000-4000-8000-000000000001
+
+    IfMatchHeader:
+      name: If-Match
+      in: header
+      required: true
+      description: Phiên bản ETag hiện tại của hồ sơ (ví dụ "1").
+      schema:
+        type: string
+        example: '"1"'
+
+  headers:
+    ETagHeader:
+      description: Chuỗi ETag định danh phiên bản của hồ sơ ("<profileVersion>").
+      schema:
+        type: string
+        example: '"1"'
+
+    CorrelationIdHeader:
+      description: Mã truy vết tương ứng cho phản hồi.
+      schema:
+        type: string
+
+  schemas:
+    ProfileDto:
+      type: object
+      required:
+        - accountId
+        - displayName
+        - profileVersion
+      properties:
+        accountId:
+          type: string
+          format: uuid
+          description: Định danh tài khoản người dùng nội bộ.
+          example: 668c4a32-5342-4d8b-b505-07d548732120
+        displayName:
+          type: string
+          description: Tên hiển thị người dùng.
+          example: Nguyen Van Hoang
+        phone:
+          type: string
+          nullable: true
+          description: Số điện thoại liên hệ.
+          example: "0912345678"
+        patientId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Định danh hồ sơ bệnh nhân mặc định của cá nhân.
+          example: 9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d
+        personalTenantId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Định danh phạm vi cá nhân (Personal Tenant).
+          example: c4b81b5a-172b-426b-a25e-04f796123456
+        profileVersion:
+          type: integer
+          description: Phiên bản hồ sơ hiện tại.
+          example: 1
+
+    UpdateProfileRequest:
+      type: object
+      description: Dữ liệu cập nhật hồ sơ. Không chấp nhận bất kỳ trường phân quyền nào.
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Tên hiển thị mới (từ 1 đến 100 ký tự).
+          example: Nguyen Van Hoang (Da Cap Nhat)
+        phone:
+          type: string
+          maxLength: 30
+          nullable: true
+          description: Số điện thoại mới (tối đa 30 ký tự).
+          example: "0912345678"
+
+    ProvisionProfileRequest:
+      type: object
+      required:
+        - accountId
+        - firebaseUid
+        - displayName
+      properties:
+        accountId:
+          type: string
+          format: uuid
+          example: 668c4a32-5342-4d8b-b505-07d548732120
+        firebaseUid:
+          type: string
+          example: hoang_dev_1
+        displayName:
+          type: string
+          example: Nguyen Van Hoang
+        email:
+          type: string
+          format: email
+          nullable: true
+          example: hoang@example.com
+
+    AccessResolveRequest:
+      type: object
+      required:
+        - actorAccountId
+        - patientId
+        - action
+      properties:
+        actorAccountId:
+          type: string
+          format: uuid
+          description: Định danh người đang thực hiện yêu cầu.
+          example: 668c4a32-5342-4d8b-b505-07d548732120
+        patientId:
+          type: string
+          format: uuid
+          description: Định danh hồ sơ bệnh nhân mục tiêu.
+          example: 9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d
+        clinicContextId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Định danh phòng khám nếu thao tác trong ngữ cảnh phòng khám.
+          example: null
+        action:
+          type: string
+          enum: [ANALYSIS_CREATE, ANALYSIS_READ, ANALYSIS_FILE_READ, DOCTOR_REVIEW]
+          example: ANALYSIS_CREATE
+
+    AccessResolveResponse:
+      type: object
+      required:
+        - allowed
+      properties:
+        allowed:
+          type: boolean
+          description: Cho biết người dùng có được phép thực hiện thao tác hay không.
+          example: true
+        accountStatus:
+          type: string
+          nullable: true
+          example: ACTIVE
+        patientId:
+          type: string
+          format: uuid
+          nullable: true
+          example: 9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d
+        tenantId:
+          type: string
+          format: uuid
+          nullable: true
+          example: c4b81b5a-172b-426b-a25e-04f796123456
+        tenantKind:
+          type: string
+          nullable: true
+          enum: [PERSONAL, CLINIC]
+          example: PERSONAL
+        ownerPrincipalId:
+          type: string
+          format: uuid
+          nullable: true
+          example: 668c4a32-5342-4d8b-b505-07d548732120
+        billingOwner:
+          $ref: '#/components/schemas/BillingOwnerDto'
+        permissionVersion:
+          type: integer
+          example: 1
+
+    BillingOwnerDto:
+      type: object
+      nullable: true
+      properties:
+        type:
+          type: string
+          enum: [ACCOUNT, CLINIC]
+          example: ACCOUNT
+        id:
+          type: string
+          format: uuid
+          example: 668c4a32-5342-4d8b-b505-07d548732120
+
+    ErrorEnvelope:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorDetails'
+
+    ErrorDetails:
+      type: object
+      required:
+        - code
+        - message
+        - correlationId
+        - retryable
+      properties:
+        code:
+          type: string
+          example: ERR_VALIDATION
+        message:
+          type: string
+          example: Header If-Match không hợp lệ.
+        correlationId:
+          type: string
+          example: a0000000-0000-4000-8000-000000000001
+        retryable:
+          type: boolean
+          example: false
+
+  responses:
+    400BadRequest:
+      description: Dữ liệu gửi lên không hợp lệ hoặc thiếu header bắt buộc.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+    401Unauthorized:
+      description: Cần đăng nhập để thực hiện thao tác.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+          example:
+            error:
+              code: ERR_UNAUTHORIZED
+              message: Cần đăng nhập để cập nhật hồ sơ.
+              correlationId: a0000000-0000-4000-8000-000000000001
+              retryable: false
+
+    500InternalError:
+      description: Lỗi máy chủ hoặc cơ sở dữ liệu nội bộ.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
