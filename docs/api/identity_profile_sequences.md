@@ -29,7 +29,7 @@ sequenceDiagram
 
     Note over Web,GW: Client tự động gửi kèm X-Correlation-Id
     Web->>GW: POST /api/v1/identity/bootstrap<br/>Authorization: Bearer <Firebase ID Token>
-    
+
     activate GW
     Note over GW: GatewayFirebaseAuthMiddleware
     GW->>GW: Loại bỏ header giả mạo (X-Account-Id, X-Role, X-Tenant-Id)
@@ -98,15 +98,15 @@ sequenceDiagram
     rect rgb(255, 250, 240)
     Note over User,DB: Giai đoạn 2: Cập nhật hồ sơ & Chống hack Role
     User->>Web: Nhập DisplayName mới, Phone mới và bấm "Lưu thay đổi"
-    
+
     Note over Web,GW: Client gửi kèm If-Match: "1" và DTO chỉ chứa displayName, phone
     Web->>GW: PATCH /api/v1/profiles/me<br/>Header: If-Match: "1"<br/>Body: { displayName: "Hoang Updated", phone: "0912345678", role: "SYSTEM_ADMIN" }
     GW->>PR: Chuyển tiếp PATCH /api/v1/profiles/me
-    
+
     activate PR
     Note over PR: 1. Kiểm tra header If-Match bắt buộc<br/>2. DTO bảo mật loại bỏ hoàn toàn trường 'role'
     PR->>DB: UPDATE profile.profiles<br/>SET display_name = 'Hoang Updated', phone = '0912345678',<br/>    profile_version = profile_version + 1, updated_at = NOW()<br/>WHERE account_id = @accountId AND profile_version = 1
-    
+
     alt Phiên bản khớp (Cập nhật thành công 1 dòng)
         DB-->>PR: 1 row updated (profile_version mới = 2)
         PR-->>GW: HTTP 200 OK<br/>Header: ETag: "2"<br/>Body: { displayName: "Hoang Updated", phone: "0912345678", profileVersion: 2 }
@@ -154,7 +154,7 @@ sequenceDiagram
 
     PR->>DB: Kiểm tra quyền sở hữu hoặc phân công lâm sàng
     Note over PR,DB: 1. Chính chủ: patient.owner_principal_id == actorAccountId?<br/>2. Phân công: doctor_assignments.status == ACTIVE?<br/>3. Phòng khám: memberships.role in [CLINIC_ADMIN, DOCTOR]?
-    
+
     alt Hợp lệ (Chính chủ hoặc Bác sĩ được chỉ định)
         DB-->>PR: Quyền hợp lệ (Quan hệ lâm sàng hợp pháp)
         PR-->>AN: HTTP 200 OK<br/>{ allowed: true, tenantId: "uuid-tenant", tenantKind: "CLINIC", billingOwner: CLINIC }

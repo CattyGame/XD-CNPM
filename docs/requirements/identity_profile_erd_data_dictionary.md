@@ -12,10 +12,10 @@
 ## 1. Tổng quan Kiến trúc Dữ liệu M6
 
 Theo quy chuẩn kiến trúc Microservices và nguyên tắc tách biệt ngữ cảnh (Bounded Context) được quy định tại [Contract Sprint 2 v1.0](file:///c:/Users/Hoang/OneDrive/Desktop/Phần Mền Hướng Đối Tượng/XD-PMHDT/docs/development/sprint2_local_setup.md):
-1. **Phân chia Schema độc lập**: 
+1. **Phân chia Schema độc lập**:
    - `identity`: Quản lý xác thực, ánh xạ tài khoản ngoại vi (Firebase UID), cấp phát token dịch vụ và phân quyền hệ thống.
    - `profile`: Quản lý phạm vi dữ liệu (Multi-tenancy), hồ sơ người dùng, hồ sơ bệnh nhân, cơ cấu tổ chức phòng khám và phân công bác sĩ.
-2. **Không tạo Khóa ngoại xuyên Schema (No Cross-Schema Foreign Keys)**: 
+2. **Không tạo Khóa ngoại xuyên Schema (No Cross-Schema Foreign Keys)**:
    - Để đảm bảo tính độc lập và sẵn sàng tách thành các database riêng biệt trong tương lai, giữa `identity` và `profile` không sử dụng ràng buộc `FOREIGN KEY` của PostgreSQL mà liên kết qua định danh logic (`account_id` UUID).
 3. **Nguyên tắc phân định định danh bắt buộc**:
    $$\text{accountId} \neq \text{patientId} \neq \text{clinicId} \neq \text{tenantId}$$
