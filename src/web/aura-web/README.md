@@ -242,3 +242,81 @@ Nhánh fix/sprint1-m2-m5-completion; thay đổi chưa commit.
 Kết quả 81 test trước đó là bằng chứng của lần chạy trước.
 Kết quả mới không thay thế kiểm thử FCM thật, phân quyền
 backend, usability/accessibility hoặc nghiệm thu NFR.
+## Cập nhật SCRUM-313 — Kiểm thử và tài liệu Frontend
+
+Ngày kiểm thử: 2026-10-17.
+
+### 1. Chức năng đăng nhập
+
+Frontend sử dụng Firebase Authentication để hỗ trợ:
+
+- Đăng nhập bằng Email và mật khẩu.
+- Đăng nhập bằng Google.
+- Duy trì phiên đăng nhập bằng browser local persistence.
+- Chuyển về trang chủ khi đăng nhập thành công.
+- Hiển thị thông báo khi đăng nhập thất bại.
+
+Component: `src/pages/LoginPage.tsx`.
+
+### 2. Chức năng Upload ảnh võng mạc
+
+Component: `src/pages/UploadPage.tsx`.
+
+Frontend hỗ trợ chọn nhiều ảnh JPEG/PNG, hiển thị ảnh xem trước và nhập Patient ID theo định dạng UUID.
+
+Các điều kiện kiểm tra:
+
+- Tối đa 100 ảnh mỗi lần.
+- Mỗi ảnh không vượt quá 10 MB.
+- Độ phân giải không vượt quá 16 triệu pixel.
+- Người dùng phải đăng nhập Firebase trước khi gửi ảnh.
+
+Frontend gửi yêu cầu `POST /api/v1/analyses` bằng `multipart/form-data`, kèm Firebase ID Token và Idempotency-Key.
+
+### 3. API Mapping
+
+| Chức năng | API hoặc Firebase SDK |
+| --- | --- |
+| Đăng nhập Email | `signInWithEmailAndPassword()` |
+| Đăng nhập Google | `signInWithPopup()` |
+| Theo dõi phiên đăng nhập | `onAuthStateChanged()` |
+| Lấy ID Token | `currentUser.getIdToken()` |
+| Gửi ảnh phân tích | `POST /api/v1/analyses` |
+| Tiếp nhận yêu cầu | HTTP 202 Accepted |
+| Dữ liệu không hợp lệ | HTTP 400 |
+| Chưa xác thực | HTTP 401 |
+| Không đủ quyền | HTTP 403 |
+| Dung lượng vượt giới hạn | HTTP 413 |
+| Quá nhiều yêu cầu | HTTP 429 |
+| Lỗi máy chủ | HTTP 500/502/503 |
+
+### 4. Kiểm thử Frontend
+
+Chạy tại `src/web/aura-web`:
+
+```powershell
+npm run lint
+npm run test
+npm run build
+```
+
+Kết quả kiểm thử ngày 2026-10-17:
+
+| Hạng mục | Kết quả |
+| --- | --- |
+| LoginPage | 2/2 PASS |
+| UploadPage | 17/17 PASS |
+| Toàn bộ Frontend | 101/101 PASS |
+| ESLint | 0 errors, 2 warnings |
+| Production Build | PASS |
+
+Các bài test sử dụng Firebase mock và phản hồi API giả lập, không cần tài khoản Firebase hoặc dữ liệu bệnh nhân thật.
+
+Một bài test NotificationSettings từng thất bại khi chạy toàn bộ nhưng thành công khi chạy riêng và khi chạy lại toàn bộ. Cần tiếp tục theo dõi tính ổn định.
+
+### 5. Giới hạn kiểm thử
+
+- HTTP 202 trong bài test là phản hồi giả lập, chưa chứng minh Backend thật tiếp nhận ảnh.
+- Chưa xác nhận quy trình Upload → Backend → AI → Database hoàn chỉnh.
+- Kiểm tra MIME, dung lượng và độ phân giải phía Frontend không thay thế kiểm tra nội dung và chất lượng ảnh ở Backend.
+- Kết quả phân tích minh họa không dùng để chẩn đoán y khoa.
