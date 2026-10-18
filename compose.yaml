@@ -87,6 +87,11 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_HTTP_PORTS: "8080"
+      ConnectionStrings__Postgres: >-
+        Host=postgres;Port=5432;Database=${POSTGRES_DB};
+        Username=aura_analysis_app;
+        Password="${ANALYSIS_DB_PASSWORD:?Set ANALYSIS_DB_PASSWORD}";
+        Timeout=5;Command Timeout=10
     ports:
       - "127.0.0.1:5001:8080"
     networks:
@@ -99,6 +104,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_HTTP_PORTS: "8080"
+      ReverseProxy__Clusters__identity-cluster__Destinations__identity-api__Address: "http://identity-api:8080/"
+      ReverseProxy__Clusters__profile-cluster__Destinations__profile-api__Address: "http://profile-api:8080/"
       ReverseProxy__Clusters__analysis-cluster__Destinations__analysis-api__Address: "http://analysis-api:8080/"
       ReverseProxy__Clusters__billing-cluster__Destinations__billing-api__Address: "http://billing-api:8080/"
     ports:
@@ -143,6 +150,30 @@ services:
       - aura_network
     restart: unless-stopped
 
+  identity-api:
+    build:
+      context: .
+      dockerfile: src/services/AURA.Identity.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_HTTP_PORTS: "8080"
+      ConnectionStrings__Postgres: >-
+        Host=postgres;Port=5432;Database=${POSTGRES_DB};
+        Username=aura_identity_app;
+        Password="${IDENTITY_DB_PASSWORD:?Set IDENTITY_DB_PASSWORD}";
+        Timeout=5;Command Timeout=10
+      Services__Profile__BaseUrl: "http://profile-api:8080"
+    ports:
+      - "127.0.0.1:5004:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      profile-api:
+        condition: service_started
+    networks:
+      - aura_network
+    restart: unless-stopped
+
   profile-api:
     build:
       context: .
@@ -152,7 +183,8 @@ services:
       ASPNETCORE_HTTP_PORTS: "8080"
       ConnectionStrings__Postgres: >-
         Host=postgres;Port=5432;Database=${POSTGRES_DB};
-        Username=aura_profile_app;Password=aura_profile_pass;
+        Username=aura_profile_app;
+        Password="${PROFILE_DB_PASSWORD:?Set PROFILE_DB_PASSWORD}";
         Timeout=5;Command Timeout=10
     ports:
       - "127.0.0.1:5005:8080"

@@ -35,6 +35,15 @@ jobs:
       - name: Build
         run: dotnet build AURA.sln --configuration Release --no-restore
 
+      - name: Run Analysis tests
+        run: >-
+          dotnet test src/services/AURA.Analysis.Api.Tests/AURA.Analysis.Api.Tests.csproj
+          --configuration Release --no-build --no-restore
+
+      - name: Check development configuration scripts
+        shell: pwsh
+        run: ./tests/AURA.DevEnvironment.Checks/Run-Checks.ps1
+
       - name: Check service identity setup
         shell: bash
         run: |
@@ -118,7 +127,7 @@ jobs:
     timeout-minutes: 20
 
     env:
-      # Placeholder for Compose interpolation; Billing is not started by this job.
+      # Public placeholder for the isolated Billing database used by this job.
       BILLING_DB_PASSWORD: ci-placeholder-not-a-real-password
 
     steps:
@@ -128,10 +137,57 @@ jobs:
       - name: Validate Compose
         run: docker compose --env-file .env.example config -q
 
+      - name: Validate development Compose
+        shell: bash
+        env:
+          FIREBASE_SERVICE_ACCOUNT_PATH: /tmp/aura-ci-firebase-placeholder.json
+        run: |
+          # Configuration validation only; no real Firebase key is used in CI.
+          docker compose --env-file .env.example \
+            -f compose.yaml -f compose.dev.yaml config -q
+
+      - name: Start clean PostgreSQL and Redis
+        run: docker compose --env-file .env.example up -d --wait postgres redis
+
+      - name: Apply all service migrations
+        shell: pwsh
+        run: |
+          ./scripts/dev/Initialize-AuraDevDatabase.ps1 -EnvFile .env.example
+          ./scripts/dev/Initialize-AuraDevDatabase.ps1 -EnvFile .env.example
+
+      - name: Configure isolated CI runtime logins
+        shell: bash
+        run: |
+          # Public CI-only placeholders, matching .env.example and this job's env.
+          # No developer password or existing database is used here.
+          docker compose --env-file .env.example exec -T postgres \
+            psql -X -v ON_ERROR_STOP=1 -U aura_dev -d aura_dev <<'SQL'
+          ALTER ROLE aura_identity_app LOGIN PASSWORD 'replace_with_identity_runtime_password';
+          ALTER ROLE aura_profile_app LOGIN PASSWORD 'replace_with_profile_runtime_password';
+          ALTER ROLE aura_billing_app LOGIN PASSWORD 'ci-placeholder-not-a-real-password';
+          SQL
+
       - name: Build and start applications
         run: |
           docker compose --env-file .env.example up \
-            -d --build analysis-api api-gateway ai-core
+            -d --build analysis-api api-gateway ai-core identity-api profile-api billing-api
+
+      - name: Check M1 service wiring
+        shell: pwsh
+        run: |
+          $ready = $false
+          for ($attempt = 0; $attempt -lt 30; $attempt++) {
+            try {
+              ./scripts/dev/Test-AuraDevEnvironment.ps1 -SkipNotification -CheckDevelopmentBootstrap
+              $ready = $true
+              break
+            }
+            catch {
+              if ($attempt -eq 29) { throw }
+              Start-Sleep -Seconds 2
+            }
+          }
+          if (-not $ready) { throw 'M1 development wiring checks did not pass.' }
 
       - name: Check health routing and OpenAPI
         shell: bash
@@ -271,7 +327,7 @@ jobs:
         if: failure()
         run: |
           docker compose --env-file .env.example logs \
-            --no-color --tail 150 analysis-api api-gateway ai-core
+            --no-color --tail 150 analysis-api api-gateway ai-core identity-api profile-api billing-api postgres
 
       - name: Stop applications
         if: always()

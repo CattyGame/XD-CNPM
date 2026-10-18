@@ -19,6 +19,18 @@ services:
         bind:
           create_host_path: false
 
+  identity-api:
+    environment:
+      Firebase__ProjectId: ${FIREBASE_PROJECT_ID:?Set FIREBASE_PROJECT_ID}
+      GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/firebase-service-account.json
+    volumes:
+      - type: bind
+        source: ${FIREBASE_SERVICE_ACCOUNT_PATH:?Set FIREBASE_SERVICE_ACCOUNT_PATH}
+        target: /run/secrets/firebase-service-account.json
+        read_only: true
+        bind:
+          create_host_path: false
+
   notification-api:
     image: aura-notification-api:sprint2
     build:

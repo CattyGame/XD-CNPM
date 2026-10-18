@@ -3,17 +3,22 @@ param(
     [string]$DockerNetwork = "aura_network",
     [string]$FirebaseProjectId = "aura-dev-97716",
     [string]$CredentialPath = "",
-    [string]$NotificationKeyPath = ""
+    [string]$NotificationKeyPath = "",
+    [string]$NotificationKeyId = "local-v1"
 )
 
 $ErrorActionPreference = "Stop"
 
+if ($NotificationKeyId -notmatch '^[A-Za-z0-9._-]{1,64}$') {
+    throw "NotificationKeyId must contain 1-64 letters, digits, dots, underscores or hyphens."
+}
+
 if ([string]::IsNullOrWhiteSpace($DockerNetwork)) {
-    throw "DockerNetwork không được để trống."
+    throw "DockerNetwork must not be empty."
 }
 
 if ([string]::IsNullOrWhiteSpace($FirebaseProjectId)) {
-    throw "FirebaseProjectId không được để trống."
+    throw "FirebaseProjectId must not be empty."
 }
 
 if ([string]::IsNullOrWhiteSpace($CredentialPath)) {
@@ -28,7 +33,7 @@ if ([string]::IsNullOrWhiteSpace($NotificationKeyPath)) {
 
 foreach ($path in @($CredentialPath, $NotificationKeyPath)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-        throw "Không tìm thấy file: $path"
+        throw "File not found: $path"
     }
 }
 
@@ -45,7 +50,7 @@ if (
     $credential.type -ne "service_account" -or
     $credential.project_id -ne $FirebaseProjectId
 ) {
-    throw "Service account không khớp Firebase project đã chọn."
+    throw "Service account does not match the selected Firebase project."
 }
 
 Remove-Variable credential
@@ -58,12 +63,12 @@ try {
     $keyBytes = [Convert]::FromBase64String($keyText)
 }
 catch {
-    throw "Khóa mã hóa Notification không phải Base64 hợp lệ."
+    throw "Notification encryption key is not valid Base64."
 }
 
 try {
     if ($keyBytes.Length -ne 32) {
-        throw "Khóa mã hóa Notification phải có đúng 32 byte."
+        throw "Notification encryption key must contain exactly 32 bytes."
     }
 }
 finally {
@@ -77,7 +82,7 @@ function Read-AuraPassword {
 
     try {
         if ($secret.Length -eq 0) {
-            throw "Mật khẩu không được để trống."
+            throw "Password must not be empty."
         }
 
         return (
@@ -90,21 +95,28 @@ function Read-AuraPassword {
 }
 
 try {
+    $identityPassword = Read-AuraPassword "Mat khau aura_identity_app"
+    $profilePassword = Read-AuraPassword "Mat khau aura_profile_app"
+    $analysisPassword = Read-AuraPassword "Mat khau aura_analysis_app"
+
     $billingPassword = Read-AuraPassword `
-        "Mật khẩu aura_billing_app"
+        "Mat khau aura_billing_app"
 
     $notificationPassword = Read-AuraPassword `
-        "Mật khẩu aura_notification_app"
+        "Mat khau aura_notification_app"
 
     $values = @{
         AURA_DOCKER_NETWORK = $DockerNetwork
         FIREBASE_PROJECT_ID = $FirebaseProjectId
         FIREBASE_SERVICE_ACCOUNT_PATH = $CredentialPath.Replace("\", "/")
-        NOTIFICATION_ENCRYPTION_KEY_ID = "local-v1"
+        NOTIFICATION_ENCRYPTION_KEY_ID = $NotificationKeyId
         NOTIFICATION_ENCRYPTION_KEY = $keyText
         NOTIFICATION_DB_PASSWORD = $notificationPassword
 
-        # Billing currently interpolates a quoted Npgsql password value.
+        # Npgsql connection strings quote these values in compose.yaml.
+        IDENTITY_DB_PASSWORD = $identityPassword.Replace('"', '""')
+        PROFILE_DB_PASSWORD = $profilePassword.Replace('"', '""')
+        ANALYSIS_DB_PASSWORD = $analysisPassword.Replace('"', '""')
         BILLING_DB_PASSWORD = $billingPassword.Replace('"', '""')
     }
 
@@ -116,10 +128,13 @@ try {
         )
     }
 
-    Write-Host "PASS: Đã nạp cấu hình AURA vào cửa sổ PowerShell hiện tại."
-    Write-Host "Không in hoặc ghi mật khẩu/khóa vào repository."
+    Write-Host "PASS: AURA configuration loaded into this PowerShell process."
+    Write-Host "Database passwords were loaded, not created or verified. Keep this window open."
 }
 finally {
+    $identityPassword = $null
+    $profilePassword = $null
+    $analysisPassword = $null
     $billingPassword = $null
     $notificationPassword = $null
     $keyText = $null
