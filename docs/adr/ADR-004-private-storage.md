@@ -1,24 +1,18 @@
-\# ADR-004 — Private storage và quyền truy cập service
+# ADR-004 — Private storage và quyền truy cập service
 
+- Dự án: AURA / SP26SE025.
 
+- Ngày cập nhật: 2026-10-16.
 
-\- Dự án: AURA / SP26SE025.
+- Owner: M1.
 
-\- Ngày cập nhật: 2026-10-16.
+- Task: SCRUM-300, SCRUM-301.
 
-\- Owner: M1.
+- Trạng thái: Chấp nhận lựa chọn Azure Blob/Azurite cho Sprint 2.
 
-\- Task: SCRUM-300, SCRUM-301.
+- Service identity JWT: cần hoàn thiện cùng M6, chưa ghi nhận đã triển khai đầy đủ.
 
-\- Trạng thái: Chấp nhận lựa chọn Azure Blob/Azurite cho Sprint 2.
-
-\- Service identity JWT: cần hoàn thiện cùng M6, chưa ghi nhận đã triển khai đầy đủ.
-
-
-
-\## Bối cảnh
-
-
+## Bối cảnh
 
 Ảnh võng mạc và kết quả phân tích cần được lưu riêng tư.
 
@@ -28,59 +22,49 @@ Các service cần tài khoản PostgreSQL riêng và cấu hình thống nhất
 
 giữa Windows host và Docker.
 
+## Quyết định storage
 
+- Dùng Azure Blob Storage SDK trong backend.
 
-\## Quyết định storage
+- Local dùng Azurite 3.33.0.
 
+- Ba container private: aura-originals, aura-annotations, aura-reports.
 
+- Dữ liệu Azurite nằm trong external volume aura_azurite_data.
 
-\- Dùng Azure Blob Storage SDK trong backend.
+- Không bật anonymous public access.
 
-\- Local dùng Azurite 3.33.0.
+- Object key do backend sinh, không chứa tên/email bệnh nhân
 
-\- Ba container private: aura-originals, aura-annotations, aura-reports.
+  hoặc tên file do client cung cấp.
 
-\- Dữ liệu Azurite nằm trong external volume aura\_azurite\_data.
+- Public API dùng fileId; object key chỉ dùng nội bộ.
 
-\- Không bật anonymous public access.
+- Signed URL tất yếu chứa đường dẫn blob nhưng không được sử dụng
 
-\- Object key do backend sinh, không chứa tên/email bệnh nhân
+  như định danh public ổn định hoặc ghi vào log.
 
-&#x20; hoặc tên file do client cung cấp.
+## Endpoint và URL đọc
 
-\- Public API dùng fileId; object key chỉ dùng nội bộ.
+- SDK chạy trên Windows:
 
-\- Signed URL tất yếu chứa đường dẫn blob nhưng không được sử dụng
+  http://127.0.0.1:10000/devstoreaccount1.
 
-&#x20; như định danh public ổn định hoặc ghi vào log.
+- SDK chạy trong Docker:
 
+  http://azurite:10000/devstoreaccount1.
 
+- URL trả cho trình duyệt local dùng 127.0.0.1.
 
-\## Endpoint và URL đọc
+- Read SAS giới hạn đúng một blob, chỉ đọc, hết hạn sau 120 giây.
 
+- Kiểm quyền hiện hành trước mỗi lần cấp SAS.
 
+- Endpoint cấp URL trả Cache-Control: no-store.
 
-\- SDK chạy trên Windows:
+- Không log SAS.
 
-&#x20; http://127.0.0.1:10000/devstoreaccount1.
-
-\- SDK chạy trong Docker:
-
-&#x20; http://azurite:10000/devstoreaccount1.
-
-\- URL trả cho trình duyệt local dùng 127.0.0.1.
-
-\- Read SAS giới hạn đúng một blob, chỉ đọc, hết hạn sau 120 giây.
-
-\- Kiểm quyền hiện hành trước mỗi lần cấp SAS.
-
-\- Endpoint cấp URL trả Cache-Control: no-store.
-
-\- Không log SAS.
-
-\- URL đã cấp có thể tiếp tục dùng đến khi hết hạn.
-
-
+- URL đã cấp có thể tiếp tục dùng đến khi hết hạn.
 
 M2 sở hữu adapter IPrivateFileStorage, metadata và tích hợp
 
@@ -88,49 +72,39 @@ quyền Patient/Billing/upload. Cấu hình storage không tự tạo
 
 chức năng upload hoặc chứng minh adapter đã được sử dụng.
 
+## Quyết định database
 
+- PostgreSQL 17, database local aura_dev.
 
-\## Quyết định database
+- Schema riêng: identity, profile, analysis, billing, notification.
 
+- Giữ billing_poc phục vụ PoC cho đến khi có migration chuyển đổi.
 
+- Runtime role tương ứng aura_<service>_app.
 
-\- PostgreSQL 17, database local aura\_dev.
+- Migration role tương ứng aura_<service>_migrator.
 
-\- Schema riêng: identity, profile, analysis, billing, notification.
+- Runtime không có quyền quản trị, tạo schema hoặc sở hữu bảng.
 
-\- Giữ billing\_poc phục vụ PoC cho đến khi có migration chuyển đổi.
+- Không truy vấn hoặc tạo FK xuyên schema giữa các service.
 
-\- Runtime role tương ứng aura\_<service>\_app.
+- Các bảng Analysis append-only chỉ cấp SELECT/INSERT cho runtime.
 
-\- Migration role tương ứng aura\_<service>\_migrator.
+- Tài khoản aura_dev chỉ dùng bootstrap/migration/quản trị local.
 
-\- Runtime không có quyền quản trị, tạo schema hoặc sở hữu bảng.
+- API không tạo schema/bảng hoặc seed khi khởi động.
 
-\- Không truy vấn hoặc tạo FK xuyên schema giữa các service.
+## Credentials và mã hóa local
 
-\- Các bảng Analysis append-only chỉ cấp SELECT/INSERT cho runtime.
+- Firebase service account nằm ngoài repository.
 
-\- Tài khoản aura\_dev chỉ dùng bootstrap/migration/quản trị local.
+- Gateway và Notification Docker nhận file qua bind mount read-only.
 
-\- API không tạo schema/bảng hoặc seed khi khởi động.
+- Khóa mã hóa FCM hiện có được giữ nguyên cùng encryption_key_id.
 
+- Script nạp môi trường không ghi mật khẩu hoặc khóa vào Git.
 
-
-\## Credentials và mã hóa local
-
-
-
-\- Firebase service account nằm ngoài repository.
-
-\- Gateway và Notification Docker nhận file qua bind mount read-only.
-
-\- Khóa mã hóa FCM hiện có được giữ nguyên cùng encryption\_key\_id.
-
-\- Script nạp môi trường không ghi mật khẩu hoặc khóa vào Git.
-
-\- Không đưa backend secret vào VITE\_\*.
-
-
+- Không đưa backend secret vào VITE_*.
 
 Azurite HTTP local không chứng minh TLS hoặc encryption at rest
 
@@ -140,29 +114,23 @@ Staging cần HTTPS, encryption at rest, tắt public access và
 
 managed identity/RBAC riêng trước khi nghiệm thu.
 
-
-
-\## Service identity cần hoàn thiện
-
-
+## Service identity cần hoàn thiện
 
 Theo contract Sprint 2:
 
-\- JWT RS256 do Identity phát, issuer aura-identity-local.
+- JWT RS256 do Identity phát, issuer aura-identity-local.
 
-\- TTL 5 phút, audience theo service đích.
+- TTL 5 phút, audience theo service đích.
 
-\- Client secret lưu dạng hash và xác thực trước issuance.
+- Client secret lưu dạng hash và xác thực trước issuance.
 
-\- Scope/audience được giới hạn theo allowlist.
+- Scope/audience được giới hạn theo allowlist.
 
-\- Private signing key chỉ Identity giữ.
+- Private signing key chỉ Identity giữ.
 
-\- Consumer dùng public key hoặc JWKS tin cậy.
+- Consumer dùng public key hoặc JWKS tin cậy.
 
-\- Không public route /internal/v1 qua Gateway.
-
-
+- Không public route /internal/v1 qua Gateway.
 
 M1 chuẩn bị client identities, secret/key/config và ma trận quyền.
 
@@ -172,40 +140,32 @@ Các nội dung này chưa được coi là hoàn tất chỉ vì database role
 
 hoặc Firebase user authentication đã hoạt động.
 
+## Kết quả kiểm chứng local
 
+- Private containers, anonymous denial, read-only SAS,
 
-\## Kết quả kiểm chứng local
+  expired SAS và cleanup: PASS.
 
+- Runtime database role và isolation schema: PASS.
 
+- Bootstrap database mới và migration lặp: PASS.
 
-\- Private containers, anonymous denial, read-only SAS,
+- Quyền Analysis append-only trên database tạm: PASS.
 
-&#x20; expired SAS và cleanup: PASS.
+- Billing đọc PostgreSQL bằng aura_billing_app: PASS.
 
-\- Runtime database role và isolation schema: PASS.
+- Notification Docker dùng aura_notification_app: PASS.
 
-\- Bootstrap database mới và migration lặp: PASS.
+- Firebase thật qua Gateway Docker tới Notification Docker: PASS.
 
-\- Quyền Analysis append-only trên database tạm: PASS.
+## Hệ quả
 
-\- Billing đọc PostgreSQL bằng aura\_billing\_app: PASS.
+- Có cấu hình local tái sử dụng, giữ dữ liệu hiện có.
 
-\- Notification Docker dùng aura\_notification\_app: PASS.
+- Chấp nhận phụ thuộc Azure Blob SDK tại adapter.
 
-\- Firebase thật qua Gateway Docker tới Notification Docker: PASS.
+- Cần xử lý compensation/reconciliation giữa Billing,
 
+  storage và transaction Analysis.
 
-
-\## Hệ quả
-
-
-
-\- Có cấu hình local tái sử dụng, giữ dữ liệu hiện có.
-
-\- Chấp nhận phụ thuộc Azure Blob SDK tại adapter.
-
-\- Cần xử lý compensation/reconciliation giữa Billing,
-
-&#x20; storage và transaction Analysis.
-
-\- Cloud deployment và service JWT có các bước nghiệm thu riêng.
+- Cloud deployment và service JWT có các bước nghiệm thu riêng.

@@ -1,130 +1,98 @@
-\## Sprint 2 — Phân quyền PostgreSQL theo service
+## Sprint 2 — Phân quyền PostgreSQL theo service
 
+### Database và tài khoản
 
-
-\### Database và tài khoản
-
-
-
-Database local: `aura\_dev`.
-
-
+Database local: `aura_dev`.
 
 | Service | Schema | Runtime role | Migration role |
-
 | --- | --- | --- | --- |
+| Identity | identity | aura_identity_app | aura_identity_migrator |
+| Profile | profile | aura_profile_app | aura_profile_migrator |
+| Analysis | analysis | aura_analysis_app | aura_analysis_migrator |
+| Billing | billing, billing_poc | aura_billing_app | aura_billing_migrator |
+| Notification | notification | aura_notification_app | aura_notification_migrator |
 
-| Identity | identity | aura\_identity\_app | aura\_identity\_migrator |
-
-| Profile | profile | aura\_profile\_app | aura\_profile\_migrator |
-
-| Analysis | analysis | aura\_analysis\_app | aura\_analysis\_migrator |
-
-| Billing | billing, billing\_poc | aura\_billing\_app | aura\_billing\_migrator |
-
-| Notification | notification | aura\_notification\_app | aura\_notification\_migrator |
-
-
-
-`billing\_poc` được giữ lại để phục vụ Billing PoC hiện tại.
+`billing_poc` được giữ lại để phục vụ Billing PoC hiện tại.
 
 Schema `billing` dành cho triển khai nghiệp vụ tiếp theo.
 
+### Quyền và nguyên tắc sử dụng
 
+- Runtime role có CONNECT database, USAGE schema của service,
 
-\### Quyền và nguyên tắc sử dụng
+  SELECT/INSERT/UPDATE/DELETE trên bảng và USAGE/SELECT trên sequence.
 
+- Runtime role không có quyền CREATE trong schema nghiệp vụ,
 
+  không sở hữu bảng và không có quyền TRUNCATE.
 
-\- Runtime role có CONNECT database, USAGE schema của service,
+- Runtime role không được truy cập schema của service khác.
 
-&#x20; SELECT/INSERT/UPDATE/DELETE trên bảng và USAGE/SELECT trên sequence.
+- Migration role sở hữu schema và các bảng đã chuyển ownership.
 
-\- Runtime role không có quyền CREATE trong schema nghiệp vụ,
+- Migration role giữ NOLOGIN; người chạy migration được ủy quyền
 
-&#x20; không sở hữu bảng và không có quyền TRUNCATE.
+  sử dụng SET LOCAL ROLE trong transaction.
 
-\- Runtime role không được truy cập schema của service khác.
+- Không cấp SUPERUSER, CREATEDB, CREATEROLE hoặc BYPASSRLS
 
-\- Migration role sở hữu schema và các bảng đã chuyển ownership.
+  cho runtime/migration role.
 
-\- Migration role giữ NOLOGIN; người chạy migration được ủy quyền
+- Các API sử dụng runtime role, không dùng tài khoản quản trị aura_dev.
 
-&#x20; sử dụng SET LOCAL ROLE trong transaction.
+- Không thực hiện CREATE TABLE hoặc seed dữ liệu khi API khởi động.
 
-\- Không cấp SUPERUSER, CREATEDB, CREATEROLE hoặc BYPASSRLS
+### Migration của đủ năm service
 
-&#x20; cho runtime/migration role.
+Chạy từ gốc repository sau khi PostgreSQL healthy và đã nạp cấu hình:
 
-\- Các API sử dụng runtime role, không dùng tài khoản quản trị aura\_dev.
+```powershell
+& ".\scripts\dev\Initialize-AuraDevDatabase.ps1" -PlanOnly
+& ".\scripts\dev\Initialize-AuraDevDatabase.ps1"
+```
 
-\- Không thực hiện CREATE TABLE hoặc seed dữ liệu khi API khởi động.
+Thứ tự: Notification → service roles → Identity/Profile → doctor assignments
+→ Billing PoC → Analysis → service roles một lần nữa. Bước cuối chuyển
+ownership và giữ quyền append-only. Script chạy bằng bootstrap admin aura_dev
+trong database aura_dev, dừng khi một file lỗi; không xóa dữ liệu/volume.
+Mỗi file có transaction riêng, các bước đã commit không tự rollback chung.
 
+Máy mới cần đặt password và bật LOGIN cho năm role `_app`:
 
+```powershell
+& ".\scripts\dev\Initialize-AuraDevDatabase.ps1" -ConfigureRuntimeLogins
+```
 
-\### Thứ tự migration liên quan
+Tùy chọn tương tác dùng psql `\password` (nhập hai lần cho mỗi role), rồi
+bật LOGIN. Bỏ tùy chọn để giữ password/LOGIN hiện có. Nhập cùng mật khẩu
+khi chạy Set-AuraDevEnvironment.ps1; script môi trường chỉ nạp giá trị,
+không thay đổi tài khoản trong PostgreSQL. Migrator luôn giữ NOLOGIN.
 
+Các migration M6 có password mẫu nhưng trình tự này tạo role NOLOGIN trước,
+nên không dựa vào password mẫu để bật tài khoản. Dữ liệu Billing đã tồn tại
+được giữ bằng ON CONFLICT DO NOTHING. Backup trước khi đổi ownership/grants
+trên database có dữ liệu; không coi IF NOT EXISTS là cơ chế nâng mọi schema cũ.
 
+### Kết nối local
 
-1\. `001\_notification\_devices.sql`: cấu trúc đăng ký thiết bị Notification.
+- Service chạy trên Windows: PostgreSQL tại `127.0.0.1:5432`
 
-2\. `002\_service\_database\_roles.sql`: tạo role, schema và cấp quyền.
+  theo cấu hình cổng local hiện tại.
 
-3\. `003\_billing\_poc\_packages.sql`: tạo bảng và seed Billing PoC
+- Service trong Compose: PostgreSQL tại `postgres:5432`.
 
-&#x20;  bằng `aura\_billing\_migrator`.
+- Mỗi service dùng runtime role và mật khẩu riêng.
 
+- Không commit mật khẩu, connection string có mật khẩu hoặc file backup.
 
+Identity/Profile/Analysis/Billing trong Compose dùng runtime role tương ứng.
+Các biến IDENTITY_DB_PASSWORD, PROFILE_DB_PASSWORD, ANALYSIS_DB_PASSWORD,
+BILLING_DB_PASSWORD được chèn trong connection string Npgsql có nháy kép.
+Set-AuraDevEnvironment.ps1 escape nháy kép cho cả bốn giá trị.
 
-Đây là thứ tự cho nhóm migration nêu trên, không thay thế hướng dẫn
+Billing trong Compose dùng username `aura_billing_app`.
 
-các migration riêng trong thư mục `analysis/`.
-
-
-
-Migration 002 tạo các role ở trạng thái NOLOGIN.
-
-Sau đó quản trị viên đặt mật khẩu bằng lệnh psql `\\password`
-
-và bật LOGIN cho các role `\_app`.
-
-Không bật LOGIN cho migrator trong cấu hình local hiện tại.
-
-
-
-Migration 003 yêu cầu migration 002 đã chạy.
-
-Dữ liệu gói đã tồn tại được giữ nguyên bằng
-
-`ON CONFLICT (id) DO NOTHING`.
-
-
-
-Các migration tạo bảng tiếp theo phải chạy dưới migration role
-
-tương ứng để áp dụng đúng ownership và default privileges.
-
-
-
-\### Kết nối local
-
-
-
-\- Service chạy trên Windows: PostgreSQL tại `127.0.0.1:5432`
-
-&#x20; theo cấu hình cổng local hiện tại.
-
-\- Service trong Compose: PostgreSQL tại `postgres:5432`.
-
-\- Mỗi service dùng runtime role và mật khẩu riêng.
-
-\- Không commit mật khẩu, connection string có mật khẩu hoặc file backup.
-
-
-
-Billing trong Compose dùng username `aura\_billing\_app`.
-
-Biến `BILLING\_DB\_PASSWORD` cần được cung cấp khi Compose đọc
+Biến `BILLING_DB_PASSWORD` cần được cung cấp khi Compose đọc
 
 cấu hình hiện tại. Giá trị được chèn trong dấu nháy kép của
 
@@ -132,55 +100,43 @@ connection string Npgsql; dấu nháy kép bên trong mật khẩu
 
 phải được nhân đôi trước khi truyền vào biến này.
 
-
-
 Notification chạy trên Windows dùng:
 
-\- `NotificationDatabase\_\_Database=aura\_dev`
+- `NotificationDatabase__Database=aura_dev`
 
-\- `NotificationDatabase\_\_Username=aura\_notification\_app`
+- `NotificationDatabase__Username=aura_notification_app`
 
-\- `NotificationDatabase\_\_Password`: cung cấp riêng khi chạy.
-
-
+- `NotificationDatabase__Password`: cung cấp riêng khi chạy.
 
 Khóa mã hóa token Notification được giữ nguyên.
 
 Thay tài khoản database không yêu cầu tạo lại khóa mã hóa.
 
+### Kết quả kiểm tra local ngày 2026-10-15
 
+- Cả 5 runtime role kết nối PostgreSQL qua TCP thành công.
 
-\### Kết quả kiểm tra local ngày 2026-10-15
+- Kiểm thử bảng mới dưới migrator: runtime CRUD và sequence đạt.
 
+- Runtime bị từ chối CREATE, ALTER, TRUNCATE và truy cập chéo
 
+  schema trong các trường hợp đã kiểm thử.
 
-\- Cả 5 runtime role kết nối PostgreSQL qua TCP thành công.
+- Transaction kiểm thử đã rollback.
 
-\- Kiểm thử bảng mới dưới migrator: runtime CRUD và sequence đạt.
+- Billing đọc danh sách gói từ PostgreSQL bằng aura_billing_app.
 
-\- Runtime bị từ chối CREATE, ALTER, TRUNCATE và truy cập chéo
+- Dữ liệu gói Basic Updated được giữ nguyên sau migration.
 
-&#x20; schema trong các trường hợp đã kiểm thử.
+- Notification readiness trả True; PostgreSQL ghi nhận kết nối
 
-\- Transaction kiểm thử đã rollback.
-
-\- Billing đọc danh sách gói từ PostgreSQL bằng aura\_billing\_app.
-
-\- Dữ liệu gói Basic Updated được giữ nguyên sau migration.
-
-\- Notification readiness trả True; PostgreSQL ghi nhận kết nối
-
-&#x20; bằng aura\_notification\_app.
-
-
+  bằng aura_notification_app.
 
 Identity, Profile và Analysis đã có tài khoản database được
 
 kiểm thử; việc chuyển cấu hình và kiểm chứng runtime của
 
 các service này chưa được xác nhận trong bước bàn giao này.
-
-
 
 Các kiểm tra trên xác nhận quyền database local, không thay thế
 
@@ -248,3 +204,10 @@ Trên database local hiện tại:
 - Billing/Notification runtime role vẫn có LOGIN.
 - Ba bảng Analysis append-only chưa tồn tại tại thời điểm kiểm tra;
   không ghi nhận kiểm thử quyền trên các bảng này ở database local.
+
+### Cập nhật cấu hình runtime ngày 2026-10-18
+
+Compose đã cấu hình kết nối runtime cho Identity/Profile/Analysis/Billing;
+Notification nhận password riêng trong dev override. Analysis còn cần M2
+nối repository/DI để thực sự dùng connection string. Việc có cấu hình không
+xác nhận API nghiệp vụ hoặc quyền tenant đã được kiểm chứng.

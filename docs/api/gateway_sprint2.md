@@ -1,62 +1,38 @@
-\# AURA — Gateway Sprint 2
+# AURA — Gateway Sprint 2
 
+## 1. Phạm vi
 
+- Task: SCRUM-299 / W2-M1-01.
 
-\## 1. Phạm vi
+- Epic: SCRUM-262 — Identity & Gateway.
 
+- Người thực hiện: M1 — Nguyễn Trương Hậu.
 
+- Nền mã nguồn: develop tại 4ff7bff; cập nhật môi trường M1 ngày 2026-10-18.
 
-\- Task: SCRUM-299 / W2-M1-01.
+- Gateway: .NET 10, YARP 2.3.0.
 
-\- Epic: SCRUM-262 — Identity \& Gateway.
+- Địa chỉ local: http://127.0.0.1:5000.
 
-\- Người thực hiện: M1 — Nguyễn Trương Hậu.
-
-\- Baseline: develop tại 875da39.
-
-\- Gateway: .NET 10, YARP 2.3.0.
-
-\- Địa chỉ local: http://127.0.0.1:5000.
-
-
-
-\## 2. Route và service đích
-
-
+## 2. Route và service đích
 
 | Prefix public | Service | Cổng local |
-
 | --- | --- | --- |
-
 | /api/v1/identity | Identity | 5004 |
-
 | /api/v1/profiles | Profile | 5005 |
-
 | /api/v1/clinics | Profile | 5005 |
-
 | /api/v1/patients | Profile | 5005 |
-
 | /api/v1/analyses | Analysis | 5001 |
-
 | /api/v1/batches | Analysis | 5001 |
-
 | /api/v1/platform | Analysis | 5001 |
-
-| /api/v1/billing/packages | Billing | 5002 |
-
+| /api/v1/billing | Billing | 5002 |
 | /api/v1/notifications | Notification | 5003 |
 
-
-
 Các route giữ nguyên path và query khi chuyển tiếp.
-
-
 
 GET /services/analysis/health chuyển tới /health của Analysis.
 
 GET /health kiểm tra Gateway, không xác nhận mọi service đích sẵn sàng.
-
-
 
 Các prefix Identity/Profile/Clinic/Patient là cấu hình bàn giao
 
@@ -64,63 +40,39 @@ cho M6; cần đối chiếu với contract và API thật khi tích hợp.
 
 Không mở route tổng quát cho API nội bộ của các service.
 
-
-
-\## 3. Frontend
-
-
+## 3. Frontend
 
 Vite chuyển toàn bộ /api đến http://127.0.0.1:5000.
 
 Đã bỏ proxy Notification đi trực tiếp tới cổng 5003.
 
-
-
 Cấu hình frontend khi gọi API thật:
 
+- VITE_ENABLE_MOCK=false
 
-
-\- VITE\_ENABLE\_MOCK=false
-
-\- VITE\_API\_BASE\_URL để trống
-
-
+- VITE_API_BASE_URL để trống
 
 Khởi động lại Vite sau khi thay cấu hình.
 
-
-
-\## 4. CORS
-
-
+## 4. CORS
 
 Origin local được phép:
 
+- http://localhost:5173
 
-
-\- http://localhost:5173
-
-\- http://127.0.0.1:5173
-
-
+- http://127.0.0.1:5173
 
 Method: GET, POST, PUT, PATCH, DELETE, OPTIONS.
-
-
 
 Request header:
 
 Authorization, Content-Type, Idempotency-Key,
 
-X-Correlation-Id, If-Match, If-None-Match.
-
-
+X-Correlation-Id, X-Clinic-Id, If-Match, If-None-Match.
 
 Response header được expose:
 
-X-Correlation-Id, Location, Retry-After, ETag.
-
-
+X-Correlation-Id, Idempotent-Replayed, Location, Retry-After, ETag.
 
 Không bật AllowCredentials.
 
@@ -128,35 +80,25 @@ Origin ngoài danh sách không được cấp Allow-Origin.
 
 CORS không thay thế xác thực hoặc phân quyền backend.
 
-
-
-\## 5. Correlation ID
-
-
+## 5. Correlation ID
 
 Gateway nhận X-Correlation-Id có độ dài 1–64 ký tự,
 
 chỉ gồm chữ ASCII, số, dấu gạch ngang, gạch dưới và dấu chấm.
 
-
-
 Nếu thiếu, có nhiều giá trị hoặc không hợp lệ:
 
 Gateway sinh ID mới bằng GUID dạng N.
 
-
-
 Gateway:
 
-\- Gán ID vào TraceIdentifier.
+- Gán ID vào TraceIdentifier.
 
-\- Chuyển tiếp X-Correlation-Id xuống service.
+- Chuyển tiếp X-Correlation-Id xuống service.
 
-\- Trả X-Correlation-Id trong response.
+- Trả X-Correlation-Id trong response.
 
-\- Thêm CorrelationId vào logging scope.
-
-
+- Thêm CorrelationId vào logging scope.
 
 Service phải tiếp nhận header để đồng bộ trace nội bộ.
 
@@ -164,21 +106,12 @@ Kiểm thử header không chứng minh correlationId trong mọi
 
 response body của service đã đồng nhất.
 
-
-
-\## 6. Giới hạn request
-
-
+## 6. Giới hạn request
 
 | Cấu hình | Giá trị |
-
 | --- | ---: |
-
 | Gateway:MaxRequestBodyBytes | 1048576 |
-
 | Gateway:MaxUploadBodyBytes | 1101004800 |
-
-
 
 Request thông thường tối đa 1 MiB.
 
@@ -186,19 +119,13 @@ POST /api/v1/analyses được phép tối đa 1050 MiB.
 
 Đường dẫn con và các method khác dùng giới hạn thông thường.
 
-
-
 Request có Content-Length vượt giới hạn được trả:
 
-413 ERR\_PAYLOAD\_TOO\_LARGE, kèm correlationId và retryable=false.
-
-
+413 ERR_PAYLOAD_TOO_LARGE, kèm correlationId và retryable=false.
 
 Middleware cũng đặt giới hạn đọc body qua server feature.
 
 Chưa kiểm chứng riêng request chunked vượt giới hạn.
-
-
 
 Analysis vẫn phải kiểm tra multipart, số ảnh, dung lượng từng ảnh,
 
@@ -206,197 +133,149 @@ Analysis vẫn phải kiểm tra multipart, số ảnh, dung lượng từng ả
 
 Giới hạn Gateway không chứng minh hệ thống xử lý được batch 100 ảnh.
 
-
-
-\## 7. Cấu hình môi trường
-
-
+## 7. Cấu hình môi trường
 
 Ví dụ override địa chỉ Notification trong PowerShell:
 
+    [Environment]::SetEnvironmentVariable(
 
+        "ReverseProxy__Clusters__notification-cluster__Destinations__notification-api__Address",
 
-&#x20;   \[Environment]::SetEnvironmentVariable(
+        "http://127.0.0.1:5003/",
 
-&#x20;       "ReverseProxy\_\_Clusters\_\_notification-cluster\_\_Destinations\_\_notification-api\_\_Address",
+        "Process"
 
-&#x20;       "http://127.0.0.1:5003/",
+    )
 
-&#x20;       "Process"
+CORS có thể cấu hình bằng Gateway__AllowedOrigins__0,
 
-&#x20;   )
-
-
-
-CORS có thể cấu hình bằng Gateway\_\_AllowedOrigins\_\_0,
-
-Gateway\_\_AllowedOrigins\_\_1 và các phần tử tiếp theo.
+Gateway__AllowedOrigins__1 và các phần tử tiếp theo.
 
 Khi triển khai phải rà soát toàn bộ danh sách origin có hiệu lực.
 
-
-
 Giới hạn body:
 
-\- Gateway\_\_MaxRequestBodyBytes
+- Gateway__MaxRequestBodyBytes
 
-\- Gateway\_\_MaxUploadBodyBytes
-
-
+- Gateway__MaxUploadBodyBytes
 
 Khởi động lại Gateway sau khi đổi các cấu hình Gateway trên.
 
-
-
 Trong container, loopback là chính container đó.
 
-Compose hiện chỉ override địa chỉ Analysis/Billing.
-
-Identity/Profile/Notification cần cấu hình đích phù hợp
-
-khi bổ sung môi trường Docker trong SCRUM-301.
-
-
+compose.yaml override Identity/Profile/Analysis/Billing bằng DNS Docker.
+compose.dev.yaml bổ sung Notification và Firebase mount/config cho Gateway,
+Identity, Notification. Xem docs/development/sprint2_local_setup.md để chạy
+đúng cả hai file và thiết lập database.
 
 Không lưu Firebase credentials, mật khẩu hoặc khóa mã hóa vào Git.
 
-
-
-\## 8. Chạy local
-
-
+## 8. Chạy local
 
 Tại thư mục gốc repository:
 
+    $env:DOTNET_ENVIRONMENT = "Development"
 
+    $env:ASPNETCORE_ENVIRONMENT = "Development"
 
-&#x20;   $env:DOTNET\_ENVIRONMENT = "Development"
-
-&#x20;   $env:ASPNETCORE\_ENVIRONMENT = "Development"
-
-
-
-&#x20;   dotnet run --project src/gateway/AURA.ApiGateway/AURA.ApiGateway.csproj --no-launch-profile --urls http://127.0.0.1:5000
-
-
+    dotnet run --project src/gateway/AURA.ApiGateway/AURA.ApiGateway.csproj --no-launch-profile --urls http://127.0.0.1:5000
 
 Chạy các service cần sử dụng ở cổng tương ứng trong bảng route.
 
-
-
 Frontend:
 
+    cd src/web/aura-web
 
+    npm ci
 
-&#x20;   cd src/web/aura-web
+    npm run dev -- --host localhost --port 5173 --strictPort
 
-&#x20;   npm ci
+## 9. Kết quả kiểm tra ngày 2026-10-15 (lịch sử)
 
-&#x20;   npm run dev -- --host localhost --port 5173 --strictPort
-
-
-
-\## 9. Kết quả kiểm tra ngày 2026-10-15
-
-
+Các mục 9–10 ghi nhận snapshot cũ. Xác thực Firebase đã được bổ sung ở
+phần 2026-10-16 bên dưới; không dùng giới hạn cũ làm mô tả runtime hiện tại.
 
 Nguồn: log PowerShell người thao tác cung cấp.
 
+- Gateway build PASS.
 
+- Health, correlation ID hợp lệ/tự sinh/thay ID quá dài: PASS.
 
-\- Gateway build PASS.
+- CORS preflight, method/header và origin ngoài danh sách: PASS.
 
-\- Health, correlation ID hợp lệ/tự sinh/thay ID quá dài: PASS.
+- Request thông thường vượt 1 MiB: 413 đúng envelope và CORS.
 
-\- CORS preflight, method/header và origin ngoài danh sách: PASS.
+- Analysis thật: platform/ping và health transform PASS.
 
-\- Request thông thường vượt 1 MiB: 413 đúng envelope và CORS.
+- Backend giả lập: chín route chuyển tới đúng năm cluster.
 
-\- Analysis thật: platform/ping và health transform PASS.
+- Chuyển tiếp path/query/bearer/correlation ID: PASS.
 
-\- Backend giả lập: chín route chuyển tới đúng năm cluster.
+- Chuyển tiếp POST body và Idempotency-Key: PASS.
 
-\- Chuyển tiếp path/query/bearer/correlation ID: PASS.
+- Giới hạn upload kiểm tra bằng cấu hình giảm:
 
-\- Chuyển tiếp POST body và Idempotency-Key: PASS.
+  request thường 1024 byte, upload 4096 byte.
 
-\- Giới hạn upload kiểm tra bằng cấu hình giảm:
+- Upload 2048 và 4096 byte: PASS; 4097 byte: 413.
 
-&#x20; request thường 1024 byte, upload 4096 byte.
+- POST đường dẫn con và PUT vượt giới hạn thường: 413.
 
-\- Upload 2048 và 4096 byte: PASS; 4097 byte: 413.
+- Lần chạy liên tiếp có lỗi kết nối sau ca 413;
 
-\- POST đường dẫn con và PUT vượt giới hạn thường: 413.
+  hai ca còn lại PASS khi dùng kết nối mới.
 
-\- Lần chạy liên tiếp có lỗi kết nối sau ca 413;
+  Chưa xác định nguyên nhân lỗi kết nối ban đầu.
 
-&#x20; hai ca còn lại PASS khi dùng kết nối mới.
+- Frontend: 82/82 tests PASS, lint 0 lỗi/cảnh báo.
 
-&#x20; Chưa xác định nguyên nhân lỗi kết nối ban đầu.
+- Sau npm ci đồng bộ react-router-dom 7.18.4:
 
-\- Frontend: 82/82 tests PASS, lint 0 lỗi/cảnh báo.
+  TypeScript/Vite build PASS, 73 modules.
 
-\- Sau npm ci đồng bộ react-router-dom 7.18.4:
+- Notification thật: thiếu bearer trả 401 ERR_UNAUTHORIZED
 
-&#x20; TypeScript/Vite build PASS, 73 modules.
+  khi gọi trực tiếp, qua Gateway và qua Vite.
 
-\- Notification thật: thiếu bearer trả 401 ERR\_UNAUTHORIZED
+- Các response qua Gateway giữ correlation header đúng.
 
-&#x20; khi gọi trực tiếp, qua Gateway và qua Vite.
+## 10. Giới hạn bàn giao ngày 2026-10-15 (lịch sử)
 
-\- Các response qua Gateway giữ correlation header đúng.
+- Gateway chưa bổ sung cơ chế xác thực/phân quyền riêng.
 
+- Các service phải xác minh token và quyền nghiệp vụ.
 
+- Bearer giả trong kiểm thử chỉ dùng để kiểm tra chuyển tiếp.
 
-\## 10. Giới hạn bàn giao
+- Chưa nghiệm thu Identity/Profile thật hoặc upload nghiệp vụ.
 
+- Chưa kiểm chứng đăng nhập/FCM delivery qua Gateway.
 
+- Chưa kiểm chứng tải lớn, rate limiting hoặc môi trường production.
 
-\- Gateway chưa bổ sung cơ chế xác thực/phân quyền riêng.
+## Bổ sung SCRUM-299 — Firebase, CORS và timeout (2026-10-16)
 
-\- Các service phải xác minh token và quyền nghiệp vụ.
-
-\- Bearer giả trong kiểm thử chỉ dùng để kiểm tra chuyển tiếp.
-
-\- Chưa nghiệm thu Identity/Profile thật hoặc upload nghiệp vụ.
-
-\- Chưa kiểm chứng đăng nhập/FCM delivery qua Gateway.
-
-\- Chưa kiểm chứng tải lớn, rate limiting hoặc môi trường production.
-
-\## Bổ sung SCRUM-299 — Firebase, CORS và timeout (2026-10-16)
-
-
-
-\### Xác thực tại Gateway
-
-
+### Xác thực tại Gateway
 
 Gateway xác minh Firebase ID token cho các đường dẫn /api/v1
 
 cần đăng nhập, sử dụng FirebaseAdmin 3.7.0 và checkRevoked=true.
 
-
-
 Các ngoại lệ:
 
-\- GET /api/v1/platform/ping.
+- GET /api/v1/platform/ping.
 
-\- GET /api/v1/billing/packages.
+- GET /api/v1/billing/packages.
 
-\- OPTIONS phục vụ CORS preflight.
+- OPTIONS phục vụ CORS preflight.
 
-\- Health endpoint nằm ngoài /api/v1.
+- Health endpoint nằm ngoài /api/v1.
 
-
-
-Thiếu hoặc sai token trả 401 ERR\_UNAUTHORIZED.
+Thiếu hoặc sai token trả 401 ERR_UNAUTHORIZED.
 
 Không xác minh được do cấu hình/dependency trả
 
-503 ERR\_AUTH\_UNAVAILABLE; không chuyển tiếp request.
-
-
+503 ERR_AUTH_UNAVAILABLE; không chuyển tiếp request.
 
 Gateway giữ Authorization để API đích tiếp tục xác minh.
 
@@ -404,17 +283,13 @@ Gateway không suy ra accountId, tenant hoặc role nội bộ từ UID.
 
 API nghiệp vụ vẫn kiểm tra account active, role và quyền resource.
 
-
-
 Cấu hình backend khi chạy trên host:
 
-\- Firebase\_\_ProjectId: project Firebase dev.
+- Firebase__ProjectId: project Firebase dev.
 
-\- GOOGLE\_APPLICATION\_CREDENTIALS: đường dẫn file service account
+- GOOGLE_APPLICATION_CREDENTIALS: đường dẫn file service account
 
-&#x20; nằm ngoài repository.
-
-
+  nằm ngoài repository.
 
 Firebase client được khởi tạo khi có request cần xác minh.
 
@@ -422,83 +297,59 @@ Health/ping không chứng minh cấu hình Firebase đã hoạt động.
 
 Không log ID token, service account hoặc mật khẩu.
 
-
-
-\### Header và route
-
-
+### Header và route
 
 Gateway loại các header do client gửi:
 
-\- X-Account-Id.
+- X-Account-Id.
 
-\- X-Role.
+- X-Role.
 
-\- X-Tenant-Id.
+- X-Tenant-Id.
 
-\- X-User-Authorization.
-
-
+- X-User-Authorization.
 
 Giữ X-Clinic-Id như lựa chọn context; backend phải kiểm membership.
 
 Giữ Authorization, Idempotency-Key và X-Correlation-Id.
 
-
-
 CORS cho phép X-Clinic-Id và expose Idempotent-Replayed.
 
 Response lỗi xác thực/timeout vẫn có CORS cho origin được phép.
 
-
-
-Route Billing bao phủ /api/v1/billing/{\*\*catch-all}.
+Route Billing bao phủ /api/v1/billing/{**catch-all}.
 
 Không mở route public tới /internal/v1.
 
-
-
-\### Timeout upload
-
-
+### Timeout upload
 
 Route analysis-upload:
 
-\- POST /api/v1/analyses.
+- POST /api/v1/analyses.
 
-\- Order = -10.
+- Order = -10.
 
-\- TimeoutPolicy = analysis-upload.
+- TimeoutPolicy = analysis-upload.
 
-
-
-Gateway\_\_UploadTimeoutSeconds mặc định trong appsettings.json
+Gateway__UploadTimeoutSeconds mặc định trong appsettings.json
 
 là 120 giây. Analysis cluster ActivityTimeout là 130 giây.
-
-
 
 Có middleware nối trạng thái route timeout về Request Timeouts
 
 để tránh trường hợp YARP trả 400 khi request bị hủy do deadline.
 
-
-
 Nếu response chưa bắt đầu, timeout trả:
 
-\- HTTP 504.
+- HTTP 504.
 
-\- error.code = ERR\_GATEWAY\_TIMEOUT.
+- error.code = ERR_GATEWAY_TIMEOUT.
 
-\- retryable = true.
+- retryable = true.
 
-\- X-Correlation-Id và Cache-Control: no-store.
-
-
+- X-Correlation-Id và Cache-Control: no-store.
 
 Nếu response đã bắt đầu, Gateway không thể thay lại status/body.
-
-
 
 Timeout không xác nhận backend đã rollback thao tác.
 
@@ -506,52 +357,49 @@ Khi thử lại upload, client phải giữ nguyên Idempotency-Key
 
 và nội dung request để backend xử lý idempotency.
 
+### Kiểm thử local đã đạt
 
+- Gateway build thành công.
 
-\### Kiểm thử local đã đạt
+- Health không cần token.
 
+- CORS preflight trả 204, cho phép X-Clinic-Id.
 
+- Các prefix Identity/Profile/Analysis/Billing/Notification
 
-\- Gateway build thành công.
+  thiếu token trả 401 với correlation ID và CORS.
 
-\- Health không cần token.
+- Token sai trả 401.
 
-\- CORS preflight trả 204, cho phép X-Clinic-Id.
+- Firebase token thật được xác minh và chuyển tiếp tới backend thử.
 
-\- Các prefix Identity/Profile/Analysis/Billing/Notification
+- Backend nhận Authorization, X-Clinic-Id, Idempotency-Key
 
-&#x20; thiếu token trả 401 với correlation ID và CORS.
+  và correlation ID.
 
-\- Token sai trả 401.
+- Backend không nhận bốn header giả mạo nêu trên.
 
-\- Firebase token thật được xác minh và chuyển tiếp tới backend thử.
+- Override timeout 2 giây, backend chờ 5 giây:
 
-\- Backend nhận Authorization, X-Clinic-Id, Idempotency-Key
+  Gateway trả 504 sau 2,11 giây, có ERR_GATEWAY_TIMEOUT,
 
-&#x20; và correlation ID.
-
-\- Backend không nhận bốn header giả mạo nêu trên.
-
-\- Override timeout 2 giây, backend chờ 5 giây:
-
-&#x20; Gateway trả 504 sau 2,11 giây, có ERR\_GATEWAY\_TIMEOUT,
-
-&#x20; correlation ID và CORS.
-
-
+  correlation ID và CORS.
 
 Kiểm thử token thật dùng tài khoản Firebase thử nghiệm.
 
 Backend kiểm thử không in hoặc trả nội dung token.
 
-
-
 Giá trị production/local baseline vẫn là 120 giây;
 
 không ghi nhận đã chờ đủ 120 giây trong phép thử này.
 
+## Cập nhật môi trường M1 ngày 2026-10-18
 
+Identity đã có Dockerfile/service Compose, DB runtime password và địa chỉ
+Profile trong Docker. Dev override mount JSON read-only, đặt Firebase project
+cho Identity giống Gateway/Notification. Hướng dẫn migration và cấu hình
+năm runtime role nằm trong docs/development/sprint2_local_setup.md.
 
-Cấu hình credentials/mount và địa chỉ các service khi Gateway
-
-chạy trong Docker tiếp tục được hoàn thiện trong SCRUM-301.
+Dùng scripts/dev/Test-AuraDevEnvironment.ps1 để kiểm tra wiring. Thêm
+-CheckFirebase khi có ID token thật; health/ping không xác nhận Firebase.
+Test không nghiệm thu phân quyền Profile, upload hay reservation nghiệp vụ.
