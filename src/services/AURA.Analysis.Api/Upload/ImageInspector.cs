@@ -87,7 +87,7 @@ public static class ImageInspector
         return total;
     }
 
-    // PNG: chuỗi chunk (length, type, data, crc). Chunk đầu phải là IHDR 13 byte; phải có IEND.
+    // PNG: kiểm tra cả ranh giới chunk và CRC-32, không chỉ tin header/IEND.
     private static async Task<(int, int)?> ReadPngAsync(Stream s, long size, CancellationToken ct)
     {
         s.Position = 8;
@@ -99,6 +99,9 @@ public static class ImageInspector
             await s.ReadExactlyAsync(hdr, ct);
             uint len = BinaryPrimitives.ReadUInt32BigEndian(hdr.AsSpan(0, 4));
             string type = System.Text.Encoding.ASCII.GetString(hdr, 4, 4);
+            long dataStart = s.Position;
+            if (len > int.MaxValue || dataStart + (long)len + 4 > size) return null;
+
             if (first)
             {
                 if (type != "IHDR" || len != 13) return null;
@@ -106,16 +109,49 @@ public static class ImageInspector
                 await s.ReadExactlyAsync(ihdr, ct);
                 width = (int)Math.Min(BinaryPrimitives.ReadUInt32BigEndian(ihdr.AsSpan(0, 4)), int.MaxValue);
                 height = (int)Math.Min(BinaryPrimitives.ReadUInt32BigEndian(ihdr.AsSpan(4, 4)), int.MaxValue);
-                s.Position += len - 8 + 4; // phần còn lại của IHDR + CRC
                 first = false;
-                continue;
             }
-            long next = s.Position + len + 4;
-            if (next > size) return null;
-            if (type == "IEND") return (width, height);
-            s.Position = next;
+
+            s.Position = dataStart;
+            bool crcValid = await CheckPngCrcAsync(s, hdr.AsSpan(4, 4).ToArray(), len, ct);
+            if (!crcValid) return null;
+
+            if (type == "IEND")
+            {
+                if (len != 0) return null;
+                return (width, height);
+            }
+            s.Position = dataStart + len + 4;
         }
         return null; // không thấy IEND: file cụt
+    }
+
+    private static async Task<bool> CheckPngCrcAsync(Stream s, byte[] type, uint dataLength, CancellationToken ct)
+    {
+        uint crc = 0xFFFFFFFF;
+        foreach (byte b in type) crc = UpdateCrc32(crc, b);
+        var buffer = new byte[8192];
+        uint remaining = dataLength;
+        while (remaining > 0)
+        {
+            int wanted = (int)Math.Min((uint)buffer.Length, remaining);
+            int read = await s.ReadAsync(buffer.AsMemory(0, wanted), ct);
+            if (read == 0) return false;
+            for (int i = 0; i < read; i++) crc = UpdateCrc32(crc, buffer[i]);
+            remaining -= (uint)read;
+        }
+        var expectedBytes = new byte[4];
+        await s.ReadExactlyAsync(expectedBytes, ct);
+        uint expected = BinaryPrimitives.ReadUInt32BigEndian(expectedBytes);
+        return (crc ^ 0xFFFFFFFF) == expected;
+    }
+
+    private static uint UpdateCrc32(uint crc, byte value)
+    {
+        crc ^= value;
+        for (int i = 0; i < 8; i++)
+            crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+        return crc;
     }
 
     // JPEG: duyệt marker đến SOFn để lấy kích thước; kiểm tra EOI (FF D9) ở cuối file.

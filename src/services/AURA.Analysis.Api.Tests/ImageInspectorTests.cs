@@ -23,6 +23,18 @@ public class ImageInspectorTests
         Assert.Equal(Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), r.Image.Sha256);
     }
 
+
+    [Fact]
+    public async Task Png_sai_CRC_bi_tu_choi_la_corrupt()
+    {
+        var bytes = TestImages.Png(100, 100);
+        // Sửa byte dữ liệu trong chunk IHDR nhưng giữ CRC cũ.
+        bytes[20] ^= 0x01;
+        var r = await Run(bytes, "image/png");
+        Assert.Equal(400, r.Problem!.Status);
+        Assert.Equal("corrupt", r.Problem.Issue);
+    }
+
     [Fact]
     public async Task Jpeg_hop_le_co_exif_doc_dung_kich_thuoc()
     {

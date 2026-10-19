@@ -25,7 +25,20 @@ internal static class TestImages
         s.Write(len);
         s.Write(System.Text.Encoding.ASCII.GetBytes(type));
         s.Write(data);
-        s.Write(new byte[4]); // CRC không được kiểm tra
+        uint crc = 0xFFFFFFFF;
+        foreach (byte b in System.Text.Encoding.ASCII.GetBytes(type)) crc = UpdateCrc32(crc, b);
+        foreach (byte b in data) crc = UpdateCrc32(crc, b);
+        var crcBytes = new byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(crcBytes, crc ^ 0xFFFFFFFF);
+        s.Write(crcBytes);
+    }
+
+    private static uint UpdateCrc32(uint crc, byte value)
+    {
+        crc ^= value;
+        for (int i = 0; i < 8; i++)
+            crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+        return crc;
     }
 
     /// <param name="seed">Đổi nội dung để tạo checksum khác nhau.</param>
