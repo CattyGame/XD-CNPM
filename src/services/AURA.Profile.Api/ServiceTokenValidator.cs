@@ -93,29 +93,37 @@ public class ServiceTokenValidator
     {
         if (_publicKey != null) return _publicKey;
 
-        try
+        for (var attempt = 0; attempt < 3; attempt++)
         {
-            var client = _httpClientFactory.CreateClient("IdentityClient");
-            var response = await client.GetAsync("/internal/v1/identity/public-key");
-            if (response.IsSuccessStatusCode)
+            try
             {
-                var pem = await response.Content.ReadAsStringAsync();
-                var rsa = RSA.Create();
-                rsa.ImportFromPem(pem);
-                _publicKey = new RsaSecurityKey(rsa);
-                _logger.LogInformation("Successfully fetched service public key from Identity service");
-                return _publicKey;
+                var client = _httpClientFactory.CreateClient("IdentityClient");
+                var response = await client.GetAsync("/internal/v1/identity/public-key");
+                if (response.IsSuccessStatusCode)
+                {
+                    var pem = await response.Content.ReadAsStringAsync();
+                    var rsa = RSA.Create();
+                    rsa.ImportFromPem(pem);
+                    _publicKey = new RsaSecurityKey(rsa);
+                    _logger.LogInformation("Successfully fetched service public key from Identity service");
+                    return _publicKey;
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not fetch public key from Identity service");
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Attempt {Attempt}: Could not fetch public key from Identity service", attempt + 1);
+            }
+
+            if (attempt < 2)
+            {
+                await Task.Delay(500);
+            }
         }
 
         return _publicKey;
     }
 
-    public (bool Valid, ClaimsPrincipal? Principal, string? ErrorCode, string? ErrorMessage) ValidateToken(
+    public async Task<(bool Valid, ClaimsPrincipal? Principal, string? ErrorCode, string? ErrorMessage)> ValidateTokenAsync(
         string token, string expectedAudience, string expectedScope)
     {
         if (string.IsNullOrWhiteSpace(token))
@@ -123,7 +131,7 @@ public class ServiceTokenValidator
             return (false, null, "ERR_UNAUTHORIZED", "Thiếu service token.");
         }
 
-        var key = EnsurePublicKeyAsync().GetAwaiter().GetResult();
+        var key = await EnsurePublicKeyAsync();
         if (key == null)
         {
             return (false, null, "ERR_INTERNAL_AUTH", "Khóa công khai để xác thực Service Token chưa sẵn sàng.");
@@ -142,7 +150,7 @@ public class ServiceTokenValidator
             ValidateIssuer = true,
             ValidIssuer = _issuer,
             ValidateAudience = true,
-            ValidAudience = expectedAudience,
+            ValidateAudience = expectedAudience,
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromSeconds(30),
             ValidAlgorithms = new[] { SecurityAlgorithms.RsaSha256 }
@@ -188,5 +196,11 @@ public class ServiceTokenValidator
         {
             return (false, null, "ERR_UNAUTHORIZED", $"Token không hợp lệ: {ex.Message}");
         }
+    }
+
+    public (bool Valid, ClaimsPrincipal? Principal, string? ErrorCode, string? ErrorMessage) ValidateToken(
+        string token, string expectedAudience, string expectedScope)
+    {
+        return ValidateTokenAsync(token, expectedAudience, expectedScope).GetAwaiter().GetResult();
     }
 }

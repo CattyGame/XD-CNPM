@@ -19,7 +19,14 @@ builder.Services.AddSingleton<ProfileRepository>();
 
 builder.Services.AddHttpClient("IdentityClient", (sp, client) =>
 {
-    var baseUrl = builder.Configuration["Services:Identity:BaseUrl"] ?? "http://127.0.0.1:5004";
+    var baseUrl = builder.Configuration["Services:Identity:BaseUrl"];
+    if (string.IsNullOrWhiteSpace(baseUrl))
+    {
+        baseUrl = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true"
+            || File.Exists("/.dockerenv")
+            ? "http://identity-api:8080"
+            : "http://127.0.0.1:5004";
+    }
     client.BaseAddress = new Uri(baseUrl);
     client.Timeout = TimeSpan.FromSeconds(5);
 });
@@ -115,7 +122,7 @@ app.MapPost("/internal/v1/profile/provision", async (
     }
 
     var token = authHeader["Bearer ".Length..].Trim();
-    var (valid, _, errCode, errMsg) = tokenValidator.ValidateToken(token, "aura-profile", "profile:provision");
+    var (valid, _, errCode, errMsg) = await tokenValidator.ValidateTokenAsync(token, "aura-profile", "profile:provision");
     if (!valid)
     {
         var statusCode = errCode == "ERR_FORBIDDEN" ? StatusCodes.Status403Forbidden : StatusCodes.Status401Unauthorized;
@@ -310,7 +317,7 @@ app.MapPost("/internal/v1/profile/access/resolve", async (
     }
 
     var token = authHeader["Bearer ".Length..].Trim();
-    var (valid, _, errCode, errMsg) = tokenValidator.ValidateToken(token, "aura-profile", "profile:resolve");
+    var (valid, _, errCode, errMsg) = await tokenValidator.ValidateTokenAsync(token, "aura-profile", "profile:resolve");
     if (!valid)
     {
         var statusCode = errCode == "ERR_FORBIDDEN" ? StatusCodes.Status403Forbidden : StatusCodes.Status401Unauthorized;
