@@ -24,7 +24,6 @@ public sealed record BootstrapResponse(
 public sealed record ServiceTokenRequest(
     [property: JsonPropertyName("clientId")] string ClientId,
     [property: JsonPropertyName("clientSecret")] string ClientSecret,
-    [property: JsonPropertyName("audience")] string? Audience,
     [property: JsonPropertyName("scope")] string? Scope
 );
 

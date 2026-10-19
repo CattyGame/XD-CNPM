@@ -137,8 +137,6 @@ paths:
       operationId: provisionProfile
       tags:
         - Profile Internal
-      security:
-        - ServiceTokenAuth: []
       requestBody:
         required: true
         content:
@@ -154,14 +152,6 @@ paths:
                 $ref: '#/components/schemas/ProfileDto'
         '400':
           $ref: '#/components/responses/400BadRequest'
-        '401':
-          $ref: '#/components/responses/401Unauthorized'
-        '403':
-          description: Service token không có scope profile:provision.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
         '500':
           $ref: '#/components/responses/500InternalError'
 
@@ -178,8 +168,6 @@ paths:
       operationId: resolveAccess
       tags:
         - Profile Internal
-      security:
-        - ServiceTokenAuth: []
       requestBody:
         required: true
         content:
@@ -193,14 +181,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessResolveResponse'
-        '401':
-          $ref: '#/components/responses/401Unauthorized'
-        '403':
-          description: Service token không có scope profile:resolve.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorEnvelope'
 
   /health:
     get:
@@ -224,11 +204,6 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Firebase ID Token của người dùng.
-    ServiceTokenAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: Service-to-Service JWT do Identity cấp (RS256, audience aura-profile).
 
   parameters:
     CorrelationIdHeader:
