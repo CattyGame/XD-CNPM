@@ -186,6 +186,7 @@ services:
         Username=aura_profile_app;
         Password="${PROFILE_DB_PASSWORD:?Set PROFILE_DB_PASSWORD}";
         Timeout=5;Command Timeout=10
+      Services__Identity__BaseUrl: "http://identity-api:8080"
     ports:
       - "127.0.0.1:5005:8080"
     depends_on:
