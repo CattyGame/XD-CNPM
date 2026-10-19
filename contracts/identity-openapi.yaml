@@ -122,6 +122,8 @@ paths:
       operationId: resolveIdentityContext
       tags:
         - Identity Internal
+      security:
+        - ServiceTokenAuth: []
       parameters:
         - name: X-User-Authorization
           in: header
@@ -139,6 +141,12 @@ paths:
                 $ref: '#/components/schemas/IdentityContextResponse'
         '401':
           $ref: '#/components/responses/401Unauthorized'
+        '403':
+          description: Service token không có scope identity:context hoặc audience sai.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
         '404':
           description: Không tìm thấy tài khoản tương ứng với token.
           content:
@@ -168,6 +176,11 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: Firebase ID Token nhận được sau khi đăng nhập thành công.
+    ServiceTokenAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Service-to-Service JWT Token do Identity cấp (RS256, audience aura-identity, scope identity:context).
 
   parameters:
     CorrelationIdHeader:
@@ -232,6 +245,10 @@ components:
           type: string
           format: password
           example: secret_analysis_pass
+        audience:
+          type: string
+          description: Target audience của dịch vụ đích (ví dụ aura-profile, aura-identity, aura-billing).
+          example: aura-profile
         scope:
           type: string
           description: Chuỗi scope phân cách bằng khoảng trắng.

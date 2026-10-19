@@ -17,11 +17,24 @@ var postgresConnString = builder.Configuration.GetConnectionString("Postgres")
 builder.Services.AddSingleton<NpgsqlDataSource>(_ => NpgsqlDataSource.Create(postgresConnString));
 builder.Services.AddSingleton<ProfileRepository>();
 
+builder.Services.AddHttpClient("IdentityClient", (sp, client) =>
+{
+    var baseUrl = builder.Configuration["Services:Identity:BaseUrl"] ?? "http://127.0.0.1:5004";
+    client.BaseAddress = new Uri(baseUrl);
+    client.Timeout = TimeSpan.FromSeconds(5);
+});
+
+builder.Services.AddSingleton<ServiceTokenValidator>();
+
 var app = builder.Build();
 
-app.UseDeveloperExceptionPage();
-app.UseSwagger();
-app.UseSwaggerUI();
+app.UseExceptionHandler();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 
 // Correlation ID Middleware
 app.Use(async (context, next) =>
@@ -39,17 +52,9 @@ app.Use(async (context, next) =>
 
 app.MapHealthChecks("/health");
 
-// Helper: Phân giải Account ID từ request (Hỗ trợ môi trường local dev/test linh hoạt)
-static Guid? ResolveAccountId(HttpRequest request)
+// Helper: Phân giải Account ID từ request (Tuyệt đối không tin cậy X-Account-Id hay chuỗi GUID không xác thực)
+static Guid? ResolveAccountId(HttpRequest request, IWebHostEnvironment env)
 {
-    // 1. Kiểm tra header X-Account-Id (khi gọi nội bộ giữa các service hoặc dev proxy)
-    var accountIdHeader = request.Headers["X-Account-Id"].FirstOrDefault();
-    if (!string.IsNullOrWhiteSpace(accountIdHeader) && Guid.TryParse(accountIdHeader, out var headerGuid))
-    {
-        return headerGuid;
-    }
-
-    // 2. Kiểm tra Authorization header (Bearer token)
     var authHeader = request.Headers.Authorization.FirstOrDefault();
     if (string.IsNullOrWhiteSpace(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
     {
@@ -62,67 +67,82 @@ static Guid? ResolveAccountId(HttpRequest request)
         return null;
     }
 
-    // Hỗ trợ token giả lập môi trường Development
-    if (token.StartsWith("mock-token-", StringComparison.OrdinalIgnoreCase) ||
-        token.StartsWith("mock-dev-token-", StringComparison.OrdinalIgnoreCase))
+    // Chỉ cho phép mock tokens khi đang ở môi trường Development
+    if (env.IsDevelopment() && (token.StartsWith("mock-token-", StringComparison.OrdinalIgnoreCase) ||
+                                token.StartsWith("mock-dev-token-", StringComparison.OrdinalIgnoreCase)))
     {
         var raw = token.StartsWith("mock-token-", StringComparison.OrdinalIgnoreCase)
             ? token["mock-token-".Length..]
             : token["mock-dev-token-".Length..];
 
-        if (Guid.TryParse(raw, out var parsedGuid))
-        {
-            return parsedGuid;
-        }
-
-        // Đối chiếu tài khoản kiểm chứng quen thuộc từ Identity (Sprint 2 test case)
         if (raw.Equals("hoang_dev_1", StringComparison.OrdinalIgnoreCase))
         {
             return Guid.Parse("668c4a32-5342-4d8b-b505-07d548732120");
         }
 
-        // Sinh deterministic UUID từ chuỗi để đảm bảo tính nhất quán
+        if (raw.Equals("uninitialized_user_999", StringComparison.OrdinalIgnoreCase))
+        {
+            return null; // Chưa bootstrap
+        }
+
+        // Sinh deterministic UUID từ chuỗi UID đã đăng nhập
         using var md5 = MD5.Create();
         var hash = md5.ComputeHash(Encoding.UTF8.GetBytes("aura-profile-dev:" + raw));
         return new Guid(hash);
     }
 
-    // Nếu bản thân token là GUID
-    if (Guid.TryParse(token, out var directGuid))
-    {
-        return directGuid;
-    }
-
     return null;
 }
 
-// 1. POST /internal/v1/profile/provision (Được gọi từ Identity khi bootstrap)
+// 1. POST /internal/v1/profile/provision (Bảo vệ bằng Service JWT: scope profile:provision)
 app.MapPost("/internal/v1/profile/provision", async (
-    ProvisionProfileRequest request,
+    HttpRequest request,
+    ProvisionProfileRequest body,
     ProfileRepository repository,
+    ServiceTokenValidator tokenValidator,
     ILogger<Program> logger,
     CancellationToken ct) =>
 {
-    var correlationId = Guid.NewGuid().ToString("D");
+    var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
+
+    // 1.1. Xác thực Service JWT
+    var authHeader = request.Headers.Authorization.FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_UNAUTHORIZED", "Thiếu service token xác thực.", correlationId, false)),
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var token = authHeader["Bearer ".Length..].Trim();
+    var (valid, _, errCode, errMsg) = tokenValidator.ValidateToken(token, "aura-profile", "profile:provision");
+    if (!valid)
+    {
+        var statusCode = errCode == "ERR_FORBIDDEN" ? StatusCodes.Status403Forbidden : StatusCodes.Status401Unauthorized;
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(errCode ?? "ERR_UNAUTHORIZED", errMsg ?? "Service token không hợp lệ.", correlationId, false)),
+            statusCode: statusCode);
+    }
+
     try
     {
-        if (request.AccountId == Guid.Empty)
+        if (body.AccountId == Guid.Empty)
         {
             return Results.Json(
                 new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "Thiếu accountId hợp lệ.", correlationId, false)),
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var displayName = !string.IsNullOrWhiteSpace(request.DisplayName) ? request.DisplayName : "Người dùng AURA";
-        var profile = await repository.ProvisionProfileAsync(request.AccountId, displayName, ct);
+        var displayName = !string.IsNullOrWhiteSpace(body.DisplayName) ? body.DisplayName : "Người dùng AURA";
+        var profile = await repository.ProvisionProfileAsync(body.AccountId, displayName, ct);
 
         return Results.Ok(profile);
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Lỗi khi provision profile cho account {AccountId}", request.AccountId);
+        logger.LogError(ex, "Lỗi khi provision profile cho account {AccountId}", body.AccountId);
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_INTERNAL_DB", ex.Message, correlationId, false)),
+            new ErrorEnvelope(new ErrorDetails("ERR_INTERNAL_DB", "Lỗi xử lý cơ sở dữ liệu khi khởi tạo hồ sơ.", correlationId, false)),
             statusCode: StatusCodes.Status500InternalServerError);
     }
 })
@@ -134,10 +154,11 @@ app.MapGet("/api/v1/profiles/me", async (
     HttpRequest request,
     HttpResponse response,
     ProfileRepository repository,
+    IWebHostEnvironment env,
     CancellationToken ct) =>
 {
     var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
-    var accountId = ResolveAccountId(request);
+    var accountId = ResolveAccountId(request, env);
 
     if (!accountId.HasValue)
     {
@@ -162,10 +183,10 @@ app.MapGet("/api/v1/profiles/me", async (
 
         return Results.Ok(profile);
     }
-    catch (Exception ex)
+    catch (Exception)
     {
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_INTERNAL_DB", ex.Message, correlationId, false)),
+            new ErrorEnvelope(new ErrorDetails("ERR_INTERNAL_DB", "Lỗi xử lý cơ sở dữ liệu khi truy vấn hồ sơ.", correlationId, false)),
             statusCode: StatusCodes.Status500InternalServerError);
     }
 })
@@ -178,10 +199,11 @@ app.MapPatch("/api/v1/profiles/me", async (
     HttpResponse response,
     UpdateProfileRequest body,
     ProfileRepository repository,
+    IWebHostEnvironment env,
     CancellationToken ct) =>
 {
     var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
-    var accountId = ResolveAccountId(request);
+    var accountId = ResolveAccountId(request, env);
 
     if (!accountId.HasValue)
     {
@@ -258,24 +280,47 @@ app.MapPatch("/api/v1/profiles/me", async (
 
         return Results.Ok(updatedProfile);
     }
-    catch (Exception ex)
+    catch (Exception)
     {
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_INTERNAL_DB", ex.Message, correlationId, false)),
+            new ErrorEnvelope(new ErrorDetails("ERR_INTERNAL_DB", "Lỗi xử lý cơ sở dữ liệu khi cập nhật hồ sơ.", correlationId, false)),
             statusCode: StatusCodes.Status500InternalServerError);
     }
 })
 .WithName("UpdateMyProfile")
 .WithTags("Profiles");
 
-// 4. POST /internal/v1/profile/access/resolve (Phân giải quyền cho Analysis Service)
+// 4. POST /internal/v1/profile/access/resolve (Bảo vệ bằng Service JWT: scope profile:resolve)
 app.MapPost("/internal/v1/profile/access/resolve", async (
-    AccessResolveRequest request,
+    HttpRequest request,
+    AccessResolveRequest body,
     ProfileRepository repository,
+    ServiceTokenValidator tokenValidator,
     CancellationToken ct) =>
 {
+    var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
+
+    // 4.1. Xác thực Service JWT
+    var authHeader = request.Headers.Authorization.FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_UNAUTHORIZED", "Thiếu service token xác thực.", correlationId, false)),
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var token = authHeader["Bearer ".Length..].Trim();
+    var (valid, _, errCode, errMsg) = tokenValidator.ValidateToken(token, "aura-profile", "profile:resolve");
+    if (!valid)
+    {
+        var statusCode = errCode == "ERR_FORBIDDEN" ? StatusCodes.Status403Forbidden : StatusCodes.Status401Unauthorized;
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(errCode ?? "ERR_UNAUTHORIZED", errMsg ?? "Service token không hợp lệ.", correlationId, false)),
+            statusCode: statusCode);
+    }
+
     var response = await repository.ResolveAccessAsync(
-        request.ActorAccountId, request.PatientId, request.ClinicContextId, request.Action, ct);
+        body.ActorAccountId, body.PatientId, body.ClinicContextId, body.Action, ct);
 
     return Results.Ok(response);
 })
