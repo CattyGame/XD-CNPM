@@ -45,8 +45,9 @@ public class ProfileRepository
 
     public async Task<UserProfileResponse> ProvisionProfileAsync(Guid accountId, string displayName, CancellationToken cancellationToken = default)
     {
+        // Kiểm tra xem hồ sơ đã khởi tạo đầy đủ chưa
         var existing = await GetProfileByAccountIdAsync(accountId, cancellationToken);
-        if (existing != null)
+        if (existing != null && existing.PersonalTenantId.HasValue && existing.PatientId.HasValue)
         {
             return existing;
         }
@@ -56,40 +57,88 @@ public class ProfileRepository
 
         try
         {
-            var tenantId = Guid.NewGuid();
-            const string insertTenantSql = @"
-                INSERT INTO profile.tenants (tenant_id, tenant_kind, owner_principal_id)
-                VALUES ($1, 'PERSONAL', $2)
-                ON CONFLICT (tenant_id) DO NOTHING;";
+            // 1. Tìm hoặc tạo Personal Tenant (Đảm bảo Idempotent, không tạo thừa khi chạy đồng thời)
+            Guid tenantId;
+            const string findTenantSql = @"
+                SELECT tenant_id FROM profile.tenants
+                WHERE owner_principal_id = $1 AND tenant_kind = 'PERSONAL'
+                LIMIT 1;";
 
-            await using var tenantCmd = new NpgsqlCommand(insertTenantSql, connection, transaction);
-            tenantCmd.Parameters.AddWithValue(tenantId);
-            tenantCmd.Parameters.AddWithValue(accountId);
-            await tenantCmd.ExecuteNonQueryAsync(cancellationToken);
+            await using (var findTenantCmd = new NpgsqlCommand(findTenantSql, connection, transaction))
+            {
+                findTenantCmd.Parameters.AddWithValue(accountId);
+                var obj = await findTenantCmd.ExecuteScalarAsync(cancellationToken);
+                if (obj is Guid existingTenantId)
+                {
+                    tenantId = existingTenantId;
+                }
+                else
+                {
+                    tenantId = Guid.NewGuid();
+                    const string insertTenantSql = @"
+                        INSERT INTO profile.tenants (tenant_id, tenant_kind, owner_principal_id)
+                        VALUES ($1, 'PERSONAL', $2)
+                        ON CONFLICT DO NOTHING;";
 
+                    await using var tenantCmd = new NpgsqlCommand(insertTenantSql, connection, transaction);
+                    tenantCmd.Parameters.AddWithValue(tenantId);
+                    tenantCmd.Parameters.AddWithValue(accountId);
+                    await tenantCmd.ExecuteNonQueryAsync(cancellationToken);
+
+                    // Re-query để phòng trường hợp một transaction khác vừa tạo đồng thời
+                    await using var reFindCmd = new NpgsqlCommand(findTenantSql, connection, transaction);
+                    reFindCmd.Parameters.AddWithValue(accountId);
+                    var reObj = await reFindCmd.ExecuteScalarAsync(cancellationToken);
+                    if (reObj is Guid reId)
+                    {
+                        tenantId = reId;
+                    }
+                }
+            }
+
+            // 2. Khởi tạo hoặc cập nhật hồ sơ cá nhân
             const string insertProfileSql = @"
                 INSERT INTO profile.profiles (account_id, display_name, personal_tenant_id, profile_version)
                 VALUES ($1, $2, $3, 1)
-                ON CONFLICT (account_id) DO UPDATE SET display_name = EXCLUDED.display_name;";
+                ON CONFLICT (account_id) DO UPDATE
+                    SET display_name = EXCLUDED.display_name,
+                        personal_tenant_id = COALESCE(profile.profiles.personal_tenant_id, EXCLUDED.personal_tenant_id);";
 
-            await using var profileCmd = new NpgsqlCommand(insertProfileSql, connection, transaction);
-            profileCmd.Parameters.AddWithValue(accountId);
-            profileCmd.Parameters.AddWithValue(displayName);
-            profileCmd.Parameters.AddWithValue(tenantId);
-            await profileCmd.ExecuteNonQueryAsync(cancellationToken);
+            await using (var profileCmd = new NpgsqlCommand(insertProfileSql, connection, transaction))
+            {
+                profileCmd.Parameters.AddWithValue(accountId);
+                profileCmd.Parameters.AddWithValue(displayName);
+                profileCmd.Parameters.AddWithValue(tenantId);
+                await profileCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
 
-            var patientId = Guid.NewGuid();
-            const string insertPatientSql = @"
-                INSERT INTO profile.patients (patient_id, tenant_id, linked_account_id, owner_principal_id, status)
-                VALUES ($1, $2, $3, $4, 'ACTIVE')
-                ON CONFLICT DO NOTHING;";
+            // 3. Tìm hoặc tạo Hồ sơ Bệnh nhân cá nhân mặc định
+            const string findPatientSql = @"
+                SELECT patient_id FROM profile.patients
+                WHERE linked_account_id = $1 AND tenant_id = $2
+                LIMIT 1;";
 
-            await using var patientCmd = new NpgsqlCommand(insertPatientSql, connection, transaction);
-            patientCmd.Parameters.AddWithValue(patientId);
-            patientCmd.Parameters.AddWithValue(tenantId);
-            patientCmd.Parameters.AddWithValue(accountId);
-            patientCmd.Parameters.AddWithValue(accountId);
-            await patientCmd.ExecuteNonQueryAsync(cancellationToken);
+            await using (var findPatientCmd = new NpgsqlCommand(findPatientSql, connection, transaction))
+            {
+                findPatientCmd.Parameters.AddWithValue(accountId);
+                findPatientCmd.Parameters.AddWithValue(tenantId);
+                var pObj = await findPatientCmd.ExecuteScalarAsync(cancellationToken);
+                if (pObj is not Guid)
+                {
+                    var patientId = Guid.NewGuid();
+                    const string insertPatientSql = @"
+                        INSERT INTO profile.patients (patient_id, tenant_id, linked_account_id, owner_principal_id, status)
+                        VALUES ($1, $2, $3, $4, 'ACTIVE')
+                        ON CONFLICT DO NOTHING;";
+
+                    await using var patientCmd = new NpgsqlCommand(insertPatientSql, connection, transaction);
+                    patientCmd.Parameters.AddWithValue(patientId);
+                    patientCmd.Parameters.AddWithValue(tenantId);
+                    patientCmd.Parameters.AddWithValue(accountId);
+                    patientCmd.Parameters.AddWithValue(accountId);
+                    await patientCmd.ExecuteNonQueryAsync(cancellationToken);
+                }
+            }
 
             await transaction.CommitAsync(cancellationToken);
 
@@ -148,9 +197,24 @@ public class ProfileRepository
     public async Task<AccessResolveResponse> ResolveAccessAsync(
         Guid actorAccountId, Guid patientId, Guid? clinicContextId, string action, CancellationToken cancellationToken = default)
     {
+        // 1. Kiểm tra action hợp lệ theo quy chuẩn Sprint 2 Contract v1.0 Section 5.3:
+        // ANALYSIS_CREATE, ANALYSIS_READ, ANALYSIS_FILE_READ, DOCTOR_REVIEW
+        var allowedActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "ANALYSIS_CREATE",
+            "ANALYSIS_READ",
+            "ANALYSIS_FILE_READ",
+            "DOCTOR_REVIEW"
+        };
+
+        if (string.IsNullOrWhiteSpace(action) || !allowedActions.Contains(action))
+        {
+            return new AccessResolveResponse(false, "ACTIVE", patientId, null, null, null, null, 1);
+        }
+
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
 
-        // 1. Tìm thông tin bệnh nhân
+        // 2. Tìm thông tin bệnh nhân
         const string patientSql = @"
             SELECT patient_id, tenant_id, linked_account_id, owner_principal_id, status
             FROM profile.patients
@@ -167,6 +231,7 @@ public class ProfileRepository
             await using var reader = await pCmd.ExecuteReaderAsync(cancellationToken);
             if (!await reader.ReadAsync(cancellationToken))
             {
+                // Bệnh nhân không tồn tại -> fail-closed (allowed: false)
                 return new AccessResolveResponse(false, null, null, null, null, null, null, 1);
             }
 
@@ -181,9 +246,15 @@ public class ProfileRepository
             return new AccessResolveResponse(false, "DISABLED", patientId, null, null, null, null, 1);
         }
 
-        // 2. Ngữ cảnh cá nhân (clinicContextId is null)
+        // 3. Ngữ cảnh cá nhân (clinicContextId is null)
         if (!clinicContextId.HasValue)
         {
+            // Bệnh nhân cá nhân không có quyền thực hiện đánh giá chuyên môn bác sĩ
+            if (action.Equals("DOCTOR_REVIEW", StringComparison.OrdinalIgnoreCase))
+            {
+                return new AccessResolveResponse(false, "ACTIVE", patientId, null, null, null, null, 1);
+            }
+
             var isOwn = (pLinkedAccountId.HasValue && pLinkedAccountId.Value == actorAccountId)
                         || pOwnerPrincipalId == actorAccountId;
 
@@ -204,10 +275,10 @@ public class ProfileRepository
             return new AccessResolveResponse(false, "ACTIVE", patientId, null, null, null, null, 1);
         }
 
-        // 3. Ngữ cảnh phòng khám (Clinic context)
+        // 4. Ngữ cảnh phòng khám (Clinic context)
         var clinicId = clinicContextId.Value;
 
-        // 3.1. Kiểm tra Clinic có tồn tại và ACTIVE
+        // 4.1. Kiểm tra Clinic có tồn tại và ACTIVE
         const string clinicSql = "SELECT tenant_id FROM profile.clinics WHERE clinic_id = $1 AND status = 'ACTIVE';";
         Guid clinicTenantId;
         await using (var cCmd = new NpgsqlCommand(clinicSql, connection))
@@ -221,42 +292,46 @@ public class ProfileRepository
             clinicTenantId = cTId;
         }
 
-        // 3.2. Kiểm tra tư cách thành viên (Membership) của actor
+        // 4.2. Kiểm tra bệnh nhân PHẢI thuộc phạm vi của Clinic này
+        var patientBelongsToClinic = (pTenantId == clinicTenantId || pOwnerPrincipalId == clinicId);
+        if (!patientBelongsToClinic)
+        {
+            return new AccessResolveResponse(false, "ACTIVE", patientId, null, null, null, null, 1);
+        }
+
+        // 4.3. Kiểm tra tư cách thành viên (Membership) của actor tại phòng khám
         const string memberSql = "SELECT role FROM profile.memberships WHERE clinic_id = $1 AND account_id = $2 AND status = 'ACTIVE';";
-        string? role = null;
+        string? memberRole = null;
         await using (var mCmd = new NpgsqlCommand(memberSql, connection))
         {
             mCmd.Parameters.AddWithValue(clinicId);
             mCmd.Parameters.AddWithValue(actorAccountId);
             var roleObj = await mCmd.ExecuteScalarAsync(cancellationToken);
-            role = roleObj as string;
+            memberRole = roleObj as string;
         }
 
-        if (string.IsNullOrEmpty(role))
+        if (string.IsNullOrEmpty(memberRole))
         {
             return new AccessResolveResponse(false, "ACTIVE", patientId, null, null, null, null, 1);
         }
 
-        // Quản trị viên phòng khám: Có quyền trên bệnh nhân thuộc tenant của phòng khám
-        if (role == "CLINIC_ADMIN")
+        // Quản trị viên phòng khám: Toàn quyền quản trị hành chính phòng khám
+        if (memberRole == "CLINIC_ADMIN")
         {
-            if (pTenantId == clinicTenantId || pOwnerPrincipalId == clinicId)
-            {
-                return new AccessResolveResponse(
-                    Allowed: true,
-                    AccountStatus: "ACTIVE",
-                    PatientId: patientId,
-                    TenantId: clinicTenantId,
-                    TenantKind: "CLINIC",
-                    OwnerPrincipalId: clinicId,
-                    BillingOwner: new BillingOwnerDto("CLINIC", clinicId),
-                    PermissionVersion: 1
-                );
-            }
+            return new AccessResolveResponse(
+                Allowed: true,
+                AccountStatus: "ACTIVE",
+                PatientId: patientId,
+                TenantId: clinicTenantId,
+                TenantKind: "CLINIC",
+                OwnerPrincipalId: clinicId,
+                BillingOwner: new BillingOwnerDto("CLINIC", clinicId),
+                PermissionVersion: 1
+            );
         }
 
         // Bác sĩ: Phải có phân công hoạt động (DoctorAssignment)
-        if (role == "DOCTOR")
+        if (memberRole == "DOCTOR")
         {
             const string assignSql = @"
                 SELECT assignment_id FROM profile.doctor_assignments
