@@ -1,0 +1,6 @@
+# Run from repository root, PowerShell. Do not use a production database.
+dotnet test src/services/AURA.Analysis.Api.Tests/AURA.Analysis.Api.Tests.csproj
+
+# Set AURA_TEST_DATABASE_URL to an isolated PostgreSQL 17+ test database with migration 001 applied
+# and role aura_analysis_app provisioned. Script rolls back its fixture rows.
+psql -X -v ON_ERROR_STOP=1 "$env:AURA_TEST_DATABASE_URL" -f infra/postgres/migrations/analysis/tests/test_001.sql

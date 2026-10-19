@@ -26,18 +26,21 @@ internal static class TestImages
         s.Write(System.Text.Encoding.ASCII.GetBytes(type));
         s.Write(data);
         uint crc = 0xFFFFFFFF;
-        foreach (byte b in System.Text.Encoding.ASCII.GetBytes(type)) crc = UpdateCrc32(crc, b);
-        foreach (byte b in data) crc = UpdateCrc32(crc, b);
+        crc = UpdateCrc32(crc, System.Text.Encoding.ASCII.GetBytes(type));
+        crc = UpdateCrc32(crc, data);
         var crcBytes = new byte[4];
-        BinaryPrimitives.WriteUInt32BigEndian(crcBytes, crc ^ 0xFFFFFFFF);
+        BinaryPrimitives.WriteUInt32BigEndian(crcBytes, ~crc);
         s.Write(crcBytes);
     }
 
-    private static uint UpdateCrc32(uint crc, byte value)
+    private static uint UpdateCrc32(uint crc, ReadOnlySpan<byte> bytes)
     {
-        crc ^= value;
-        for (int i = 0; i < 8; i++)
-            crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+        foreach (byte value in bytes)
+        {
+            crc ^= value;
+            for (int bit = 0; bit < 8; bit++)
+                crc = (crc & 1) != 0 ? (crc >> 1) ^ 0xEDB88320u : crc >> 1;
+        }
         return crc;
     }
 

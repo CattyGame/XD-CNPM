@@ -23,13 +23,21 @@ public class ImageInspectorTests
         Assert.Equal(Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), r.Image.Sha256);
     }
 
+    [Fact]
+    public async Task Png_sai_CRC_trong_chunk_IDAT_bi_tu_choi()
+    {
+        var bytes = TestImages.Png(120, 80);
+        // PNG signature (8) + IHDR chunk (25) + IDAT length/type (8): byte đầu tiên của IDAT data.
+        bytes[8 + 25 + 8] ^= 0x01;
+        var r = await Run(bytes, "image/png");
+        Assert.Equal(400, r.Problem!.Status);
+        Assert.Equal("corrupt", r.Problem.Issue);
+    }
 
     [Fact]
-    public async Task Png_sai_CRC_bi_tu_choi_la_corrupt()
+    public async Task Png_co_du_lieu_sau_IEND_bi_tu_choi()
     {
-        var bytes = TestImages.Png(100, 100);
-        // Sửa byte dữ liệu trong chunk IHDR nhưng giữ CRC cũ.
-        bytes[20] ^= 0x01;
+        var bytes = TestImages.Png(120, 80).Concat(new byte[] { 0x00 }).ToArray();
         var r = await Run(bytes, "image/png");
         Assert.Equal(400, r.Problem!.Status);
         Assert.Equal("corrupt", r.Problem.Issue);
