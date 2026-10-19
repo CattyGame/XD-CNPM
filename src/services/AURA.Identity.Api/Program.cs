@@ -108,6 +108,7 @@ static async Task<(bool Success, string? Uid, string? Email, string? Name, strin
 app.MapPost("/api/v1/identity/bootstrap", async (
     HttpRequest request,
     IdentityRepository repository,
+    ServiceTokenIssuer issuer,
     FirebaseAuthProvider authProvider,
     IHttpClientFactory httpClientFactory,
     IWebHostEnvironment env) =>
@@ -155,7 +156,18 @@ app.MapPost("/api/v1/identity/bootstrap", async (
                 !string.IsNullOrWhiteSpace(name) ? name : "Người dùng AURA",
                 email);
 
-            var profileResponse = await profileClient.PostAsJsonAsync("/internal/v1/profile/provision", provisionPayload);
+            var serviceTokenResult = issuer.IssueToken("identity-api", "secret_identity_pass", "aura-profile", "profile:provision");
+            var requestMsg = new HttpRequestMessage(HttpMethod.Post, "/internal/v1/profile/provision")
+            {
+                Content = JsonContent.Create(provisionPayload)
+            };
+            if (serviceTokenResult.Success && !string.IsNullOrWhiteSpace(serviceTokenResult.AccessToken))
+            {
+                requestMsg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", serviceTokenResult.AccessToken);
+            }
+            requestMsg.Headers.Add("X-Correlation-Id", correlationId);
+
+            var profileResponse = await profileClient.SendAsync(requestMsg);
             if (profileResponse.IsSuccessStatusCode)
             {
                 await repository.UpdateProvisioningStatusAsync(account.AccountId, "READY");
@@ -222,18 +234,30 @@ app.MapPost("/internal/v1/identity/service-tokens", (
     ServiceTokenRequest request,
     ServiceTokenIssuer issuer) =>
 {
+    var correlationId = Guid.NewGuid().ToString("D");
     if (string.IsNullOrWhiteSpace(request.ClientId) || string.IsNullOrWhiteSpace(request.ClientSecret))
     {
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "Thiếu clientId hoặc clientSecret.", Guid.NewGuid().ToString("D"), false)),
+            new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "Thiếu clientId hoặc clientSecret.", correlationId, false)),
             statusCode: StatusCodes.Status400BadRequest);
     }
 
-    // In local dev/Sprint 2, issue token with requested scope
-    var scopes = (request.Scope ?? "aura:internal").Split(' ', StringSplitOptions.RemoveEmptyEntries);
-    var token = issuer.IssueToken(request.ClientId, "aura-internal-services", scopes);
+    var result = issuer.IssueToken(request.ClientId, request.ClientSecret, request.Audience, request.Scope);
+    if (!result.Success)
+    {
+        var status = result.ErrorCode switch
+        {
+            "ERR_FORBIDDEN" => StatusCodes.Status403Forbidden,
+            "ERR_VALIDATION" => StatusCodes.Status400BadRequest,
+            _ => StatusCodes.Status401Unauthorized
+        };
 
-    return Results.Ok(new ServiceTokenResponse(token, "Bearer", 300));
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(result.ErrorCode ?? "ERR_UNAUTHORIZED", result.ErrorMessage ?? "Xác thực dịch vụ thất bại.", correlationId, false)),
+            statusCode: status);
+    }
+
+    return Results.Ok(new ServiceTokenResponse(result.AccessToken!, "Bearer", result.ExpiresIn));
 })
 .WithName("IssueServiceToken")
 .WithTags("Internal");
@@ -242,29 +266,49 @@ app.MapPost("/internal/v1/identity/service-tokens", (
 app.MapPost("/internal/v1/identity/context", async (
     HttpRequest request,
     IdentityRepository repository,
+    ServiceTokenIssuer issuer,
     FirebaseAuthProvider authProvider,
     IWebHostEnvironment env) =>
 {
     var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
-    var userAuth = request.Headers["X-User-Authorization"].FirstOrDefault()
-                   ?? request.Headers.Authorization.FirstOrDefault();
 
+    // 1. Kiểm tra Service JWT bắt buộc tại header Authorization
+    var serviceAuth = request.Headers.Authorization.FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(serviceAuth) || !serviceAuth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_UNAUTHORIZED", "Thiếu service token xác thực tại header Authorization.", correlationId, false)),
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var serviceToken = serviceAuth["Bearer ".Length..].Trim();
+    var (serviceValid, _, sErrCode, sErrMsg) = issuer.ValidateServiceToken(serviceToken, "aura-identity", "identity:context");
+    if (!serviceValid)
+    {
+        var status = sErrCode == "ERR_FORBIDDEN" ? StatusCodes.Status403Forbidden : StatusCodes.Status401Unauthorized;
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(sErrCode ?? "ERR_UNAUTHORIZED", sErrMsg ?? "Service token không hợp lệ.", correlationId, false)),
+            statusCode: status);
+    }
+
+    // 2. Kiểm tra User token bắt buộc tại header X-User-Authorization
+    var userAuth = request.Headers["X-User-Authorization"].FirstOrDefault();
     if (string.IsNullOrWhiteSpace(userAuth))
     {
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_UNAUTHORIZED", "Thiếu User token trong X-User-Authorization.", correlationId, false)),
-            statusCode: StatusCodes.Status401Unauthorized);
+            new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "Thiếu User token trong header X-User-Authorization.", correlationId, false)),
+            statusCode: StatusCodes.Status400BadRequest);
     }
 
     var token = userAuth.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
         ? userAuth["Bearer ".Length..].Trim()
         : userAuth.Trim();
 
-    var (success, uid, _, _, _) = await VerifyFirebaseTokenAsync(token, authProvider.Auth, env);
+    var (success, uid, _, _, errorCode) = await VerifyFirebaseTokenAsync(token, authProvider.Auth, env);
     if (!success || string.IsNullOrWhiteSpace(uid))
     {
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_UNAUTHORIZED", "Token người dùng không hợp lệ.", correlationId, false)),
+            new ErrorEnvelope(new ErrorDetails(errorCode ?? "ERR_UNAUTHORIZED", "Token người dùng không hợp lệ hoặc đã bị thu hồi.", correlationId, false)),
             statusCode: StatusCodes.Status401Unauthorized);
     }
 
@@ -272,13 +316,21 @@ app.MapPost("/internal/v1/identity/context", async (
     if (account == null)
     {
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_NOT_FOUND", "Không tìm thấy tài khoản tương ứng.", correlationId, false)),
+            new ErrorEnvelope(new ErrorDetails("ERR_NOT_FOUND", "Không tìm thấy tài khoản người dùng tương ứng.", correlationId, false)),
             statusCode: StatusCodes.Status404NotFound);
     }
 
     return Results.Ok(new IdentityContextResponse(account.AccountId, account.AccountStatus, account.Roles));
 })
 .WithName("ResolveIdentityContext")
+.WithTags("Internal");
+
+// 5. GET /internal/v1/identity/public-key
+app.MapGet("/internal/v1/identity/public-key", (ServiceTokenIssuer issuer) =>
+{
+    return Results.Text(issuer.GetPublicKeyPem(), "application/x-pem-file");
+})
+.WithName("GetIdentityPublicKey")
 .WithTags("Internal");
 
 app.Run();
