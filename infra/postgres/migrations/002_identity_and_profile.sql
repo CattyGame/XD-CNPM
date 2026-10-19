@@ -88,7 +88,6 @@ CREATE TABLE IF NOT EXISTS profile.tenants (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tenants_owner ON profile.tenants(owner_principal_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_tenants_personal_owner ON profile.tenants(owner_principal_id) WHERE tenant_kind = 'PERSONAL';
 
 -- Bảng Phòng khám / Tổ chức Y tế
 CREATE TABLE IF NOT EXISTS profile.clinics (
@@ -125,7 +124,6 @@ CREATE TABLE IF NOT EXISTS profile.patients (
 CREATE INDEX IF NOT EXISTS idx_patients_tenant ON profile.patients(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_patients_linked_account ON profile.patients(linked_account_id);
 CREATE INDEX IF NOT EXISTS idx_patients_owner ON profile.patients(owner_principal_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_patients_personal_account ON profile.patients(linked_account_id, tenant_id) WHERE linked_account_id IS NOT NULL;
 
 -- Bảng Thành viên phòng khám (Bác sĩ, Quản trị viên phòng khám)
 CREATE TABLE IF NOT EXISTS profile.memberships (
