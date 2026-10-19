@@ -150,7 +150,7 @@ public class ServiceTokenValidator
             ValidateIssuer = true,
             ValidIssuer = _issuer,
             ValidateAudience = true,
-            ValidateAudience = expectedAudience,
+            ValidAudience = expectedAudience,
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromSeconds(30),
             ValidAlgorithms = new[] { SecurityAlgorithms.RsaSha256 }
