@@ -24,7 +24,14 @@ builder.Services.AddSingleton<FirebaseAuthProvider>();
 
 builder.Services.AddHttpClient("ProfileClient", (sp, client) =>
 {
-    var baseUrl = builder.Configuration["Services:Profile:BaseUrl"] ?? "http://127.0.0.1:5005";
+    var baseUrl = builder.Configuration["Services:Profile:BaseUrl"];
+    if (string.IsNullOrWhiteSpace(baseUrl))
+    {
+        baseUrl = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true"
+            || File.Exists("/.dockerenv")
+            ? "http://profile-api:8080"
+            : "http://127.0.0.1:5005";
+    }
     client.BaseAddress = new Uri(baseUrl);
     client.Timeout = TimeSpan.FromSeconds(5);
 });
