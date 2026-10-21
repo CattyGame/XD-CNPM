@@ -16,6 +16,7 @@ $migrations = @(
     "infra/postgres/migrations/002_identity_and_profile.sql",
     "infra/postgres/migrations/003_doctor_assignments.sql",
     "infra/postgres/migrations/003_billing_poc_packages.sql",
+    "infra/postgres/migrations/004_billing_business_schema.sql",
     "infra/postgres/migrations/analysis/001_analysis_core.sql",
     "infra/postgres/migrations/002_service_database_roles.sql"
 )

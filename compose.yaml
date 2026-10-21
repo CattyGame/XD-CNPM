@@ -133,6 +133,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       ASPNETCORE_HTTP_PORTS: "8080"
+      Billing__Environment: "TEST"
+      Billing__IsMock: "false"
       ConnectionStrings__Postgres: >-
         Host=postgres;Port=5432;Database=${POSTGRES_DB};
         Username=aura_billing_app;
@@ -141,11 +143,21 @@ services:
       ConnectionStrings__Redis: "redis:6379"
       Cache__PackageCatalogKey: "aura:local:billing:poc:packages:v1"
       Cache__PackageCatalogTtlSeconds: "60"
+      Services__Identity__BaseUrl: "http://identity-api:8080"
+      Services__Profile__BaseUrl: "http://profile-api:8080"
+      ServiceAuth__Issuer: "aura-identity-local"
+      ServiceAuth__Audience: "aura-billing"
+      ServiceAuth__ClientId: "billing-api"
+      ServiceAuth__ClientSecret: "${BILLING_SERVICE_CLIENT_SECRET:?Set BILLING_SERVICE_CLIENT_SECRET}"
     ports:
       - "127.0.0.1:5002:8080"
     depends_on:
       postgres:
         condition: service_healthy
+      identity-api:
+        condition: service_started
+      profile-api:
+        condition: service_started
     networks:
       - aura_network
     restart: unless-stopped
@@ -163,6 +175,19 @@ services:
         Password="${IDENTITY_DB_PASSWORD:?Set IDENTITY_DB_PASSWORD}";
         Timeout=5;Command Timeout=10
       Services__Profile__BaseUrl: "http://profile-api:8080"
+      ServiceAuth__Issuer: "aura-identity-local"
+      ServiceAuth__TokenLifetimeSeconds: "300"
+      ServiceAuth__RegistryPath: "/run/aura-service-auth/issuer/identity-clients.json"
+      ServiceAuth__PrivateKeyPath: "/run/aura-service-auth/issuer/signing-key.pem"
+    volumes:
+      - type: bind
+        source: "${AURA_SERVICE_AUTH_HOME:?Set AURA_SERVICE_AUTH_HOME}/issuer"
+        target: /run/aura-service-auth/issuer
+        read_only: true
+      - type: bind
+        source: "${AURA_SERVICE_AUTH_HOME:?Set AURA_SERVICE_AUTH_HOME}/public"
+        target: /run/aura-service-auth/public
+        read_only: true
     ports:
       - "127.0.0.1:5004:8080"
     depends_on:
@@ -186,6 +211,7 @@ services:
         Username=aura_profile_app;
         Password="${PROFILE_DB_PASSWORD:?Set PROFILE_DB_PASSWORD}";
         Timeout=5;Command Timeout=10
+      Services__Identity__BaseUrl: "http://identity-api:8080"
     ports:
       - "127.0.0.1:5005:8080"
     depends_on:
