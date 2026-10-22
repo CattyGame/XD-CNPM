@@ -1,0 +1,491 @@
+using System.Data;
+using System.Text.Json;
+using AURA.Billing.Api.Models;
+using Npgsql;
+using NpgsqlTypes;
+
+namespace AURA.Billing.Api.Data;
+
+/// <summary>
+/// Persists reservations, ledger rows and wallet balance changes in one PostgreSQL
+/// transaction. The available balance is debited when reserving and returned only
+/// when a RESERVED reservation is released.
+/// </summary>
+public sealed class CreditReservationRepository(
+    NpgsqlDataSource dataSource,
+    ILogger<CreditReservationRepository> logger)
+{
+    private const string ReservationColumns =
+        "id, analysis_id, generation, units, state, created_at";
+
+    public async Task VerifyDatabaseAsync(CancellationToken cancellationToken)
+    {
+        var probes = new[]
+        {
+            $"SELECT {ReservationColumns} FROM billing.credit_reservations LIMIT 0",
+            "SELECT id, owner_type, owner_id, environment, balance FROM billing.credit_wallets LIMIT 0",
+            "SELECT id, wallet_id, tenant_id, reservation_id, entry_type, amount, balance_after, idempotency_key, request_fingerprint FROM billing.credit_ledger_entries LIMIT 0"
+        };
+
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        foreach (var sql in probes)
+        {
+            await using var command = new NpgsqlCommand(sql, connection);
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        }
+    }
+
+    public async Task<ReservationOperationResult> ReserveAsync(
+        ReserveCreditRequest request,
+        Guid idempotencyKey,
+        string fingerprint,
+        BillingRuntimeOptions options,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+            await using var transaction = await connection.BeginTransactionAsync(
+                IsolationLevel.ReadCommitted, cancellationToken);
+
+            var priorByKey = await FindByIdempotencyKeyAsync(
+                connection, transaction, request.TenantId, idempotencyKey, cancellationToken);
+            if (priorByKey is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return string.Equals(priorByKey.Fingerprint, fingerprint, StringComparison.Ordinal)
+                    ? new ReservationOperationResult(ReservationOperationStatus.Replayed, priorByKey.Response)
+                    : new ReservationOperationResult(ReservationOperationStatus.IdempotencyConflict);
+            }
+
+            // A later generation is legal only after the previous generation was released.
+            await using (var previousCommand = new NpgsqlCommand("""
+                SELECT generation, state
+                FROM billing.credit_reservations
+                WHERE tenant_id = @tenant_id AND analysis_id = @analysis_id
+                ORDER BY generation DESC
+                LIMIT 1
+                FOR UPDATE
+                """, connection, transaction))
+            {
+                previousCommand.Parameters.AddWithValue("tenant_id", request.TenantId);
+                previousCommand.Parameters.AddWithValue("analysis_id", request.AnalysisId);
+                await using var previousReader = await previousCommand.ExecuteReaderAsync(cancellationToken);
+                if (await previousReader.ReadAsync(cancellationToken))
+                {
+                    var previousGeneration = previousReader.GetInt32(0);
+                    var previousState = previousReader.GetString(1);
+                    if (request.Generation != previousGeneration + 1
+                        || !string.Equals(previousState, "RELEASED", StringComparison.Ordinal))
+                    {
+                        await previousReader.DisposeAsync();
+                        await transaction.RollbackAsync(cancellationToken);
+                        return new ReservationOperationResult(ReservationOperationStatus.Conflict);
+                    }
+                }
+                else if (request.Generation != 1)
+                {
+                    await previousReader.DisposeAsync();
+                    await transaction.RollbackAsync(cancellationToken);
+                    return new ReservationOperationResult(ReservationOperationStatus.Conflict);
+                }
+            }
+
+            Guid walletId;
+            int currentBalance;
+            await using (var walletCommand = new NpgsqlCommand("""
+                SELECT id, balance
+                FROM billing.credit_wallets
+                WHERE owner_type = @owner_type
+                  AND owner_id = @owner_id
+                  AND environment = @environment
+                FOR UPDATE
+                """, connection, transaction))
+            {
+                walletCommand.Parameters.AddWithValue("owner_type", request.BillingOwner.Type.Trim().ToUpperInvariant());
+                walletCommand.Parameters.AddWithValue("owner_id", request.BillingOwner.Id);
+                walletCommand.Parameters.AddWithValue("environment", options.Environment);
+                await using var walletReader = await walletCommand.ExecuteReaderAsync(cancellationToken);
+                if (!await walletReader.ReadAsync(cancellationToken))
+                {
+                    await walletReader.DisposeAsync();
+                    await transaction.RollbackAsync(cancellationToken);
+                    return new ReservationOperationResult(ReservationOperationStatus.InsufficientCredit);
+                }
+
+                walletId = walletReader.GetGuid(0);
+                currentBalance = walletReader.GetInt32(1);
+            }
+
+            // A concurrent request may have committed this key while this transaction waited for the wallet lock.
+            var concurrentByKey = await FindByIdempotencyKeyAsync(
+                connection, transaction, request.TenantId, idempotencyKey, cancellationToken);
+            if (concurrentByKey is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return string.Equals(concurrentByKey.Fingerprint, fingerprint, StringComparison.Ordinal)
+                    ? new ReservationOperationResult(ReservationOperationStatus.Replayed, concurrentByKey.Response)
+                    : new ReservationOperationResult(ReservationOperationStatus.IdempotencyConflict);
+            }
+
+            if (currentBalance < request.Units)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return new ReservationOperationResult(ReservationOperationStatus.InsufficientCredit);
+            }
+
+            int balanceAfterReserve;
+            await using (var debitCommand = new NpgsqlCommand("""
+                UPDATE billing.credit_wallets
+                SET balance = balance - @units, updated_at = now()
+                WHERE id = @wallet_id AND balance >= @units
+                RETURNING balance
+                """, connection, transaction))
+            {
+                debitCommand.Parameters.AddWithValue("units", request.Units);
+                debitCommand.Parameters.AddWithValue("wallet_id", walletId);
+                var value = await debitCommand.ExecuteScalarAsync(cancellationToken);
+                if (value is not int resultBalance)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return new ReservationOperationResult(ReservationOperationStatus.InsufficientCredit);
+                }
+                balanceAfterReserve = resultBalance;
+            }
+
+            Guid reservationId;
+            DateTimeOffset createdAt;
+            await using (var insertReservation = new NpgsqlCommand("""
+                INSERT INTO billing.credit_reservations
+                    (tenant_id, analysis_id, generation, wallet_id, actor_account_id,
+                     patient_id, billing_owner_type, billing_owner_id, units, environment,
+                     is_mock, state, idempotency_key, request_fingerprint)
+                VALUES
+                    (@tenant_id, @analysis_id, @generation, @wallet_id, @actor_account_id,
+                     @patient_id, @owner_type, @owner_id, @units, @environment,
+                     @is_mock, 'RESERVED', @idempotency_key, @request_fingerprint)
+                RETURNING id, created_at
+                """, connection, transaction))
+            {
+                insertReservation.Parameters.AddWithValue("tenant_id", request.TenantId);
+                insertReservation.Parameters.AddWithValue("analysis_id", request.AnalysisId);
+                insertReservation.Parameters.AddWithValue("generation", request.Generation);
+                insertReservation.Parameters.AddWithValue("wallet_id", walletId);
+                insertReservation.Parameters.AddWithValue("actor_account_id", request.ActorAccountId);
+                insertReservation.Parameters.AddWithValue("patient_id", request.PatientId);
+                insertReservation.Parameters.AddWithValue("owner_type", request.BillingOwner.Type.Trim().ToUpperInvariant());
+                insertReservation.Parameters.AddWithValue("owner_id", request.BillingOwner.Id);
+                insertReservation.Parameters.AddWithValue("units", request.Units);
+                insertReservation.Parameters.AddWithValue("environment", options.Environment);
+                insertReservation.Parameters.AddWithValue("is_mock", options.IsMock);
+                insertReservation.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+                insertReservation.Parameters.AddWithValue("request_fingerprint", fingerprint);
+
+                await using var reader = await insertReservation.ExecuteReaderAsync(cancellationToken);
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    throw new InvalidOperationException("Reservation insert did not return an id.");
+                }
+                reservationId = reader.GetGuid(0);
+                createdAt = reader.GetFieldValue<DateTimeOffset>(1);
+            }
+
+            await using (var insertLedger = new NpgsqlCommand("""
+                INSERT INTO billing.credit_ledger_entries
+                    (wallet_id, tenant_id, reservation_id, entry_type, amount,
+                     balance_after, idempotency_key, request_fingerprint, metadata)
+                VALUES
+                    (@wallet_id, @tenant_id, @reservation_id, 'RESERVE', @amount,
+                     @balance_after, @idempotency_key, @request_fingerprint, @metadata)
+                """, connection, transaction))
+            {
+                insertLedger.Parameters.AddWithValue("wallet_id", walletId);
+                insertLedger.Parameters.AddWithValue("tenant_id", request.TenantId);
+                insertLedger.Parameters.AddWithValue("reservation_id", reservationId);
+                insertLedger.Parameters.AddWithValue("amount", -request.Units);
+                insertLedger.Parameters.AddWithValue("balance_after", balanceAfterReserve);
+                insertLedger.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+                insertLedger.Parameters.AddWithValue("request_fingerprint", fingerprint);
+                insertLedger.Parameters.Add("metadata", NpgsqlDbType.Jsonb).Value = JsonSerializer.Serialize(new
+                {
+                    analysisId = request.AnalysisId,
+                    generation = request.Generation,
+                    environment = options.Environment,
+                    isMock = options.IsMock
+                });
+                await insertLedger.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+            return new ReservationOperationResult(
+                ReservationOperationStatus.Created,
+                new ReservationResponse(reservationId, request.AnalysisId, request.Generation,
+                    request.Units, "RESERVED", createdAt));
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            logger.LogInformation("A Billing reservation uniqueness guard rejected a concurrent request.");
+            var existing = await FindByIdempotencyKeyAsync(request.TenantId, idempotencyKey, cancellationToken);
+            if (existing is not null)
+            {
+                return string.Equals(existing.Fingerprint, fingerprint, StringComparison.Ordinal)
+                    ? new ReservationOperationResult(ReservationOperationStatus.Replayed, existing.Response)
+                    : new ReservationOperationResult(ReservationOperationStatus.IdempotencyConflict);
+            }
+            return new ReservationOperationResult(ReservationOperationStatus.Conflict);
+        }
+    }
+
+    public async Task<ReservationResponse?> GetAsync(Guid reservationId, CancellationToken cancellationToken)
+    {
+        const string sql = $"SELECT {ReservationColumns} FROM billing.credit_reservations WHERE id = @id";
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("id", reservationId);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken) ? ReadResponse(reader) : null;
+    }
+
+    public Task<ReservationOperationResult> CaptureAsync(
+        Guid reservationId, Guid idempotencyKey, string fingerprint, CancellationToken cancellationToken) =>
+        TransitionAsync(reservationId, idempotencyKey, fingerprint, "CAPTURE", null, cancellationToken);
+
+    public Task<ReservationOperationResult> ReleaseAsync(
+        Guid reservationId, Guid idempotencyKey, string fingerprint, string reason, CancellationToken cancellationToken) =>
+        TransitionAsync(reservationId, idempotencyKey, fingerprint, "RELEASE", reason, cancellationToken);
+
+    private async Task<ReservationOperationResult> TransitionAsync(
+        Guid reservationId,
+        Guid idempotencyKey,
+        string fingerprint,
+        string operation,
+        string? releaseReason,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+            await using var transaction = await connection.BeginTransactionAsync(
+                IsolationLevel.ReadCommitted, cancellationToken);
+
+            ReservationStoredRecord? stored;
+            await using (var reservationCommand = new NpgsqlCommand("""
+                SELECT id, tenant_id, analysis_id, generation, wallet_id, units,
+                       environment, is_mock, state, release_reason, created_at
+                FROM billing.credit_reservations
+                WHERE id = @id
+                FOR UPDATE
+                """, connection, transaction))
+            {
+                reservationCommand.Parameters.AddWithValue("id", reservationId);
+                await using var reader = await reservationCommand.ExecuteReaderAsync(cancellationToken);
+                stored = await reader.ReadAsync(cancellationToken)
+                    ? ReadStoredRecord(reader)
+                    : null;
+            }
+
+            if (stored is null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return new ReservationOperationResult(ReservationOperationStatus.NotFound);
+            }
+
+            // Check the operation key before terminal-state checks so an HTTP retry
+            // with the same key receives the original result.
+            await using (var keyCommand = new NpgsqlCommand("""
+                SELECT entry_type, request_fingerprint
+                FROM billing.credit_ledger_entries
+                WHERE tenant_id = @tenant_id AND idempotency_key = @idempotency_key
+                FOR UPDATE
+                """, connection, transaction))
+            {
+                keyCommand.Parameters.AddWithValue("tenant_id", stored.TenantId);
+                keyCommand.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+                await using var keyReader = await keyCommand.ExecuteReaderAsync(cancellationToken);
+                if (await keyReader.ReadAsync(cancellationToken))
+                {
+                    var entryType = keyReader.GetString(0);
+                    var priorFingerprint = keyReader.GetString(1);
+                    await keyReader.DisposeAsync();
+                    await transaction.RollbackAsync(cancellationToken);
+                    return string.Equals(entryType, operation, StringComparison.Ordinal)
+                        && string.Equals(priorFingerprint, fingerprint, StringComparison.Ordinal)
+                        ? new ReservationOperationResult(ReservationOperationStatus.Replayed, stored.Response)
+                        : new ReservationOperationResult(ReservationOperationStatus.IdempotencyConflict);
+                }
+            }
+
+            if (!string.Equals(stored.State, "RESERVED", StringComparison.Ordinal))
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return new ReservationOperationResult(ReservationOperationStatus.Conflict);
+            }
+
+            if (operation == "CAPTURE" && stored.IsMock
+                && !string.Equals(stored.Environment, "TEST", StringComparison.Ordinal))
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return new ReservationOperationResult(ReservationOperationStatus.MockLiveBlocked, stored.Response);
+            }
+
+            int currentBalance;
+            await using (var balanceCommand = new NpgsqlCommand("""
+                SELECT balance FROM billing.credit_wallets WHERE id = @wallet_id FOR UPDATE
+                """, connection, transaction))
+            {
+                balanceCommand.Parameters.AddWithValue("wallet_id", stored.WalletId);
+                var value = await balanceCommand.ExecuteScalarAsync(cancellationToken);
+                if (value is not int balance)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return new ReservationOperationResult(ReservationOperationStatus.Conflict);
+                }
+                currentBalance = balance;
+            }
+
+            var balanceAfter = currentBalance;
+            if (operation == "RELEASE")
+            {
+                await using var creditCommand = new NpgsqlCommand("""
+                    UPDATE billing.credit_wallets
+                    SET balance = balance + @units, updated_at = now()
+                    WHERE id = @wallet_id AND balance <= 2147483647 - @units
+                    RETURNING balance
+                    """, connection, transaction);
+                creditCommand.Parameters.AddWithValue("units", stored.Units);
+                creditCommand.Parameters.AddWithValue("wallet_id", stored.WalletId);
+                var value = await creditCommand.ExecuteScalarAsync(cancellationToken);
+                if (value is not int creditedBalance)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return new ReservationOperationResult(ReservationOperationStatus.Conflict);
+                }
+                balanceAfter = creditedBalance;
+            }
+
+            await using (var updateReservation = new NpgsqlCommand("""
+                UPDATE billing.credit_reservations
+                SET state = @state,
+                    release_reason = @release_reason,
+                    updated_at = now(),
+                    captured_at = CASE WHEN @state = 'CAPTURED' THEN now() ELSE NULL END,
+                    released_at = CASE WHEN @state = 'RELEASED' THEN now() ELSE NULL END
+                WHERE id = @id AND state = 'RESERVED'
+                """, connection, transaction))
+            {
+                updateReservation.Parameters.AddWithValue("state", operation == "CAPTURE" ? "CAPTURED" : "RELEASED");
+                updateReservation.Parameters.Add("release_reason", NpgsqlDbType.Varchar).Value = (object?)releaseReason ?? DBNull.Value;
+                updateReservation.Parameters.AddWithValue("id", reservationId);
+                var updated = await updateReservation.ExecuteNonQueryAsync(cancellationToken);
+                if (updated != 1)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return new ReservationOperationResult(ReservationOperationStatus.Conflict);
+                }
+            }
+
+            await using (var insertLedger = new NpgsqlCommand("""
+                INSERT INTO billing.credit_ledger_entries
+                    (wallet_id, tenant_id, reservation_id, entry_type, amount,
+                     balance_after, idempotency_key, request_fingerprint, metadata)
+                VALUES
+                    (@wallet_id, @tenant_id, @reservation_id, @entry_type, @amount,
+                     @balance_after, @idempotency_key, @request_fingerprint, @metadata)
+                """, connection, transaction))
+            {
+                insertLedger.Parameters.AddWithValue("wallet_id", stored.WalletId);
+                insertLedger.Parameters.AddWithValue("tenant_id", stored.TenantId);
+                insertLedger.Parameters.AddWithValue("reservation_id", reservationId);
+                insertLedger.Parameters.AddWithValue("entry_type", operation);
+                insertLedger.Parameters.AddWithValue("amount", operation == "CAPTURE" ? 0 : stored.Units);
+                insertLedger.Parameters.AddWithValue("balance_after", balanceAfter);
+                insertLedger.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+                insertLedger.Parameters.AddWithValue("request_fingerprint", fingerprint);
+                insertLedger.Parameters.Add("metadata", NpgsqlDbType.Jsonb).Value = JsonSerializer.Serialize(new
+                {
+                    operation,
+                    releaseReason,
+                    environment = stored.Environment,
+                    isMock = stored.IsMock
+                });
+                await insertLedger.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+            var final = await GetAsync(reservationId, cancellationToken);
+            return new ReservationOperationResult(ReservationOperationStatus.Changed, final);
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            logger.LogInformation("A Billing reservation transition uniqueness guard rejected a concurrent request.");
+            return new ReservationOperationResult(ReservationOperationStatus.Conflict);
+        }
+    }
+
+    private async Task<ReservationStoredRecord?> FindByIdempotencyKeyAsync(
+        Guid tenantId, Guid idempotencyKey, CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        return await FindByIdempotencyKeyAsync(connection, null, tenantId, idempotencyKey, cancellationToken);
+    }
+
+    private static async Task<ReservationStoredRecord?> FindByIdempotencyKeyAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction? transaction,
+        Guid tenantId,
+        Guid idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand("""
+            SELECT id, tenant_id, analysis_id, generation, units, state, created_at,
+                   request_fingerprint
+            FROM billing.credit_reservations
+            WHERE tenant_id = @tenant_id AND idempotency_key = @idempotency_key
+            """, connection, transaction);
+        command.Parameters.AddWithValue("tenant_id", tenantId);
+        command.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var response = new ReservationResponse(
+            reader.GetGuid(0), reader.GetGuid(2), reader.GetInt32(3), reader.GetInt32(4),
+            reader.GetString(5), reader.GetFieldValue<DateTimeOffset>(6));
+        return new ReservationStoredRecord(response, reader.GetGuid(1), Guid.Empty, 0,
+            string.Empty, false, null, reader.GetString(7), reader.GetString(5));
+    }
+
+    private static ReservationResponse ReadResponse(NpgsqlDataReader reader) => new(
+        reader.GetGuid(0), reader.GetGuid(1), reader.GetInt32(2), reader.GetInt32(3),
+        reader.GetString(4), reader.GetFieldValue<DateTimeOffset>(5));
+
+    private static ReservationStoredRecord ReadStoredRecord(NpgsqlDataReader reader)
+    {
+        var response = new ReservationResponse(
+            reader.GetGuid(0), reader.GetGuid(2), reader.GetInt32(3), reader.GetInt32(5),
+            reader.GetString(8), reader.GetFieldValue<DateTimeOffset>(10));
+        return new ReservationStoredRecord(
+            response,
+            reader.GetGuid(1),
+            reader.GetGuid(4),
+            reader.GetInt32(5),
+            reader.GetString(6),
+            reader.GetBoolean(7),
+            reader.IsDBNull(9) ? null : reader.GetString(9),
+            string.Empty,
+            reader.GetString(8));
+    }
+
+    private sealed record ReservationStoredRecord(
+    ReservationResponse Response,
+    Guid TenantId,
+    Guid WalletId,
+    int Units,
+    string Environment,
+    bool IsMock,
+    string? ReleaseReason,
+    string Fingerprint,
+    string State);
+}
