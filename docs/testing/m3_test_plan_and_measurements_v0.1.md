@@ -830,3 +830,55 @@ Nhánh fix/sprint1-m2-m5-completion; thay đổi chưa commit.
 Kết quả 81 test trước đó là bằng chứng của lần chạy trước.
 Kết quả mới không thay thế kiểm thử FCM thật, phân quyền
 backend, usability/accessibility hoặc nghiệm thu NFR.
+
+<!-- SCRUM-307-TEST-PLAN-ADDENDUM-v0.1 -->
+## Bổ sung SCRUM-307 — Contract Billing–Analysis và Notification/Chat v0.1
+
+**Trạng thái chung:** PLANNED / NOT RUN cho các test mới dưới đây. Phần bổ sung này không thay thế kết quả lịch sử trong Test Plan; tài liệu thiết kế/contract không phải bằng chứng thực thi.
+
+### A. Nguyên tắc ghi nhận kết quả
+
+- Giữ nguyên trạng thái của các TC-FR-09, TC-FR-10, TC-FR-20, TC-FR-29 và TC-FR-39 hiện có cho đến khi có lần chạy mới với bằng chứng phù hợp.
+- Phân biệt `PLANNED`, `NOT RUN`, `BLOCKED`, `FAILED` và `PASSED`; không đánh dấu PASS chỉ vì build/CI hoặc test frontend/mock thành công.
+- Với mỗi lần chạy cần lưu: commit SHA; môi trường (local integration/staging); lệnh/test suite; dữ liệu kiểm thử đã ẩn thông tin nhạy cảm; kết quả; log/correlation ID; đường dẫn bằng chứng. Không ghi token, secret, ảnh võng mạc hoặc PHI vào bằng chứng công khai.
+- PR #54 chưa được coi là merge baseline. Trước kiểm thử contract, xác nhận đúng revision `contracts/billing-openapi.yaml` và quyền/scopes của service token sau review.
+
+### B. Billing–Analysis contract tests
+
+| Test ID | Liên quan | Kịch bản / tiêu chí | Trạng thái bổ sung |
+|---|---|---|---|
+| S307-BILL-01 | FR-11/12; SCRUM-306 | Reserve mới tạo một reservation ở trạng thái RESERVED và trả 201 theo contract được duyệt | PLANNED / NOT RUN |
+| S307-BILL-02 | FR-11/12 | Replay cùng idempotency key và payload trả kết quả gốc (candidate 200), không tạo hiệu ứng ledger thứ hai | PLANNED / NOT RUN |
+| S307-BILL-03 | FR-11/12; NFR idempotency | Cùng key nhưng payload khác bị từ chối theo contract; không tạo reservation thứ hai; xác nhận exact error code với owner | PLANNED / NOT RUN |
+| S307-BILL-04 | FR-11/12 | Không đủ credit trả 402; analysis chưa được accepted và không có thay đổi số dư/ledger ngoài hành vi đã quy định | PLANNED / NOT RUN |
+| S307-BILL-05 | Authorization/tenant | Sai service identity/scope, tenant hoặc billing owner bị từ chối; không thể chọn ví tùy ý hay đọc tenant khác | PLANNED / NOT RUN |
+| S307-BILL-06 | Concurrency | Hai request reserve đồng thời cho cùng business identity tạo tối đa một reservation logic | PLANNED / NOT RUN |
+| S307-BILL-07 | Event 0.6 | `analysis.completed` hợp lệ capture đúng reservation/generation một lần; event lặp không capture lần hai | PLANNED / NOT RUN |
+| S307-BILL-08 | Event 0.6 | `analysis.failed` với `retryable=true` giữ reservation; không release sớm | PLANNED / NOT RUN |
+| S307-BILL-09 | FR-11/12 | Failure terminal hoặc LOW_QUALITY được Analysis xác nhận và không có result hợp lệ thì release đúng một lần | PLANNED / NOT RUN |
+| S307-BILL-10 | Reservation lifecycle | Capture sau release hoặc release sau capture không đổi terminal state; kiểm tra 409 `ERR_RESERVATION_STATE_CONFLICT` theo policy đã duyệt | PLANNED / NOT RUN |
+| S307-BILL-11 | Reconciliation | Đến ngưỡng 15 phút nhưng Analysis còn QUEUED/PROCESSING hoặc dependency không khả dụng thì giữ pending, không release chỉ theo timer | PLANNED / NOT RUN |
+| S307-BILL-12 | Reconciliation | Chỉ release sau khi truy vấn Analysis xác nhận abort/terminal failure; lưu correlation/audit evidence | PLANNED / NOT RUN |
+| S307-BILL-13 | TEST/LIVE | Mock/test không thể capture hoặc làm thay đổi LIVE ledger | PLANNED / NOT RUN |
+| S307-BILL-14 | Service boundary | Với service registry hiện tại, xác nhận `analysis-api` không gọi HTTP capture trái quyền; kiểm thử đường Billing-owned consumer sau khi được duyệt | PLANNED / NOT RUN |
+| S307-BILL-15 | Contract governance | Không thêm `reservationId`/`generation` vào event schema 0.6; sự mơ hồ khi correlate phải được giữ pending và báo contract gap | PLANNED / NOT RUN |
+
+### C. Notification / Chat tests
+
+| Test ID | Liên quan | Kịch bản / tiêu chí | Trạng thái bổ sung |
+|---|---|---|---|
+| S307-CHAT-01 | FR-10/FR-20 | Patient truy cập conversation của mình khi có quyền được cấp | PLANNED / NOT RUN |
+| S307-CHAT-02 | FR-10/FR-20; security | Patient khác hoặc tenant khác đoán ID không đọc/gửi được; không rò dữ liệu | PLANNED / NOT RUN |
+| S307-CHAT-03 | FR-10/FR-20 | Doctor không có assignment hợp lệ bị từ chối ở backend, kể cả đã đăng nhập | PLANNED / NOT RUN |
+| S307-CHAT-04 | FR-10/FR-20 | Sau khi thu hồi assignment, request tiếp theo bị re-authorize; hành vi với lịch sử phải theo policy đã được phê duyệt | PLANNED / NOT RUN |
+| S307-CHAT-05 | FR-10/FR-20 | Message đã persist nhưng SignalR lỗi: message không mất, retry delivery không tạo message trùng | PLANNED / NOT RUN |
+| S307-CHAT-06 | FR-10/FR-20 | Gửi lại cùng request/message id chỉ tạo một message logic | PLANNED / NOT RUN |
+| S307-NTF-01 | FR-9 | Event Analysis lặp không tạo notification logic trùng theo khóa deduplication được duyệt | PLANNED / NOT RUN |
+| S307-NTF-02 | FR-9 | FCM provider/token lỗi được ghi nhận và retry/cleanup; không đảo ngược kết quả Analysis/Billing | PLANNED / NOT RUN |
+| S307-NTF-03 | FR-9/NFR privacy | Push payload không chứa tên bệnh nhân, ảnh võng mạc, risk score hoặc PHI; deep link re-authorize | PLANNED / NOT RUN |
+| S307-NTF-04 | FR-9/security | Logout/token rotation vô hiệu hóa registration cũ theo device lifecycle đã duyệt | PLANNED / NOT RUN |
+| S307-NTF-05 | FR-9/FR-29/FR-39 | Chạy event-to-notification end-to-end gồm mapping/recipient/delivery; device-registration/test-push PoC không thay thế test này | PLANNED / NOT RUN |
+
+### D. Điều kiện để nâng trạng thái
+
+Các test vẫn là `PLANNED / NOT RUN` cho đến khi chạy trên revision đã xác nhận. Nếu bị chặn do PR chưa merge, service owner/scope chưa chốt, chưa có Analysis test state/event, hoặc chưa có môi trường FCM/Chat, ghi `BLOCKED` kèm dependency. Chỉ đặt `PASSED` khi có kết quả lặp lại được và evidence được liên kết tới test ID; nếu test thất bại, giữ `FAILED` kèm lỗi và issue liên quan.

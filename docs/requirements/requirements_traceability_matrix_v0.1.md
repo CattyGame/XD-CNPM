@@ -395,3 +395,31 @@ backend, usability/accessibility hoặc nghiệm thu NFR.
 
 Việc bổ sung PDF không chuyển requirement thành VERIFIED
 và không xác nhận SCRUM-68/SCRUM-69 đã nghiệm thu đầy đủ.
+
+<!-- SCRUM-307-RTM-ADDENDUM-v0.1 -->
+## Bổ sung RTM cho SCRUM-307 — Contract Billing–Analysis và Notification/Chat
+
+**Nguyên tắc:** Đây là lớp traceability bổ sung; không ghi đè trạng thái lịch sử của FR/TC có sẵn. Tất cả test ID mới trong bảng là `PLANNED / NOT RUN`, trừ khi có bằng chứng thực thi được cập nhật sau này.
+
+| Requirement / area | Baseline status cần giữ | Bổ sung SCRUM-307 | Bằng chứng để nghiệm thu | Trạng thái bổ sung |
+|---|---|---|---|---|
+| FR-11 / FR-12 — Billing package/credit behavior | Giữ trạng thái baseline hiện có; không suy diễn đã hoàn tất Billing E2E | S307-BILL-01…06: reserve, idempotency, insufficient credit, owner/scope authorization, concurrency | Contract version được duyệt; API/integration test output; ledger/reservation before-after; commit SHA và environment | PLANNED / NOT RUN |
+| FR-11 / FR-12 — Capture/release | Giữ trạng thái baseline hiện có | S307-BILL-07…10: completed capture; retryable failure; terminal release; mutually exclusive terminal transition | Event/consumer + authoritative Analysis state; reservation/ledger audit; replay/order-conflict evidence | PLANNED / NOT RUN |
+| FR-11 / FR-12 — Reconciliation and TEST/LIVE isolation | Giữ trạng thái baseline hiện có | S307-BILL-11…14: 15-minute reconciliation; safe release only after confirmed abort; environment boundary; caller service permission | State query/reconciliation log; isolated test data; authorized/denied request evidence | PLANNED / NOT RUN |
+| Analysis REST/Event/Job 0.6 — contract stability | Baseline remains version 0.6 until approved revision | S307-BILL-15 verifies no unreviewed schema change and flags missing correlation as a contract gap | Reviewed OpenAPI/schema version and a test/inspection record showing the exact commit/blob | PLANNED / NOT RUN |
+| FR-9 — Notification | Existing RTM status is PARTIAL; do not promote from this design alone | S307-NTF-01…05: deduplication, provider failure, privacy-safe payload, device lifecycle, event-to-notification E2E | Consumer run, notification/recipient/delivery records, payload inspection, delivery attempt evidence; identify environment | PLANNED / NOT RUN |
+| FR-10 — Chat / assigned doctor | Existing RTM status is DESIGN until backend evidence supports a change | S307-CHAT-01…06: participant authorization, tenant isolation, assignment revocation, persistence, retries/deduplication | Approved ownership/storage ADR; API/backend tests; durable message record; denied-access and duplicate-send evidence | PLANNED / NOT RUN |
+| FR-20 — Patient–Doctor consultation | Existing RTM status is DESIGN until end-to-end evidence supports a change | S307-CHAT-01…06, with extra focus on valid Patient–Doctor relationship and access revocation | UC-P10 mapping, backend authorization tests, conversation/message/history evidence on approved environment | PLANNED / NOT RUN |
+| FR-29 — High-risk/trend alerts | Existing RTM status is PENDING | S307-NTF-05 helps confirm event delivery only; clinical/risk trigger and recipient rules still require explicit specification | Approved rule/threshold owner, test data, event-to-notification result and recipient evidence | PENDING; not satisfied by this supplement |
+| FR-39 — Admin notification template/policy | Existing RTM status is PENDING | S307-NTF-03/05 add privacy/template/delivery checks; does not implement template administration | Approved template/version policy, authorization tests and rendered payload evidence | PENDING; not satisfied by this supplement |
+| Security / tenant / privacy cross-cutting | Preserve existing NFR statuses and findings | S307-BILL-05, S307-CHAT-02/03/04, S307-NTF-03/04 | Backend authorization denial evidence; tenant isolation; safe logs/payload; token lifecycle test | PLANNED / NOT RUN |
+
+### Dependencies / sign-off needed
+
+- **SCRUM-306 / Billing owner:** final reviewed Billing OpenAPI and service scope/identity registry; capture consumer location and exact idempotency/conflict behavior.
+- **M2 / Analysis owner:** authoritative terminal-state and reconciliation interface, event-to-reservation correlation, and LOW_QUALITY representation.
+- **M6 / Profile owner:** trusted billing-owner resolution and DoctorAssignment/Clinic authorization source.
+- **M1 / architecture owner:** Chat service ownership, service boundary, storage/retention ADR, event/delivery ownership.
+- **M3:** link evidence to each test ID and update the row only after an actual run. A draft contract, passing frontend mock tests, or a green build by itself does not satisfy end-to-end FR acceptance.
+
+**Traceability caveat:** `docs/api/billing_analysis_integration_contract_v0.1.md` and `docs/requirements/notification_chat_business_design_v0.1.md` are draft deliverables. They do not prove that Billing event consumption, production FCM, Chat backend, high-risk notification rules or end-to-end acceptance are implemented.
