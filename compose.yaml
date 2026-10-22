@@ -176,6 +176,7 @@ services:
         Timeout=5;Command Timeout=10
       Services__Profile__BaseUrl: "http://profile-api:8080"
       ServiceAuth__Issuer: "aura-identity-local"
+      ServiceAuth__ClientSecret: "${IDENTITY_SERVICE_CLIENT_SECRET:?Set IDENTITY_SERVICE_CLIENT_SECRET}"
       ServiceAuth__TokenLifetimeSeconds: "300"
       ServiceAuth__RegistryPath: "/run/aura-service-auth/issuer/identity-clients.json"
       ServiceAuth__PrivateKeyPath: "/run/aura-service-auth/issuer/signing-key.pem"
