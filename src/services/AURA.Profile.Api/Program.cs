@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using AURA.Profile.Api;
 using AURA.Profile.Api.Models;
 using Npgsql;
@@ -16,6 +14,7 @@ var postgresConnString = builder.Configuration.GetConnectionString("Postgres")
 
 builder.Services.AddSingleton<NpgsqlDataSource>(_ => NpgsqlDataSource.Create(postgresConnString));
 builder.Services.AddSingleton<ProfileRepository>();
+builder.Services.AddSingleton<UserIdentityResolver>();
 
 builder.Services.AddHttpClient("IdentityClient", (sp, client) =>
 {
@@ -29,7 +28,9 @@ builder.Services.AddHttpClient("IdentityClient", (sp, client) =>
     }
     client.BaseAddress = new Uri(baseUrl);
     client.Timeout = TimeSpan.FromSeconds(5);
-});
+})
+.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
+.RedactLoggedHeaders(new[] { "Authorization", "X-User-Authorization" });
 
 builder.Services.AddSingleton<ServiceTokenValidator>();
 
@@ -58,48 +59,6 @@ app.Use(async (context, next) =>
 });
 
 app.MapHealthChecks("/health");
-
-// Helper: Phân giải Account ID từ request (Tuyệt đối không tin cậy X-Account-Id hay chuỗi GUID không xác thực)
-static Guid? ResolveAccountId(HttpRequest request, IWebHostEnvironment env)
-{
-    var authHeader = request.Headers.Authorization.FirstOrDefault();
-    if (string.IsNullOrWhiteSpace(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-    {
-        return null;
-    }
-
-    var token = authHeader["Bearer ".Length..].Trim();
-    if (string.IsNullOrWhiteSpace(token))
-    {
-        return null;
-    }
-
-    // Chỉ cho phép mock tokens khi đang ở môi trường Development
-    if (env.IsDevelopment() && (token.StartsWith("mock-token-", StringComparison.OrdinalIgnoreCase) ||
-                                token.StartsWith("mock-dev-token-", StringComparison.OrdinalIgnoreCase)))
-    {
-        var raw = token.StartsWith("mock-token-", StringComparison.OrdinalIgnoreCase)
-            ? token["mock-token-".Length..]
-            : token["mock-dev-token-".Length..];
-
-        if (raw.Equals("hoang_dev_1", StringComparison.OrdinalIgnoreCase))
-        {
-            return Guid.Parse("668c4a32-5342-4d8b-b505-07d548732120");
-        }
-
-        if (raw.Equals("uninitialized_user_999", StringComparison.OrdinalIgnoreCase))
-        {
-            return null; // Chưa bootstrap
-        }
-
-        // Sinh deterministic UUID từ chuỗi UID đã đăng nhập
-        using var md5 = MD5.Create();
-        var hash = md5.ComputeHash(Encoding.UTF8.GetBytes("aura-profile-dev:" + raw));
-        return new Guid(hash);
-    }
-
-    return null;
-}
 
 // 1. POST /internal/v1/profile/provision (Bảo vệ bằng Service JWT: scope profile:provision)
 app.MapPost("/internal/v1/profile/provision", async (
@@ -161,22 +120,22 @@ app.MapGet("/api/v1/profiles/me", async (
     HttpRequest request,
     HttpResponse response,
     ProfileRepository repository,
-    IWebHostEnvironment env,
+    UserIdentityResolver identityResolver,
     CancellationToken ct) =>
 {
     var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
-    var accountId = ResolveAccountId(request, env);
-
-    if (!accountId.HasValue)
+    var identity = await identityResolver.ResolveAsync(request, ct);
+    if (!identity.Succeeded)
     {
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_UNAUTHORIZED", "Cần đăng nhập để xem thông tin hồ sơ.", correlationId, false)),
-            statusCode: StatusCodes.Status401Unauthorized);
+            new ErrorEnvelope(new ErrorDetails(identity.Code, identity.Message, correlationId, identity.Retryable)),
+            statusCode: identity.StatusCode);
     }
+    var accountId = identity.AccountId;
 
     try
     {
-        var profile = await repository.GetProfileByAccountIdAsync(accountId.Value, ct);
+        var profile = await repository.GetProfileByAccountIdAsync(accountId, ct);
         if (profile == null)
         {
             // Theo chuẩn Sprint 2: Hồ sơ chưa provision xong trả 409 ERR_PROFILE_NOT_READY, retryable=true
@@ -206,18 +165,18 @@ app.MapPatch("/api/v1/profiles/me", async (
     HttpResponse response,
     UpdateProfileRequest body,
     ProfileRepository repository,
-    IWebHostEnvironment env,
+    UserIdentityResolver identityResolver,
     CancellationToken ct) =>
 {
     var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
-    var accountId = ResolveAccountId(request, env);
-
-    if (!accountId.HasValue)
+    var identity = await identityResolver.ResolveAsync(request, ct);
+    if (!identity.Succeeded)
     {
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_UNAUTHORIZED", "Cần đăng nhập để cập nhật hồ sơ.", correlationId, false)),
-            statusCode: StatusCodes.Status401Unauthorized);
+            new ErrorEnvelope(new ErrorDetails(identity.Code, identity.Message, correlationId, identity.Retryable)),
+            statusCode: identity.StatusCode);
     }
+    var accountId = identity.AccountId;
 
     // 3.1. Kiểm tra Header If-Match bắt buộc
     var ifMatchHeader = request.Headers.IfMatch.FirstOrDefault();
@@ -240,7 +199,7 @@ app.MapPatch("/api/v1/profiles/me", async (
     try
     {
         // 3.2. Validate dữ liệu đầu vào:
-        var currentProfile = await repository.GetProfileByAccountIdAsync(accountId.Value, ct);
+        var currentProfile = await repository.GetProfileByAccountIdAsync(accountId, ct);
         if (currentProfile == null)
         {
             return Results.Json(
@@ -266,7 +225,7 @@ app.MapPatch("/api/v1/profiles/me", async (
 
         // 3.3. Thực thi cập nhật kèm kiểm tra phiên bản (Optimistic Concurrency)
         var (success, updatedProfile, conflict) = await repository.UpdateProfileAsync(
-            accountId.Value, targetDisplayName, targetPhone, expectedVersion, ct);
+            accountId, targetDisplayName, targetPhone, expectedVersion, ct);
 
         if (conflict)
         {

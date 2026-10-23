@@ -11,7 +11,7 @@ $variables = @(
     "NOTIFICATION_ENCRYPTION_KEY_ID", "NOTIFICATION_ENCRYPTION_KEY",
     "IDENTITY_DB_PASSWORD", "PROFILE_DB_PASSWORD", "ANALYSIS_DB_PASSWORD",
     "BILLING_DB_PASSWORD", "NOTIFICATION_DB_PASSWORD",
-    "IDENTITY_SERVICE_CLIENT_SECRET", "BILLING_SERVICE_CLIENT_SECRET"
+    "IDENTITY_SERVICE_CLIENT_SECRET", "BILLING_SERVICE_CLIENT_SECRET", "PROFILE_SERVICE_CLIENT_SECRET"
 )
 $original = @{}
 foreach ($name in $variables) { $original[$name] = [Environment]::GetEnvironmentVariable($name, "Process") }
@@ -58,6 +58,7 @@ try {
     New-Item -ItemType Directory -Path $clientsDirectory -Force | Out-Null
     [IO.File]::WriteAllText((Join-Path $clientsDirectory "identity-api.json"), '{"clientId":"identity-api","clientSecret":"test-identity-client-secret"}')
     [IO.File]::WriteAllText((Join-Path $clientsDirectory "billing-api.json"), '{"clientId":"billing-api","clientSecret":"test-billing-client-secret"}')
+    [IO.File]::WriteAllText((Join-Path $clientsDirectory "profile-api.json"), '{"clientId":"profile-api","clientSecret":"test-profile-client-secret"}')
     $arguments = @{ CredentialPath = $credential; NotificationKeyPath = $key; ServiceAuthDirectory = $serviceAuthDirectory }
 
     & $setup @arguments -DockerNetwork "existing-aura-network" -NotificationKeyId "existing-key-id"
@@ -71,6 +72,7 @@ try {
     Assert-Check ($env:NOTIFICATION_DB_PASSWORD -eq $global:AuraM1EnvironmentCheckState.password) "Notification separate password field remains unchanged"
     Assert-Check ($env:IDENTITY_SERVICE_CLIENT_SECRET -eq "test-identity-client-secret") "Identity service secret is loaded from its client credentials file"
     Assert-Check ($env:BILLING_SERVICE_CLIENT_SECRET -eq "test-billing-client-secret") "Billing service secret is loaded from its client credentials file"
+    Assert-Check ($env:PROFILE_SERVICE_CLIENT_SECRET -eq "test-profile-client-secret") "Profile service secret is loaded from its own client credentials file"
 
     [IO.File]::WriteAllText($credential, '{"type":"service_account","project_id":"wrong-project"}')
     Assert-SetupRejected $arguments "Mismatched Firebase project is rejected"
