@@ -41,6 +41,7 @@ Nguồn cấu hình: clients.example.json.
 | analysis-api | aura-billing | billing:reserve, billing:read, billing:release |
 | identity-api | aura-profile | profile:provision |
 | billing-api | aura-profile | profile:resolve |
+| profile-api | aura-identity | identity:context |
 
 Mỗi caller có principalId UUID ổn định.
 
@@ -279,3 +280,13 @@ Kết quả tạo credentials không thay thế các ca tích hợp này.
 - Output nằm ngoài repository: PASS.
 
 - Không in private key, client secret hoặc token.
+
+
+## Bổ sung Profile caller — bản sửa ngày 2026-10-23
+
+Profile GET/PATCH /me dùng client riêng profile-api, audience aura-identity,
+scope identity:context. Xem docs/development/profile_identity_resolution.md.
+Máy đã có credentials dùng Register-AuraProfileServiceClient.py để bổ sung
+client, giữ nguyên các khóa và ba client cũ. Không chạy lại công cụ tạo toàn bộ
+credentials vào thư mục đang dùng. Các checklist runtime cũ ở trên là lịch sử;
+chỉ ghi PASS mới sau khi đã chạy kiểm chứng trên máy triển khai.
