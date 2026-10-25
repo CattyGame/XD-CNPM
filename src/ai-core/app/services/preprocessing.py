@@ -57,6 +57,40 @@ class PreprocessConfig:
     min_sharpness: float = 3.5
     min_fov_ratio: float = 0.15
 
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def validate(self) -> None:
+        """Reject invalid configuration, including NaN, before image work starts."""
+        for name in ("target_width", "target_height"):
+            value = getattr(self, name)
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        for name in ("fov_padding", "unsharp_percent"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+        if type(self.fov_threshold) is not int or not 0 <= self.fov_threshold <= 255:
+            raise ValueError("fov_threshold must be an integer in [0, 255]")
+        for name in ("crop_fov", "enhance_contrast"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be a boolean")
+        for name in ("contrast_clip_percent", "unsharp_radius", "min_luminance",
+                     "max_luminance", "min_contrast", "min_sharpness", "min_fov_ratio"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"{name} must be a finite number")
+        if not 0 <= self.contrast_clip_percent < 50:
+            raise ValueError("contrast_clip_percent must be in [0, 50)")
+        if self.unsharp_radius < 0:
+            raise ValueError("unsharp_radius must be non-negative")
+        if not 0 <= self.min_luminance <= self.max_luminance <= 255:
+            raise ValueError("luminance thresholds must be ordered within [0, 255]")
+        if not 0 <= self.min_contrast <= 255 or not 0 <= self.min_sharpness <= 255:
+            raise ValueError("contrast and sharpness thresholds must be within [0, 255]")
+        if not 0 <= self.min_fov_ratio <= 1:
+            raise ValueError("min_fov_ratio must be in [0, 1]")
+
 
 @dataclass
 class PreprocessResult:
@@ -240,14 +274,14 @@ def evaluate_quality(
     config: PreprocessConfig,
 ) -> Tuple[QualityMetrics, bool, Optional[str]]:
     """
-    Analyze fundus image quality based on clinical and computer vision metrics:
+    Assess image quality with configurable computer vision heuristics:
     - FOV area ratio (checks if camera was properly aligned)
     - Mean luminance within FOV (detects underexposed/overexposed flash)
     - Contrast score (standard deviation of pixel intensity inside retina)
     - Sharpness score (edge frequency strength)
     """
+    config.validate()
     total_pixels = image.width * image.height
-    mask_pixels = mask.histogram()[255] if 255 in mask.getcolors(maxcolors=256) or True else 0
 
     # Calculate precise non-zero mask pixels
     stat_mask = ImageStat.Stat(mask)
@@ -264,7 +298,7 @@ def evaluate_quality(
     is_valid_fundus = True
     rejection_reason = None
 
-    if fov_ratio < config.min_fov_ratio:
+    if fov_pixels == 0 or fov_ratio < config.min_fov_ratio:
         is_valid_fundus = False
         rejection_reason = (
             f"Vùng quan sát võng mạc (FOV) quá nhỏ ({fov_ratio*100:.1f}% < {config.min_fov_ratio*100:.1f}%)."
@@ -332,6 +366,7 @@ def preprocess_fundus_image(
     """
     if config is None:
         config = PreprocessConfig()
+    config.validate()  # Also catches mutation of this intentionally mutable dataclass.
 
     image = load_image(image_input)
     original_size = image.size

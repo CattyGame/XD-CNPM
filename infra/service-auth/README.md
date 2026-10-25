@@ -4,30 +4,37 @@ Owner chuẩn bị cấu hình: M1 / SCRUM-300.
 
 Owner triển khai Identity issuance/validation: M6 / SCRUM-314.
 
-Cập nhật: 2026-10-16.
+Cập nhật: 2026-10-23.
 
 ## Trạng thái
 
-Đã có:
+Baseline đối chiếu: `develop` tại `87af21d`, sau PR #56.
 
-- Registry client/principal/audience/scope.
+Đã có trong mã nguồn:
 
-- Công cụ tạo khóa RS256 và credentials ngoài repository.
+- Registry client/principal/audience/scope, công cụ tạo khóa RS256 và
+  credentials ngoài repository; kiểm tra cặp khóa và hash secret.
+- Identity đọc registry và private key theo cấu hình Compose, phát JWT,
+  cung cấp public key và identity context.
+- Profile kiểm service token ở provision/access resolve; dùng client riêng
+  `profile-api` khi giải quyết Firebase user token qua Identity/context.
+- Billing kiểm service token và gọi Profile access resolve trước reserve.
 
-- Kiểm tra cặp khóa RSA bằng ký/xác minh.
+Người dùng đã chạy local thành công Firebase → Gateway → Identity/Profile,
+Profile PATCH/ETag, 12 ca HTTP âm và Billing reserve/replay/concurrency cùng
+replay sau restart. Đây là bằng chứng cho các ca đã chạy trên cấu hình đó.
 
-- Kiểm tra secret đúng được chấp nhận, secret sai bị từ chối.
+Các mục còn mở:
 
-Chưa xác nhận:
+- Identity còn fallback sinh key/secret Development nếu thiếu cấu hình;
+  consumer Profile còn tìm một số đường dẫn key dự phòng. M6 cần sửa cơ chế
+  này, kiểm tra cấu hình lỗi và không cho dùng private key của issuer ở consumer.
+- Chưa xác nhận mọi nhánh token hết hạn/thu hồi, issuer/chữ ký sai, quyền
+  Clinic/assignment hoặc toàn bộ transition/reconciliation Billing.
+- Analysis runtime chưa nối endpoint và các adapter nghiệp vụ; client
+  `analysis-api` có trong registry không chứng minh đã có luồng upload thật.
 
-- Identity runtime đọc cấu hình được tạo.
-
-- Endpoint phát service token xác thực credentials đúng.
-
-- Consumer kiểm issuer/audience/scope và hạn dùng.
-
-- Các cuộc gọi nội bộ thực tế qua service JWT.
-
+Không xóa hoặc tạo lại bộ credentials đang dùng để xử lý các mục còn mở.
 Firebase user token và service JWT là hai loại token khác nhau.
 
 ## Registry công khai
@@ -106,6 +113,7 @@ Thay khóa hoặc credentials phải có kế hoạch rotation riêng.
 | clients/analysis-api.json | Chỉ Analysis |
 | clients/identity-api.json | Chỉ Identity khi gọi Profile |
 | clients/billing-api.json | Chỉ Billing |
+| clients/profile-api.json | Chỉ Profile khi gọi Identity context |
 | manifest.json | Metadata keyId/issuer/version |
 
 Không mount toàn bộ thư mục output cho mọi service.
@@ -120,11 +128,11 @@ privateKeyPath và publicKeyPath trong issuer config được giải
 
 tương đối từ thư mục chứa identity-clients.json.
 
-## Hợp đồng đọc cấu hình cần M6 triển khai
+## Hợp đồng đọc cấu hình
 
 Identity đọc file được chỉ định bởi ServiceAuth__RegistryPath.
 
-Đây là key bổ sung cần code bind/validate; chưa tự có hiệu lực.
+Identity runtime đã đọc key này. Việc bind đúng cấu hình không thay thế kiểm tra quyền và các ca thiếu/sai cấu hình.
 
 Các key theo contract dùng ở consumer/caller:
 
@@ -148,9 +156,9 @@ Identity nạp lại khóa đã lưu khi khởi động.
 
 Không sinh khóa mới mỗi lần chạy.
 
-keyId trong JWT header lấy từ issuer config.
+Công cụ setup ghi keyId metadata. Identity runtime hiện tính keyId từ SHA-256 của public key SPKI; cần dùng keyId runtime khi đối chiếu JWT/public key, không giả định hai giá trị metadata luôn giống nhau.
 
-## Endpoint issuance cần M6 hoàn thiện
+## Endpoint issuance đã có trong Identity
 
 POST /internal/v1/identity/service-tokens.
 
@@ -247,7 +255,7 @@ Không chấp nhận Firebase token như service JWT hoặc ngược lại.
 
 Gateway public loại X-User-Authorization do browser gửi.
 
-## Các ca tích hợp bắt buộc sau khi M6 nối runtime
+## Ma trận kiểm tra service JWT cần nghiệm thu
 
 - Đúng credentials/audience/scope: phát token.
 
@@ -267,7 +275,7 @@ Gateway public loại X-User-Authorization do browser gửi.
 
 - Profile resolve/provision và Identity context dùng service JWT thật.
 
-Kết quả tạo credentials không thay thế các ca tích hợp này.
+Kết quả tạo credentials không thay thế các ca tích hợp này. Trạng thái từng ca phải đi kèm output thực chạy; không đánh dấu toàn bộ PASS từ kết quả của một luồng hợp lệ.
 
 ## Kết quả local 2026-10-16
 
@@ -285,8 +293,35 @@ Kết quả tạo credentials không thay thế các ca tích hợp này.
 ## Bổ sung Profile caller — bản sửa ngày 2026-10-23
 
 Profile GET/PATCH /me dùng client riêng profile-api, audience aura-identity,
-scope identity:context. Xem docs/development/profile_identity_resolution.md.
+scope identity:context. Xem [luồng Profile identity](../../docs/development/profile_identity_resolution.md).
 Máy đã có credentials dùng Register-AuraProfileServiceClient.py để bổ sung
 client, giữ nguyên các khóa và ba client cũ. Không chạy lại công cụ tạo toàn bộ
 credentials vào thư mục đang dùng. Các checklist runtime cũ ở trên là lịch sử;
 chỉ ghi PASS mới sau khi đã chạy kiểm chứng trên máy triển khai.
+
+Theo dõi phần còn mở tại [kế hoạch sửa Sprint 2](../../docs/integration/sprint2_closeout_plan.md).
+
+## Runtime fail-closed (Sprint 2 closeout)
+
+Identity yêu cầu ServiceAuth:Issuer, TokenLifetimeSeconds (1–300), PrivateKeyPath
+và RegistryPath rõ ràng. Registry đã provision phải có schemaVersion=1,
+algorithm=RS256, issuer/lifetime/keyId khớp cấu hình và khóa đang dùng,
+cùng clientSecretHash PBKDF2-SHA256/600000 hợp lệ cho mọi client. Registry
+ví dụ chưa có secret hash không được dùng trực tiếp làm runtime registry.
+Không tự sinh khóa, seed client, secret mặc định hoặc tìm file dự phòng.
+Cấu hình sai làm startup thất bại trước khi health endpoint được mở.
+
+Profile yêu cầu ServiceAuth:Issuer, Audience=aura-profile, và đúng một nguồn
+PublicKeyPath hoặc PublicKeyPem. Chỉ nhận RSA public PEM tối thiểu 2048 bit;
+không nhận private PEM, không tìm signing-key.pem và không tự fetch key qua HTTP.
+Compose mount riêng thư mục public read-only vào Profile, không mount issuer
+hay client credential directory. Khóa public và registry/secret hiện có không
+bị sửa bởi gói source này. Nếu đổi khóa, phải provision/triển khai đồng bộ;
+không có tự động rotation/discovery trong phiên bản này.
+
+Kiểm tra source bằng tests/AURA.ServiceAuth.Checks. Sau khi nạp cấu hình dev,
+chạy cùng project với -- --check-local-material để kiểm tra chỉ đọc bộ
+AURA_SERVICE_AUTH_HOME ngoài repo: key pair, registry và credential từng client,
+bao gồm đối chiếu allowedTargets. Không gửi HTTP, không tạo/lưu token ra file,
+không in secret/hash/PEM và không restart. Xem
+[service_auth_fail_closed.md](../../docs/development/service_auth_fail_closed.md).

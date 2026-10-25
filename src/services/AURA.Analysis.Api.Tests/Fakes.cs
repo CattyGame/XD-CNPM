@@ -36,6 +36,9 @@ internal sealed class FakeBilling : ICreditReservations
     private readonly object _lock = new();
     public readonly Dictionary<Guid, Guid> ByKey = new();       // idempotency key -> reservationId
     public readonly List<Guid> Released = new();
+    public readonly List<ReserveCredit> ReserveRequests = new();
+    public readonly List<ReleaseCredit> ReleaseRequests = new();
+    public readonly List<bool> ReleaseWasCancelled = new();
     public int ReserveCalls;
     public int InsufficientAtCall = -1;                          // lần gọi thứ n (từ 1) trả thiếu credit
     public bool Down;
@@ -45,6 +48,7 @@ internal sealed class FakeBilling : ICreditReservations
         lock (_lock)
         {
             ReserveCalls++;
+            ReserveRequests.Add(request);
             if (Down) throw new HttpRequestException("billing down");
             if (ReserveCalls == InsufficientAtCall) return Task.FromResult(new ReservationOutcome(ReservationStatus.InsufficientCredit, null));
             if (!ByKey.TryGetValue(request.IdempotencyKey, out var id)) ByKey[request.IdempotencyKey] = id = Guid.NewGuid();
@@ -54,7 +58,12 @@ internal sealed class FakeBilling : ICreditReservations
 
     public Task ReleaseAsync(ReleaseCredit request, CancellationToken ct)
     {
-        lock (_lock) Released.Add(request.ReservationId);
+        lock (_lock)
+        {
+            Released.Add(request.ReservationId);
+            ReleaseRequests.Add(request);
+            ReleaseWasCancelled.Add(ct.IsCancellationRequested);
+        }
         return Task.CompletedTask;
     }
 }

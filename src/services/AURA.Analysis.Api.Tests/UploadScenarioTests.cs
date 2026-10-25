@@ -44,9 +44,11 @@ public class UploadScenarioTests : IDisposable
     [Fact]
     public async Task Anh_hong_qua_lon_qua_pixel_sai_loai_va_OCT_deu_khong_luu_file_va_khong_reserve()
     {
-        var rig = DiskRig(new UploadOptions { MaxImageBytes = 6000 });
+        // Use a decodable JPEG as the valid baseline, independent of the encoder's compression ratio.
+        var imageLimit = checked(TestImages.Jpeg(1000, 800, seed: 1).Length + 1024);
+        var rig = DiskRig(new UploadOptions { MaxImageBytes = imageLimit });
         var truncated = new MemFile("cut.png", TestImages.Png(100, 100, withIend: false), "image/png");
-        var tooBig = new MemFile("big.png", TestImages.Png(100, 100, extra: 9000), "image/png");
+        var tooBig = new MemFile("big.png", TestImages.Png(100, 100, extra: imageLimit + 1), "image/png");
         var tooManyPixels = new MemFile("px.jpg", TestImages.Jpeg(5000, 4000), "image/jpeg");
         var gif = new MemFile("x.gif", System.Text.Encoding.ASCII.GetBytes("GIF89a").Concat(new byte[40]).ToArray());
         var rigPx = DiskRig();    // giới hạn mặc định cho ca pixel

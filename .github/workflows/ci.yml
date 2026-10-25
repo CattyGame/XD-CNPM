@@ -40,6 +40,16 @@ jobs:
           dotnet test src/services/AURA.Analysis.Api.Tests/AURA.Analysis.Api.Tests.csproj
           --configuration Release --no-build --no-restore
 
+      - name: Check upload recovery state transitions
+        run: >-
+          dotnet run --project tests/AURA.Analysis.JournalStateChecks/AURA.Analysis.JournalStateChecks.csproj
+          --configuration Release --no-launch-profile
+
+      - name: Check service authentication fail-closed behavior
+        run: >-
+          dotnet run --project tests/AURA.ServiceAuth.Checks/AURA.ServiceAuth.Checks.csproj
+          --configuration Release --no-launch-profile
+
       - name: Check Profile identity resolver
         run: >-
           dotnet run --project tests/AURA.Profile.IdentityChecks/AURA.Profile.IdentityChecks.csproj
@@ -160,6 +170,7 @@ jobs:
           identity_secret="$(jq -r '.clientSecret' "$output/clients/identity-api.json")"
           billing_secret="$(jq -r '.clientSecret' "$output/clients/billing-api.json")"
           profile_secret="$(jq -r '.clientSecret' "$output/clients/profile-api.json")"
+          analysis_secret="$(jq -r '.clientSecret' "$output/clients/analysis-api.json")"
           if [[ -z "$identity_secret" || "$identity_secret" == "null" ]]; then
             echo "Failed to read generated Identity client secret." >&2
             exit 1
@@ -172,6 +183,11 @@ jobs:
             echo "Failed to read generated Profile client secret." >&2
             exit 1
           fi
+          if [[ -z "$analysis_secret" || "$analysis_secret" == "null" ]]; then
+            echo "Failed to read generated Analysis client secret." >&2
+            exit 1
+          fi
+          echo "::add-mask::$analysis_secret"
           echo "::add-mask::$identity_secret"
           echo "::add-mask::$billing_secret"
           echo "::add-mask::$profile_secret"
@@ -182,7 +198,8 @@ jobs:
           printf 'IDENTITY_SERVICE_CLIENT_SECRET=%s\n' "$identity_secret" >> "$GITHUB_ENV"
           printf 'BILLING_SERVICE_CLIENT_SECRET=%s\n' "$billing_secret" >> "$GITHUB_ENV"
           printf 'PROFILE_SERVICE_CLIENT_SECRET=%s\n' "$profile_secret" >> "$GITHUB_ENV"
-          unset identity_secret billing_secret profile_secret
+          printf 'ANALYSIS_SERVICE_CLIENT_SECRET=%s\n' "$analysis_secret" >> "$GITHUB_ENV"
+          unset identity_secret billing_secret profile_secret analysis_secret
 
       - name: Validate Compose
         run: docker compose --env-file .env.example config -q

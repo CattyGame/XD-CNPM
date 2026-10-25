@@ -1,6 +1,6 @@
 # AURA — Môi trường phát triển Sprint 2
 
-Owner: M1. Tasks: SCRUM-299/300/301. Cập nhật: 2026-10-18.
+Owner: M1. Tasks: SCRUM-299/300/301. Cập nhật: 2026-10-23.
 
 ## Phạm vi hiện tại
 
@@ -74,6 +74,16 @@ if (-not (Test-Path -LiteralPath $keyPath)) {
 }
 ```
 
+Chuẩn bị bộ service credentials **trước** khi nạp môi trường. Máy mới dùng
+công cụ trong [hướng dẫn service identity](../../infra/service-auth/README.md)
+để tạo một bộ ngoài repository. Bộ hiện tại có bốn client: `analysis-api`,
+`identity-api`, `billing-api`, `profile-api`. Máy đã có bộ cũ chỉ bổ sung
+Profile theo hướng dẫn; không tạo lại key hoặc ghi đè credentials đang dùng.
+
+`Set-AuraDevEnvironment.ps1` đọc secret riêng của Identity, Billing và Profile;
+Analysis chưa được nối DI/adapter nghiệp vụ tại baseline này. Không dùng
+secret mặc định trong script kiểm thử cũ thay cho secret của môi trường.
+
 Nạp cấu hình vào cửa sổ PowerShell hiện tại:
 
 ```powershell
@@ -132,8 +142,10 @@ Script thực hiện đúng thứ tự:
 3. `002_identity_and_profile.sql`.
 4. `003_doctor_assignments.sql`.
 5. `003_billing_poc_packages.sql`.
-6. `analysis/001_analysis_core.sql`.
-7. Chạy lại `002_service_database_roles.sql` để chuyển ownership và giữ quyền
+6. `004_billing_business_schema.sql`.
+7. `analysis/001_analysis_core.sql`.
+8. `analysis/002_upload_recovery.sql` (durable upload journal).
+9. Chạy lại `002_service_database_roles.sql` để chuyển ownership và giữ quyền
    append-only cho các bảng Analysis.
 
 Trên máy mới, chạy trong terminal tương tác:
@@ -154,7 +166,7 @@ Trên database đã có role/password đúng, bỏ `-ConfigureRuntimeLogins`:
 
 Mặc định script không đổi password/LOGIN hiện có. Mỗi migration chạy với
 `ON_ERROR_STOP=1`; lỗi thì dừng, các migration trước đã commit vẫn được giữ.
-Không có transaction chung cho toàn bộ bảy bước. Backup database đã có dữ
+Không có transaction chung cho toàn bộ chín bước. Backup database đã có dữ
 liệu trước khi áp dụng thay đổi ownership/grants; không coi IF NOT EXISTS
 là bằng chứng tự nâng cấp được mọi schema cũ.
 
@@ -258,11 +270,25 @@ M1 đã chuẩn bị registry và công cụ sinh key/credentials; xem
 Mỗi môi trường độc lập có thể tự sinh một bộ; issuer/caller/consumer trong
 cùng môi trường phải sử dụng đúng cùng bộ. Không sinh lại khóa đang dùng.
 
-M6 cần nối registry, key bền vững, kiểm secret/audience/scope và JWT consumer.
-Đặt `ServiceAuth__RegistryPath` không tự có hiệu lực khi runtime chưa bind.
-Bản sửa M1 không xác nhận endpoint service-tokens hay Profile authorization
-đã an toàn. Upload/DB/storage adapter thuộc M2, Billing reservation thuộc M3,
-bootstrap/Profile UI và retry thuộc M5. Worker/publisher đầy đủ thuộc Sprint 3.
+Identity đã đọc registry, phát service JWT và cung cấp identity context.
+Profile đã dùng client riêng để giải quyết danh tính người dùng qua Identity;
+Billing đã có consumer service JWT và gọi Profile để kiểm quyền reserve.
+Xem [luồng Profile identity](profile_identity_resolution.md).
+
+Nếu chỉ bổ sung Profile vào bộ credentials cũ, Identity cần restart để đọc
+registry; Profile cần nhận `PROFILE_SERVICE_CLIENT_SECRET` và được recreate.
+Các bước này đã được kiểm tra trên máy bàn giao ngày 2026-10-23; không cần
+đăng ký lại client hoặc đổi khóa chỉ vì cập nhật tài liệu.
+
+Vẫn cần sửa các fallback khi cấu hình service auth bị thiếu/sai và kiểm thử
+các nhánh đó trong M6. Không coi việc health hoặc login thành công là bằng
+chứng toàn bộ quyền service/user đã an toàn.
+
+Tại baseline `87af21d`, Analysis `Program.cs` mới map health/platform ping;
+upload, batch status, file access và các adapter PostgreSQL/Billing/Azurite
+chưa được nối vào runtime. Upload/DB/storage adapter thuộc M2, Billing thuộc
+M3, bootstrap/Profile UI và retry thuộc M5. Worker/publisher đầy đủ thuộc
+Sprint 3. Xem [kế hoạch sửa đủ 18 task](../integration/sprint2_closeout_plan.md).
 
 ## 9. Kiểm thử và bằng chứng
 
@@ -280,6 +306,7 @@ bằng chứng lịch sử của phiên bản lúc đó, không tự xác nhận
 
 ## Tài liệu liên quan
 
+- [Kế hoạch sửa Sprint 2](../integration/sprint2_closeout_plan.md)
 - [Gateway](../api/gateway_sprint2.md)
 - [ADR private storage](../adr/ADR-004-private-storage.md)
 - [Database](../../infra/postgres/README.md)

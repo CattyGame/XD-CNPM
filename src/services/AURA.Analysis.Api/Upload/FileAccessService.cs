@@ -55,7 +55,7 @@ public sealed class FileAccessService
 
         var decision = await Guard("Profile", () => _access.ResolveAsync(
             new PatientAccessRequest(requesterId, clinicId, record.PatientId, "FILE_READ"), ct));
-        if (!decision.Allowed || decision.TenantId != record.TenantId) throw NotFound();
+        if (!decision.Allowed || decision.TenantId != record.TenantId || decision.OwnerPrincipalId != record.OwnerId) throw NotFound();
 
         var container = record.Kind == StoredFileKind.Original
             ? _storageOptions.OriginalContainer

@@ -50,8 +50,9 @@ $NotificationKeyPath = (
 $identityClientPath = Join-Path $ServiceAuthDirectory "clients\identity-api.json"
 $billingClientPath = Join-Path $ServiceAuthDirectory "clients\billing-api.json"
 $profileClientPath = Join-Path $ServiceAuthDirectory "clients\profile-api.json"
+$analysisClientPath = Join-Path $ServiceAuthDirectory "clients\analysis-api.json"
 
-foreach ($clientPath in @($identityClientPath, $billingClientPath, $profileClientPath)) {
+foreach ($clientPath in @($identityClientPath, $billingClientPath, $profileClientPath, $analysisClientPath)) {
     if (-not (Test-Path -LiteralPath $clientPath -PathType Leaf)) {
         throw "Service client credentials file not found."
     }
@@ -72,6 +73,11 @@ if ($profileClient.clientId -ne "profile-api" -or [string]::IsNullOrWhiteSpace([
     throw "Invalid Profile service client credentials."
 }
 
+$analysisClient = Get-Content -LiteralPath $analysisClientPath -Raw -Encoding UTF8 | ConvertFrom-Json
+if ($analysisClient.clientId -ne "analysis-api" -or [string]::IsNullOrWhiteSpace([string]$analysisClient.clientSecret)) {
+    throw "Invalid Analysis service client credentials."
+}
+$analysisServiceClientSecret = [string]$analysisClient.clientSecret
 $identityServiceClientSecret = [string]$identityClient.clientSecret
 $billingServiceClientSecret = [string]$billingClient.clientSecret
 $profileServiceClientSecret = [string]$profileClient.clientSecret
@@ -149,6 +155,7 @@ try {
         IDENTITY_SERVICE_CLIENT_SECRET = $identityServiceClientSecret
         BILLING_SERVICE_CLIENT_SECRET = $billingServiceClientSecret
         PROFILE_SERVICE_CLIENT_SECRET = $profileServiceClientSecret
+        ANALYSIS_SERVICE_CLIENT_SECRET = $analysisServiceClientSecret
 
         # Npgsql connection strings quote these values in compose.yaml.
         IDENTITY_DB_PASSWORD = $identityPassword.Replace('"', '""')
@@ -177,6 +184,8 @@ finally {
     $identityServiceClientSecret = $null
     $billingServiceClientSecret = $null
     $profileServiceClientSecret = $null
+    $analysisServiceClientSecret = $null
+    $analysisClient = $null
     $identityClient = $null
     $billingClient = $null
     $profileClient = $null

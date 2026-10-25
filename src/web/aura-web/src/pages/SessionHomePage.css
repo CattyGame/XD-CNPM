@@ -1,0 +1,81 @@
+.session-home {
+  min-height: 100vh;
+  color: #17374a;
+  background: #f4f8fb;
+}
+
+.session-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 20px max(24px, calc((100% - 1040px) / 2));
+  border-bottom: 1px solid #d9e5ed;
+  background: #fff;
+}
+
+.session-brand {
+  color: #135c6f;
+  font-size: 1.6rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.session-header nav {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.session-header a {
+  color: #135c6f;
+}
+
+.session-header button {
+  padding: 9px 16px;
+  border: 1px solid #86a6b4;
+  border-radius: 6px;
+  background: #fff;
+  color: #17374a;
+  cursor: pointer;
+}
+
+.session-content {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 36px 24px;
+}
+
+.session-account,
+.session-action {
+  margin-top: 24px;
+  padding: 24px;
+  border: 1px solid #d9e5ed;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.session-account h2,
+.session-action h2 {
+  margin-top: 0;
+}
+
+.session-account li {
+  margin-top: 6px;
+}
+
+.session-primary-link {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 12px 18px;
+  border-radius: 6px;
+  background: #146b80;
+  color: #fff;
+  text-decoration: none;
+}
+
+.session-home :is(a, button):focus-visible {
+  outline: 3px solid #23859b;
+  outline-offset: 4px;
+}

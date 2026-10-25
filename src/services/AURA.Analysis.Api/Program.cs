@@ -1,9 +1,13 @@
+using AURA.Analysis.Api.Http;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddProblemDetails();
 builder.Services.AddHealthChecks();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+var analysisHttpEnabled = builder.Configuration.GetValue<bool>("Analysis:EnableHttpEndpoints");
+if (analysisHttpEnabled) builder.Services.AddAnalysisRuntime(builder.Configuration,builder.Environment);
 
 var app = builder.Build();
 
@@ -16,6 +20,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapHealthChecks("/health");
+app.MapAnalysisReadiness(analysisHttpEnabled);
 
 app.MapGet("/api/v1/platform/ping", () =>
     Results.Ok(new PlatformPingResponse(
@@ -25,6 +30,8 @@ app.MapGet("/api/v1/platform/ping", () =>
     .WithName("PlatformPing")
     .WithTags("Platform")
     .Produces<PlatformPingResponse>(StatusCodes.Status200OK);
+
+if (analysisHttpEnabled) app.MapAnalysisEndpoints();
 
 app.Run();
 

@@ -1,408 +1,262 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Microsoft.IdentityModel.Tokens;
 
 namespace AURA.Identity.Api;
 
-public sealed record TokenIssueResult(
-    bool Success,
-    string? AccessToken,
-    int ExpiresIn,
-    string? ErrorCode,
-    string? ErrorMessage
-);
+public sealed record TokenIssueResult(bool Success, string? AccessToken, int ExpiresIn, string? ErrorCode, string? ErrorMessage);
+public sealed record ClientRegistration(string ClientId, Guid PrincipalId, string? ClientSecretHash,
+    Dictionary<string, List<string>> AllowedTargets);
 
-public sealed record ClientRegistration(
-    string ClientId,
-    Guid PrincipalId,
-    string? ClientSecretHash,
-    Dictionary<string, List<string>> AllowedTargets
-);
-
-public class ServiceTokenIssuer
+/// <summary>Loads provisioned credentials only. Never creates keys, secrets or fallback clients.</summary>
+public sealed class ServiceTokenIssuer : IDisposable
 {
     private readonly RSA _rsa;
+    private readonly RSA _verificationRsa;
     private readonly RsaSecurityKey _signingKey;
     private readonly RsaSecurityKey _publicKey;
-    private readonly string _issuer;
+    private readonly Dictionary<string, ClientRegistration> _clients;
     private readonly int _tokenLifetimeSeconds;
-    private readonly string _keyId;
-    private readonly Dictionary<string, ClientRegistration> _clients = new(StringComparer.Ordinal);
-    private readonly ILogger<ServiceTokenIssuer> _logger;
-
-    public string Issuer => _issuer;
-    public string KeyId => _keyId;
+    public string Issuer { get; }
+    public string KeyId { get; }
 
     public ServiceTokenIssuer(IConfiguration configuration, ILogger<ServiceTokenIssuer> logger)
     {
-        _logger = logger;
-        _issuer = configuration["ServiceAuth:Issuer"] ?? "aura-identity-local";
-        _tokenLifetimeSeconds = configuration.GetValue("ServiceAuth:TokenLifetimeSeconds", 300);
-
-        // 1. Load or initialize RSA Key
-        var privateKeyPath = configuration["ServiceAuth:PrivateKeyPath"];
-        var keyFilePath = !string.IsNullOrWhiteSpace(privateKeyPath) && File.Exists(privateKeyPath)
-            ? privateKeyPath
-            : Path.Combine(AppContext.BaseDirectory, "signing-key.pem");
-
-        if (File.Exists(keyFilePath))
+        Issuer = configuration["ServiceAuth:Issuer"] ?? "";
+        if (!ValidName(Issuer, 128)) throw InvalidConfiguration();
+        var lifetime = configuration["ServiceAuth:TokenLifetimeSeconds"];
+        if (!int.TryParse(lifetime, out _tokenLifetimeSeconds) || _tokenLifetimeSeconds is < 1 or > 300)
+            throw InvalidConfiguration();
+        _rsa = RSA.Create();
+        _verificationRsa = RSA.Create();
+        try
         {
-            _rsa = RSA.Create();
-            _rsa.ImportFromPem(File.ReadAllText(keyFilePath));
-            _logger.LogInformation("Loaded persistent service signing key from {KeyPath}", keyFilePath);
+            var pem = ReadConfiguredFile(configuration["ServiceAuth:PrivateKeyPath"], 32 * 1024);
+            var trimmed = pem.Trim();
+            if (!(trimmed.StartsWith("-----BEGIN PRIVATE KEY-----", StringComparison.Ordinal)
+                  || trimmed.StartsWith("-----BEGIN RSA PRIVATE KEY-----", StringComparison.Ordinal)))
+                throw InvalidConfiguration();
+            _rsa.ImportFromPem(trimmed);
+            if (_rsa.KeySize < 2048 || _rsa.ExportParameters(true).D is not { Length: > 0 })
+                throw InvalidConfiguration();
+            var spki = _rsa.ExportSubjectPublicKeyInfo();
+            KeyId = "aura-local-" + Convert.ToHexString(SHA256.HashData(spki)).ToLowerInvariant()[..16];
+            _verificationRsa.ImportSubjectPublicKeyInfo(spki, out _);
+            _signingKey = new RsaSecurityKey(_rsa) { KeyId = KeyId, CryptoProviderFactory = new CryptoProviderFactory { CacheSignatureProviders = false } };
+            _publicKey = new RsaSecurityKey(_verificationRsa) { KeyId = KeyId, CryptoProviderFactory = new CryptoProviderFactory { CacheSignatureProviders = false } };
+            _clients = LoadClients(ReadConfiguredFile(configuration["ServiceAuth:RegistryPath"], 256 * 1024));
+            logger.LogInformation("Loaded provisioned service identity configuration; client count={Count}", _clients.Count);
         }
-        else
+        catch
         {
-            _rsa = RSA.Create(2048);
-            try
-            {
-                File.WriteAllText(keyFilePath, _rsa.ExportPkcs8PrivateKeyPem());
-                _logger.LogInformation("Generated and saved persistent service signing key to {KeyPath}", keyFilePath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Could not save persistent key to {KeyPath}, using in-memory RSA key", keyFilePath);
-            }
+            _rsa.Dispose();
+            _verificationRsa.Dispose();
+            // Configuration failures must not expose PEM, JSON, secret hashes or file contents.
+            throw InvalidConfiguration();
         }
-
-        var pubSpki = _rsa.ExportSubjectPublicKeyInfo();
-        _keyId = "aura-local-" + Convert.ToHexString(SHA256.HashData(pubSpki)).ToLowerInvariant()[..16];
-
-        _signingKey = new RsaSecurityKey(_rsa) { KeyId = _keyId };
-
-        var publicRsa = RSA.Create();
-        publicRsa.ImportSubjectPublicKeyInfo(pubSpki, out _);
-        _publicKey = new RsaSecurityKey(publicRsa) { KeyId = _keyId };
-
-        // 2. Load Client Registry
-        LoadClients(configuration);
     }
 
-    private void LoadClients(IConfiguration configuration)
+    private Dictionary<string, ClientRegistration> LoadClients(string json)
     {
-        var registryPath = configuration["ServiceAuth:RegistryPath"];
-        if (string.IsNullOrWhiteSpace(registryPath) || !File.Exists(registryPath))
+        using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 16 });
+        var root = document.RootElement;
+        RequireUniqueProperties(root);
+        if (root.GetProperty("schemaVersion").GetInt32() != 1
+            || root.GetProperty("issuer").GetString() != Issuer
+            || root.GetProperty("algorithm").GetString() != "RS256"
+            || root.GetProperty("tokenLifetimeSeconds").GetInt32() != _tokenLifetimeSeconds
+            || root.GetProperty("keyId").GetString() != KeyId)
+            throw InvalidConfiguration();
+        var nodes = root.GetProperty("clients");
+        if (nodes.ValueKind != JsonValueKind.Array || nodes.GetArrayLength() is < 1 or > 128)
+            throw InvalidConfiguration();
+        var clients = new Dictionary<string, ClientRegistration>(StringComparer.Ordinal);
+        var principals = new HashSet<Guid>();
+        foreach (var node in nodes.EnumerateArray())
         {
-            // Check repo default paths
-            var candidates = new[]
+            var id = node.GetProperty("clientId").GetString() ?? "";
+            if (!ValidName(id) || !Guid.TryParse(node.GetProperty("principalId").GetString(), out var principal)
+                || principal == Guid.Empty || !principals.Add(principal)) throw InvalidConfiguration();
+            var hash = node.GetProperty("clientSecretHash").GetString() ?? "";
+            if (!TryDecodeHash(hash, out _, out _)) throw InvalidConfiguration();
+            var targetsNode = node.GetProperty("allowedTargets");
+            if (targetsNode.ValueKind != JsonValueKind.Object) throw InvalidConfiguration();
+            var targets = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            foreach (var target in targetsNode.EnumerateObject())
             {
-                Path.Combine(AppContext.BaseDirectory, "service-auth", "identity-clients.json"),
-                Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "infra", "service-auth", "clients.example.json"),
-                Path.Combine(Directory.GetCurrentDirectory(), "infra", "service-auth", "clients.example.json")
-            };
-
-            foreach (var cand in candidates)
-            {
-                if (File.Exists(cand))
+                if (!ValidName(target.Name) || target.Value.ValueKind != JsonValueKind.Array
+                    || target.Value.GetArrayLength() is < 1 or > 32) throw InvalidConfiguration();
+                var scopes = new List<string>();
+                foreach (var value in target.Value.EnumerateArray())
                 {
-                    registryPath = Path.GetFullPath(cand);
-                    break;
+                    var scope = value.GetString() ?? "";
+                    var parts = scope.Split(':');
+                    if (parts.Length != 2 || !ValidName(parts[0]) || !ValidName(parts[1])
+                        || scopes.Contains(scope, StringComparer.Ordinal)) throw InvalidConfiguration();
+                    scopes.Add(scope);
                 }
+                targets.Add(target.Name, scopes);
             }
+            if (targets.Count is < 1 or > 16 || !clients.TryAdd(id, new(id, principal, hash, targets)))
+                throw InvalidConfiguration();
         }
-
-        if (!string.IsNullOrWhiteSpace(registryPath) && File.Exists(registryPath))
-        {
-            try
-            {
-                var jsonText = File.ReadAllText(registryPath);
-                var root = JsonNode.Parse(jsonText)?.AsObject();
-                var clientNodes = root?["clients"]?.AsArray();
-
-                if (clientNodes != null)
-                {
-                    foreach (var c in clientNodes)
-                    {
-                        var cObj = c?.AsObject();
-                        if (cObj == null) continue;
-
-                        var clientId = cObj["clientId"]?.GetValue<string>();
-                        var principalIdStr = cObj["principalId"]?.GetValue<string>();
-                        var secretHash = cObj["clientSecretHash"]?.GetValue<string>();
-
-                        if (string.IsNullOrWhiteSpace(clientId) || !Guid.TryParse(principalIdStr, out var principalId))
-                        {
-                            continue;
-                        }
-
-                        var allowedTargets = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-                        var targetsNode = cObj["allowedTargets"]?.AsObject();
-                        if (targetsNode != null)
-                        {
-                            foreach (var prop in targetsNode)
-                            {
-                                var scopes = prop.Value?.AsArray()
-                                    .Select(x => x?.GetValue<string>())
-                                    .Where(x => !string.IsNullOrWhiteSpace(x))
-                                    .Select(x => x!)
-                                    .ToList() ?? new List<string>();
-
-                                allowedTargets[prop.Key] = scopes;
-                            }
-                        }
-
-                        // Seed default dev secret hashes if secretHash is empty
-                        if (string.IsNullOrWhiteSpace(secretHash))
-                        {
-                            secretHash = HashSecret(clientId switch
-                            {
-                                "analysis-api" => "secret_analysis_pass",
-                                "identity-api" => "secret_identity_pass",
-                                "billing-api" => "secret_billing_pass",
-                                _ => "secret_" + clientId + "_pass"
-                            });
-                        }
-
-                        _clients[clientId] = new ClientRegistration(clientId, principalId, secretHash, allowedTargets);
-                    }
-                    _logger.LogInformation("Loaded {Count} service clients from registry {Path}", _clients.Count, registryPath);
-                    return;
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to parse registry from {Path}, using standard seed clients", registryPath);
-            }
-        }
-
-        // Standard seed clients according to clients.example.json
-        SeedDefaultClients();
+        return clients;
     }
 
-    private void SeedDefaultClients()
+    private static void RequireUniqueProperties(JsonElement element)
     {
-        _clients["analysis-api"] = new ClientRegistration(
-            "analysis-api",
-            Guid.Parse("a1000000-0000-4000-8000-000000000001"),
-            HashSecret("secret_analysis_pass"),
-            new Dictionary<string, List<string>>(StringComparer.Ordinal)
+        if (element.ValueKind == JsonValueKind.Object)
+        {
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var property in element.EnumerateObject())
             {
-                ["aura-identity"] = new() { "identity:context" },
-                ["aura-profile"] = new() { "profile:resolve" },
-                ["aura-billing"] = new() { "billing:reserve", "billing:read", "billing:release" }
+                if (!names.Add(property.Name)) throw InvalidConfiguration();
+                RequireUniqueProperties(property.Value);
             }
-        );
-
-        _clients["identity-api"] = new ClientRegistration(
-            "identity-api",
-            Guid.Parse("a1000000-0000-4000-8000-000000000002"),
-            HashSecret("secret_identity_pass"),
-            new Dictionary<string, List<string>>(StringComparer.Ordinal)
-            {
-                ["aura-profile"] = new() { "profile:provision" }
-            }
-        );
-
-        _clients["billing-api"] = new ClientRegistration(
-            "billing-api",
-            Guid.Parse("a1000000-0000-4000-8000-000000000003"),
-            HashSecret("secret_billing_pass"),
-            new Dictionary<string, List<string>>(StringComparer.Ordinal)
-            {
-                ["aura-profile"] = new() { "profile:resolve" }
-            }
-        );
-
-        _logger.LogInformation("Initialized 3 default service clients (analysis-api, identity-api, billing-api)");
+        }
+        else if (element.ValueKind == JsonValueKind.Array)
+            foreach (var item in element.EnumerateArray()) RequireUniqueProperties(item);
     }
+
+    private static string ReadConfiguredFile(string? path, int maxBytes)
+    {
+        if (string.IsNullOrWhiteSpace(path)) throw InvalidConfiguration();
+        using var stream = File.OpenRead(path);
+        if (stream.Length is < 1 || stream.Length > maxBytes) throw InvalidConfiguration();
+        using var reader = new StreamReader(stream);
+        var text = reader.ReadToEnd();
+        if (text.Length > maxBytes) throw InvalidConfiguration();
+        return text;
+    }
+
+    private static bool ValidName(string? value, int max = 64) => value is { Length: > 0 }
+        && value.Length <= max && value[0] is >= 'a' and <= 'z'
+        && value.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '-');
+    private static InvalidOperationException InvalidConfiguration() => new(
+        "Service authentication configuration is missing or invalid. Provision credentials externally and configure explicit paths.");
 
     public TokenIssueResult IssueToken(string clientId, string clientSecret, string? targetAudience, string? requestedScope)
     {
-        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(clientSecret))
-        {
-            return new TokenIssueResult(false, null, 0, "ERR_VALIDATION", "Thiếu clientId hoặc clientSecret.");
-        }
-
-        if (!_clients.TryGetValue(clientId, out var client))
-        {
-            return new TokenIssueResult(false, null, 0, "ERR_UNAUTHORIZED", $"Client '{clientId}' không tồn tại trong hệ thống.");
-        }
-
-        // Verify Secret Hash
-        if (string.IsNullOrWhiteSpace(client.ClientSecretHash) || !VerifySecret(clientSecret, client.ClientSecretHash))
-        {
-            return new TokenIssueResult(false, null, 0, "ERR_UNAUTHORIZED", "Mã bí mật client (clientSecret) không chính xác.");
-        }
-
-        // Validate Audience
+        if (!ValidName(clientId) || string.IsNullOrWhiteSpace(clientSecret) || clientSecret.Length > 1024)
+            return Reject("ERR_VALIDATION", "Thiếu hoặc sai thông tin client.");
+        if (!_clients.TryGetValue(clientId, out var client) || !VerifySecret(clientSecret, client.ClientSecretHash!))
+            return Reject("ERR_UNAUTHORIZED", "Thông tin xác thực client không hợp lệ.");
         var audience = targetAudience?.Trim();
         if (string.IsNullOrWhiteSpace(audience))
         {
-            // If only one target allowed, pick it; otherwise fail
-            if (client.AllowedTargets.Count == 1)
-            {
-                audience = client.AllowedTargets.Keys.First();
-            }
-            else
-            {
-                return new TokenIssueResult(false, null, 0, "ERR_VALIDATION", "Thiếu target audience.");
-            }
+            if (client.AllowedTargets.Count != 1) return Reject("ERR_VALIDATION", "Thiếu target audience.");
+            audience = client.AllowedTargets.Keys.Single();
         }
-
-        if (!client.AllowedTargets.TryGetValue(audience, out var allowedScopes))
-        {
-            return new TokenIssueResult(false, null, 0, "ERR_FORBIDDEN", $"Client '{clientId}' không được phép yêu cầu token cho audience '{audience}'.");
-        }
-
-        // Validate Scopes
-        List<string> effectiveScopes;
-        if (!string.IsNullOrWhiteSpace(requestedScope))
-        {
-            var requestedList = requestedScope.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            foreach (var req in requestedList)
-            {
-                if (!allowedScopes.Contains(req, StringComparer.Ordinal))
-                {
-                    return new TokenIssueResult(false, null, 0, "ERR_FORBIDDEN", $"Scope '{req}' không được phép cấp cho audience '{audience}'.");
-                }
-            }
-            effectiveScopes = requestedList.ToList();
-        }
+        if (!client.AllowedTargets.TryGetValue(audience, out var allowed))
+            return Reject("ERR_FORBIDDEN", "Audience không được cấp phép.");
+        List<string> scopes;
+        if (string.IsNullOrWhiteSpace(requestedScope)) scopes = allowed;
         else
         {
-            effectiveScopes = allowedScopes;
+            if (requestedScope.Length > 2048) return Reject("ERR_VALIDATION", "Scope không hợp lệ.");
+            scopes = requestedScope.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Distinct(StringComparer.Ordinal).ToList();
+            if (scopes.Count == 0) return Reject("ERR_VALIDATION", "Scope không hợp lệ.");
+            if (scopes.Any(s => !allowed.Contains(s, StringComparer.Ordinal)))
+                return Reject("ERR_FORBIDDEN", "Scope không được cấp phép.");
         }
-
-        // Issue JWT
-        var credentials = new SigningCredentials(_signingKey, SecurityAlgorithms.RsaSha256);
         var now = DateTimeOffset.UtcNow;
-
-        var claims = new List<Claim>
+        var descriptor = new SecurityTokenDescriptor
         {
-            new(JwtRegisteredClaimNames.Sub, client.PrincipalId.ToString("D")),
-            new("client_id", clientId),
-            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("D")),
-            new(JwtRegisteredClaimNames.Iat, now.ToUnixTimeSeconds().ToString(), ClaimValueTypes.Integer64),
-            new("scope", string.Join(" ", effectiveScopes))
-        };
-
-        var tokenDescriptor = new SecurityTokenDescriptor
-        {
-            Subject = new ClaimsIdentity(claims),
-            IssuedAt = now.UtcDateTime,
+            Subject = new ClaimsIdentity(new[]
+            {
+                new Claim(JwtRegisteredClaimNames.Sub, client.PrincipalId.ToString("D")),
+                new Claim("client_id", clientId),
+                new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("D")),
+                new Claim("scope", string.Join(" ", scopes))
+            }),
+            IssuedAt = now.UtcDateTime, NotBefore = now.UtcDateTime,
             Expires = now.AddSeconds(_tokenLifetimeSeconds).UtcDateTime,
-            Issuer = _issuer,
-            Audience = audience,
-            SigningCredentials = credentials
+            Issuer = Issuer, Audience = audience,
+            SigningCredentials = new SigningCredentials(_signingKey, SecurityAlgorithms.RsaSha256)
         };
-
         var handler = new JwtSecurityTokenHandler();
-        var token = handler.CreateToken(tokenDescriptor);
-        var jwtString = handler.WriteToken(token);
-
-        return new TokenIssueResult(true, jwtString, _tokenLifetimeSeconds, null, null);
+        return new(true, handler.WriteToken(handler.CreateToken(descriptor)), _tokenLifetimeSeconds, null, null);
     }
+
+    private static TokenIssueResult Reject(string code, string message) => new(false, null, 0, code, message);
 
     public (bool Valid, ClaimsPrincipal? Principal, string? ErrorCode, string? ErrorMessage) ValidateServiceToken(
         string token, string expectedAudience, string expectedScope)
     {
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            return (false, null, "ERR_UNAUTHORIZED", "Thiếu service token.");
-        }
-
-        var handler = new JwtSecurityTokenHandler();
-        if (!handler.CanReadToken(token))
-        {
-            return (false, null, "ERR_UNAUTHORIZED", "Token không đúng định dạng JWT.");
-        }
-
-        var validationParameters = new TokenValidationParameters
-        {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = _publicKey,
-            ValidateIssuer = true,
-            ValidIssuer = _issuer,
-            ValidateAudience = true,
-            ValidAudience = expectedAudience,
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.FromSeconds(30),
-            ValidAlgorithms = new[] { SecurityAlgorithms.RsaSha256 }
-        };
-
+        if (string.IsNullOrWhiteSpace(token) || token.Length > 16 * 1024
+            || !ValidName(expectedAudience) || string.IsNullOrWhiteSpace(expectedScope))
+            return (false, null, "ERR_UNAUTHORIZED", "Service token không hợp lệ.");
         try
         {
-            var principal = handler.ValidateToken(token, validationParameters, out var validatedToken);
-            if (validatedToken is not JwtSecurityToken jwt || jwt.Header.Alg != SecurityAlgorithms.RsaSha256)
+            var handler = new JwtSecurityTokenHandler { MaximumTokenSizeInBytes = 16 * 1024, MapInboundClaims = false };
+            var principal = handler.ValidateToken(token, new TokenValidationParameters
             {
-                return (false, null, "ERR_UNAUTHORIZED", "Thuật toán token không hợp lệ (yêu cầu RS256).");
-            }
-
-            var scopeClaim = principal.FindFirst("scope")?.Value
-                             ?? principal.FindFirst("http://schemas.microsoft.com/identity/claims/scope")?.Value;
-
-            if (string.IsNullOrWhiteSpace(scopeClaim))
-            {
-                return (false, null, "ERR_FORBIDDEN", "Token không chứa quyền (scope).");
-            }
-
-            var scopes = scopeClaim.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (!scopes.Contains(expectedScope, StringComparer.Ordinal))
-            {
-                return (false, null, "ERR_FORBIDDEN", $"Token thiếu scope bắt buộc: '{expectedScope}'.");
-            }
-
+                ValidateIssuerSigningKey = true, IssuerSigningKey = _publicKey,
+                RequireSignedTokens = true, RequireExpirationTime = true,
+                ValidateIssuer = true, ValidIssuer = Issuer,
+                ValidateAudience = true, ValidAudience = expectedAudience,
+                ValidateLifetime = true, ClockSkew = TimeSpan.FromSeconds(30),
+                ValidAlgorithms = new[] { SecurityAlgorithms.RsaSha256 }
+            }, out var validated);
+            if (validated is not JwtSecurityToken jwt || jwt.Header.Alg != SecurityAlgorithms.RsaSha256
+                || jwt.Header.Kid != KeyId || jwt.Audiences.Count() != 1
+                || jwt.Claims.Count(c => c.Type == "client_id") != 1
+                || jwt.Claims.Count(c => c.Type == "sub") != 1
+                || !Guid.TryParse(jwt.Subject, out var subject)
+                || !_clients.TryGetValue(principal.FindFirst("client_id")?.Value ?? "", out var client)
+                || client.PrincipalId != subject)
+                return (false, null, "ERR_UNAUTHORIZED", "Service token không hợp lệ.");
+            var scopes = principal.FindAll("scope").ToArray();
+            if (scopes.Length != 1 || !client.AllowedTargets.TryGetValue(expectedAudience, out var allowed))
+                return (false, null, "ERR_FORBIDDEN", "Service token thiếu quyền phù hợp.");
+            var values = scopes[0].Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (!values.Contains(expectedScope, StringComparer.Ordinal) || values.Any(s => !allowed.Contains(s, StringComparer.Ordinal)))
+                return (false, null, "ERR_FORBIDDEN", "Service token thiếu quyền phù hợp.");
             return (true, principal, null, null);
         }
-        catch (SecurityTokenExpiredException)
+        catch (SecurityTokenInvalidAudienceException) { return (false, null, "ERR_FORBIDDEN", "Audience không hợp lệ."); }
+        catch (Exception ex) when (ex is SecurityTokenException or ArgumentException)
         {
-            return (false, null, "ERR_UNAUTHORIZED", "Service token đã hết hạn.");
-        }
-        catch (SecurityTokenInvalidAudienceException)
-        {
-            return (false, null, "ERR_FORBIDDEN", $"Audience của token không khớp yêu cầu '{expectedAudience}'.");
-        }
-        catch (SecurityTokenInvalidIssuerException)
-        {
-            return (false, null, "ERR_UNAUTHORIZED", $"Issuer của token không hợp lệ.");
-        }
-        catch (Exception ex)
-        {
-            return (false, null, "ERR_UNAUTHORIZED", $"Token không hợp lệ: {ex.Message}");
+            return (false, null, "ERR_UNAUTHORIZED", "Service token không hợp lệ.");
         }
     }
 
-    public string GetPublicKeyPem() => _rsa.ExportSubjectPublicKeyInfoPem();
-
+    public string GetPublicKeyPem() => _verificationRsa.ExportSubjectPublicKeyInfoPem();
     public RsaSecurityKey GetPublicKey() => _publicKey;
 
     public static string HashSecret(string secret)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(secret);
         var salt = RandomNumberGenerator.GetBytes(16);
-        var hash = Rfc2898DeriveBytes.Pbkdf2(
-            secret,
-            salt,
-            600_000,
-            HashAlgorithmName.SHA256,
-            32);
+        var hash = Rfc2898DeriveBytes.Pbkdf2(secret, salt, 600_000, HashAlgorithmName.SHA256, 32);
+        return "pbkdf2-sha256$600000$" + Convert.ToBase64String(salt) + "$" + Convert.ToBase64String(hash);
+    }
 
-        return "pbkdf2-sha256$600000$" +
-            Convert.ToBase64String(salt) + "$" +
-            Convert.ToBase64String(hash);
+    private static bool TryDecodeHash(string? stored, out byte[] salt, out byte[] hash)
+    {
+        salt = Array.Empty<byte>(); hash = Array.Empty<byte>();
+        if (stored is null || stored.Length > 128) return false;
+        var parts = stored.Split('$');
+        if (parts.Length != 4 || parts[0] != "pbkdf2-sha256" || parts[1] != "600000") return false;
+        try
+        {
+            salt = Convert.FromBase64String(parts[2]); hash = Convert.FromBase64String(parts[3]);
+            return salt.Length == 16 && hash.Length == 32
+                && Convert.ToBase64String(salt) == parts[2] && Convert.ToBase64String(hash) == parts[3];
+        }
+        catch (FormatException) { return false; }
     }
 
     public static bool VerifySecret(string secret, string storedHash)
     {
-        var parts = storedHash.Split('$');
-        if (parts.Length != 4 || parts[0] != "pbkdf2-sha256" || parts[1] != "600000")
-        {
+        if (string.IsNullOrEmpty(secret) || secret.Length > 1024 || !TryDecodeHash(storedHash, out var salt, out var expected))
             return false;
-        }
-
-        var salt = Convert.FromBase64String(parts[2]);
-        var expected = Convert.FromBase64String(parts[3]);
-
-        var actual = Rfc2898DeriveBytes.Pbkdf2(
-            secret,
-            salt,
-            600_000,
-            HashAlgorithmName.SHA256,
-            32);
-
+        var actual = Rfc2898DeriveBytes.Pbkdf2(secret, salt, 600_000, HashAlgorithmName.SHA256, 32);
         return CryptographicOperations.FixedTimeEquals(expected, actual);
     }
+
+    public void Dispose() { _rsa.Dispose(); _verificationRsa.Dispose(); }
 }

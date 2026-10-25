@@ -1,0 +1,105 @@
+using AURA.Analysis.Api.Upload;
+using Xunit;
+
+namespace AURA.Analysis.Api.Tests;
+
+public sealed class AzureBlobPrivateFileStorageTests
+{
+    private const string Key = "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==";
+    private static BlobStorageOptions Options(string endpoint = "http://127.0.0.1:10000/devstoreaccount1",
+        string browser = "http://127.0.0.1:10000/devstoreaccount1") => new()
+    {
+        Provider = "AzureBlob",
+        ConnectionString = $"DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey={Key};BlobEndpoint={endpoint};",
+        PublicBlobEndpoint = browser
+    };
+    private static string ObjectKey => $"{Guid.NewGuid():D}/{Guid.NewGuid():D}/{Guid.NewGuid():D}";
+
+    [Theory]
+    [InlineData("http://127.0.0.1:10000/devstoreaccount1")]
+    [InlineData("http://azurite:10000/devstoreaccount1")]
+    public void Explicit_local_config_is_accepted_in_development(string endpoint)
+    {
+        Assert.NotNull(new AzureBlobPrivateFileStorage(Options(endpoint), true));
+    }
+
+    [Fact]
+    public void Emulator_cannot_be_enabled_in_production()
+    {
+        Assert.Throws<InvalidOperationException>(() => new AzureBlobPrivateFileStorage(Options(), false));
+    }
+
+    [Theory]
+    [InlineData("http://remote.example:10000/devstoreaccount1")]
+    [InlineData("http://localhost:10000/devstoreaccount1")]
+    [InlineData("http://127.0.0.1:10001/devstoreaccount1")]
+    [InlineData("http://127.0.0.1:10000/anotheraccount")]
+    [InlineData("http://127.0.0.1:10000/devstoreaccount1?sig=do-not-log")]
+    [InlineData("http://user:password@127.0.0.1:10000/devstoreaccount1")]
+    [InlineData("http://127.0.0.1:10000/devstoreaccount1#fragment")]
+    public void Unsafe_endpoints_fail_without_leaking_the_input(string endpoint)
+    {
+        var error = Assert.Throws<InvalidOperationException>(() => new AzureBlobPrivateFileStorage(Options(endpoint), true));
+        Assert.Equal("Invalid private Blob storage configuration.", error.Message);
+        Assert.Null(error.InnerException);
+    }
+
+    [Fact]
+    public void Browser_endpoint_cannot_point_at_docker_dns()
+    {
+        Assert.Throws<InvalidOperationException>(() => new AzureBlobPrivateFileStorage(
+            Options(browser: "http://azurite:10000/devstoreaccount1"), true));
+    }
+
+    [Fact]
+    public void Credentials_are_required_and_have_no_fallback()
+    {
+        Assert.Throws<InvalidOperationException>(() => new AzureBlobPrivateFileStorage(new BlobStorageOptions(), true));
+        var options = Options(); options.ConnectionString = options.ConnectionString.Replace(Key, "bad-key");
+        Assert.Throws<InvalidOperationException>(() => new AzureBlobPrivateFileStorage(options, true));
+        options = Options(); options.AnnotationContainer = options.OriginalContainer;
+        Assert.Throws<InvalidOperationException>(() => new AzureBlobPrivateFileStorage(options, true));
+    }
+
+    [Theory]
+    [InlineData("../escape")]
+    [InlineData("/absolute")]
+    [InlineData("patient-name/photo.png")]
+    [InlineData("00000000-0000-0000-0000-000000000000/00000000-0000-0000-0000-000000000000/00000000-0000-0000-0000-000000000000")]
+    public async Task Unsafe_object_names_are_rejected_before_any_request(string key)
+    {
+        var storage = new AzureBlobPrivateFileStorage(Options(), true);
+        await Assert.ThrowsAsync<ArgumentException>(() => storage.OpenReadAsync("aura-originals", key, default));
+    }
+
+    [Fact]
+    public async Task Unconfigured_container_is_rejected_before_any_request()
+    {
+        var storage = new AzureBlobPrivateFileStorage(Options(), true);
+        await Assert.ThrowsAsync<ArgumentException>(() => storage.DeleteAsync("other-container", ObjectKey, default));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(121)]
+    public async Task Out_of_range_TTL_is_rejected_before_any_request(int seconds)
+    {
+        var storage = new AzureBlobPrivateFileStorage(Options(), true);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            storage.CreateReadAccessAsync("aura-originals", ObjectKey, TimeSpan.FromSeconds(seconds), default));
+    }
+
+    [Fact]
+    public async Task Cancelled_caller_stops_all_operations_before_IO()
+    {
+        var storage = new AzureBlobPrivateFileStorage(Options(), true);
+        using var cancelled = new CancellationTokenSource(); cancelled.Cancel();
+        using var input = new MemoryStream([1, 2, 3]);
+        var key = ObjectKey;
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => storage.PutAsync("aura-originals", key, input, "image/png", cancelled.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => storage.OpenReadAsync("aura-originals", key, cancelled.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => storage.DeleteAsync("aura-originals", key, cancelled.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => storage.CreateReadAccessAsync("aura-originals", key, TimeSpan.FromSeconds(120), cancelled.Token));
+    }
+}

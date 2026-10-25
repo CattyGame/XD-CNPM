@@ -1,59 +1,53 @@
+using System.Net;
 using System.Net.Http.Json;
-using System.Text.Json.Serialization;
+using System.Text.Json;
 
 namespace AURA.Analysis.Api.Upload;
 
-/// <summary>
-/// Adapter HTTP cho IPatientAccessResolver, gọi Profile (M6): POST /internal/v1/profile/access/resolve.
-/// HttpClient phải có BaseAddress của Profile và header service token (cấu hình ở DI, không nằm trong lớp này).
-/// RequesterId = accountId (Identity), không phải Firebase uid.
-/// </summary>
-public sealed class ProfileAccessClient : IPatientAccessResolver
+/// <summary>Resolves access using Analysis's own service identity; RequesterId is an authoritative account ID.</summary>
+public sealed class ProfileAccessClient(HttpClient http, IServiceTokenProvider tokens) : IPatientAccessResolver
 {
-    private readonly HttpClient _http;
-    public ProfileAccessClient(HttpClient http) => _http = http;
-
     public async Task<AccessDecision> ResolveAsync(PatientAccessRequest request, CancellationToken ct)
     {
-        var body = new ResolveBody(request.RequesterId, request.PatientId, request.ClinicId, request.Action);
-        HttpResponseMessage response;
+        ct.ThrowIfCancellationRequested();
+        if (request.RequesterId == Guid.Empty || request.PatientId == Guid.Empty
+            || request.ClinicId == Guid.Empty || request.Action is not ("ANALYSIS_CREATE" or "ANALYSIS_READ" or "FILE_READ"))
+            throw UploadFailure.Dependency("Profile");
         try
         {
-            response = await _http.PostAsJsonAsync("/internal/v1/profile/access/resolve", body, ct);
-        }
-        catch (HttpRequestException) { throw UploadFailure.Dependency("Profile"); }
-        catch (TaskCanceledException) when (!ct.IsCancellationRequested) { throw UploadFailure.Dependency("Profile"); }
-
-        using (response)
-        {
-            if (!response.IsSuccessStatusCode) throw UploadFailure.Dependency("Profile");
+            using var message = new HttpRequestMessage(HttpMethod.Post, "/internal/v1/profile/access/resolve")
+            {
+                Content = JsonContent.Create(new
+                {
+                    actorAccountId = request.RequesterId, request.PatientId,
+                    clinicContextId = request.ClinicId,
+                    action = request.Action == "FILE_READ" ? "ANALYSIS_FILE_READ" : request.Action
+                })
+            };
+            ServiceHttp.SetBearer(message, await tokens.GetAsync("aura-profile", "profile:resolve", ct, request.CorrelationId));
+            ServiceHttp.AddCorrelation(message, request.CorrelationId);
+            using var response = await http.SendAsync(message, ct);
+            if (response.StatusCode != HttpStatusCode.OK) throw UploadFailure.Dependency("Profile");
             var dto = await response.Content.ReadFromJsonAsync<ResolveReply>(cancellationToken: ct);
-            if (dto is null) throw UploadFailure.Dependency("Profile");
-
-            // Bị từ chối hoặc thiếu dữ liệu tenant: coi như không có quyền (404 giống nhau ở UploadService).
-            if (!dto.Allowed || dto.TenantId is null || dto.OwnerPrincipalId is null || dto.BillingOwner is null)
-                return new AccessDecision(false, Guid.Empty, "", Guid.Empty, "", dto.PermissionVersion);
-
-            return new AccessDecision(true, dto.TenantId.Value, dto.TenantKind ?? "",
-                dto.OwnerPrincipalId.Value, $"{dto.BillingOwner.Type}:{dto.BillingOwner.Id}", dto.PermissionVersion);
+            if (dto?.Allowed is null) throw UploadFailure.Dependency("Profile");
+            if (dto.Allowed == false) return new(false, Guid.Empty, "", Guid.Empty, "", dto.PermissionVersion);
+            if (dto.TenantId is null || dto.TenantId == Guid.Empty || dto.OwnerPrincipalId is null
+                || dto.OwnerPrincipalId == Guid.Empty || dto.PermissionVersion < 1 || dto.BillingOwner is null
+                || dto.BillingOwner.Id == Guid.Empty || dto.BillingOwner.Id != dto.OwnerPrincipalId
+                || !((dto.TenantKind == "PERSONAL" && dto.BillingOwner.Type == "ACCOUNT")
+                     || (dto.TenantKind == "CLINIC" && dto.BillingOwner.Type == "CLINIC")))
+                throw UploadFailure.Dependency("Profile");
+            return new(true, dto.TenantId.Value, dto.TenantKind!, dto.OwnerPrincipalId.Value,
+                $"{dto.BillingOwner.Type}:{dto.BillingOwner.Id:D}", dto.PermissionVersion);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException or OperationCanceledException)
+        {
+            throw UploadFailure.Dependency("Profile");
         }
     }
 
-    private sealed record ResolveBody(
-        [property: JsonPropertyName("actorAccountId")] Guid ActorAccountId,
-        [property: JsonPropertyName("patientId")] Guid PatientId,
-        [property: JsonPropertyName("clinicContextId")] Guid? ClinicContextId,
-        [property: JsonPropertyName("action")] string Action);
-
-    private sealed record Owner(
-        [property: JsonPropertyName("type")] string Type,
-        [property: JsonPropertyName("id")] Guid Id);
-
-    private sealed record ResolveReply(
-        [property: JsonPropertyName("allowed")] bool Allowed,
-        [property: JsonPropertyName("tenantId")] Guid? TenantId,
-        [property: JsonPropertyName("tenantKind")] string? TenantKind,
-        [property: JsonPropertyName("ownerPrincipalId")] Guid? OwnerPrincipalId,
-        [property: JsonPropertyName("billingOwner")] Owner? BillingOwner,
-        [property: JsonPropertyName("permissionVersion")] long PermissionVersion);
+    private sealed record Owner(string? Type, Guid Id);
+    private sealed record ResolveReply(bool? Allowed, Guid? TenantId, string? TenantKind,
+        Guid? OwnerPrincipalId, Owner? BillingOwner, long PermissionVersion);
 }

@@ -834,34 +834,34 @@ backend, usability/accessibility hoặc nghiệm thu NFR.
 <!-- SCRUM-307-TEST-PLAN-ADDENDUM-v0.1 -->
 ## Bổ sung SCRUM-307 — Contract Billing–Analysis và Notification/Chat v0.1
 
-**Trạng thái chung:** PLANNED / NOT RUN cho các test mới dưới đây. Phần bổ sung này không thay thế kết quả lịch sử trong Test Plan; tài liệu thiết kế/contract không phải bằng chứng thực thi.
+**Trạng thái cập nhật 2026-10-24:** Billing được đối chiếu actual result6A–6F dưới đây; PARTIAL không tính là PASS toàn test case. Notification/Chat vẫn PLANNED / NOT RUN. Không thay kết quả lịch sử hoặc FR/NFR từ bằng chứng khác scope. Xem [M3 integration status](../integration/M3_Sprint2_billing_integration_status.md).
 
 ### A. Nguyên tắc ghi nhận kết quả
 
 - Giữ nguyên trạng thái của các TC-FR-09, TC-FR-10, TC-FR-20, TC-FR-29 và TC-FR-39 hiện có cho đến khi có lần chạy mới với bằng chứng phù hợp.
 - Phân biệt `PLANNED`, `NOT RUN`, `BLOCKED`, `FAILED` và `PASSED`; không đánh dấu PASS chỉ vì build/CI hoặc test frontend/mock thành công.
 - Với mỗi lần chạy cần lưu: commit SHA; môi trường (local integration/staging); lệnh/test suite; dữ liệu kiểm thử đã ẩn thông tin nhạy cảm; kết quả; log/correlation ID; đường dẫn bằng chứng. Không ghi token, secret, ảnh võng mạc hoặc PHI vào bằng chứng công khai.
-- PR #54 chưa được coi là merge baseline. Trước kiểm thử contract, xác nhận đúng revision `contracts/billing-openapi.yaml` và quyền/scopes của service token sau review.
+- `contracts/billing-openapi.yaml` v0.1.0 có tại baseline87af21d cùng local fixes6C/6D; PR #54 là provenance, không suy diễn trạng thái PR từ tài liệu cũ. Quyền/scopes phải theo registry runtime; analysis-api không được cấp capture.
 
 ### B. Billing–Analysis contract tests
 
 | Test ID | Liên quan | Kịch bản / tiêu chí | Trạng thái bổ sung |
 |---|---|---|---|
-| S307-BILL-01 | FR-11/12; SCRUM-306 | Reserve mới tạo một reservation ở trạng thái RESERVED và trả 201 theo contract được duyệt | PLANNED / NOT RUN |
-| S307-BILL-02 | FR-11/12 | Replay cùng idempotency key và payload trả kết quả gốc (candidate 200), không tạo hiệu ứng ledger thứ hai | PLANNED / NOT RUN |
-| S307-BILL-03 | FR-11/12; NFR idempotency | Cùng key nhưng payload khác bị từ chối theo contract; không tạo reservation thứ hai; xác nhận exact error code với owner | PLANNED / NOT RUN |
-| S307-BILL-04 | FR-11/12 | Không đủ credit trả 402; analysis chưa được accepted và không có thay đổi số dư/ledger ngoài hành vi đã quy định | PLANNED / NOT RUN |
-| S307-BILL-05 | Authorization/tenant | Sai service identity/scope, tenant hoặc billing owner bị từ chối; không thể chọn ví tùy ý hay đọc tenant khác | PLANNED / NOT RUN |
-| S307-BILL-06 | Concurrency | Hai request reserve đồng thời cho cùng business identity tạo tối đa một reservation logic | PLANNED / NOT RUN |
-| S307-BILL-07 | Event 0.6 | `analysis.completed` hợp lệ capture đúng reservation/generation một lần; event lặp không capture lần hai | PLANNED / NOT RUN |
-| S307-BILL-08 | Event 0.6 | `analysis.failed` với `retryable=true` giữ reservation; không release sớm | PLANNED / NOT RUN |
-| S307-BILL-09 | FR-11/12 | Failure terminal hoặc LOW_QUALITY được Analysis xác nhận và không có result hợp lệ thì release đúng một lần | PLANNED / NOT RUN |
-| S307-BILL-10 | Reservation lifecycle | Capture sau release hoặc release sau capture không đổi terminal state; kiểm tra 409 `ERR_RESERVATION_STATE_CONFLICT` theo policy đã duyệt | PLANNED / NOT RUN |
-| S307-BILL-11 | Reconciliation | Đến ngưỡng 15 phút nhưng Analysis còn QUEUED/PROCESSING hoặc dependency không khả dụng thì giữ pending, không release chỉ theo timer | PLANNED / NOT RUN |
-| S307-BILL-12 | Reconciliation | Chỉ release sau khi truy vấn Analysis xác nhận abort/terminal failure; lưu correlation/audit evidence | PLANNED / NOT RUN |
-| S307-BILL-13 | TEST/LIVE | Mock/test không thể capture hoặc làm thay đổi LIVE ledger | PLANNED / NOT RUN |
-| S307-BILL-14 | Service boundary | Với service registry hiện tại, xác nhận `analysis-api` không gọi HTTP capture trái quyền; kiểm thử đường Billing-owned consumer sau khi được duyệt | PLANNED / NOT RUN |
-| S307-BILL-15 | Contract governance | Không thêm `reservationId`/`generation` vào event schema 0.6; sự mơ hồ khi correlate phải được giữ pending và báo contract gap | PLANNED / NOT RUN |
+| S307-BILL-01 | FR-11/12; SCRUM-306 | Reserve mới tạo một reservation ở trạng thái RESERVED và trả 201 theo contract được duyệt | PARTIAL — reserve creation verified before6E and repository6D; new-image HTTP201 NOT RUN |
+| S307-BILL-02 | FR-11/12 | Replay cùng idempotency key và payload trả kết quả gốc (candidate 200), không tạo hiệu ứng ledger thứ hai | PASS — new-image HTTP replay6F, original ID/time and no data changes |
+| S307-BILL-03 | FR-11/12; NFR idempotency | Cùng key nhưng payload khác bị từ chối theo contract; không tạo reservation thứ hai; xác nhận exact error code với owner | PASS — new-image HTTP409 ERR_IDEMPOTENCY_CONFLICT6F |
+| S307-BILL-04 | FR-11/12 | Không đủ credit trả 402; analysis chưa được accepted và không có thay đổi số dư/ledger ngoài hành vi đã quy định | PARTIAL — Analysis HTTP402/abort5M and repository6D; direct new-image Billing402 NOT RUN |
+| S307-BILL-05 | Authorization/tenant | Sai service identity/scope, tenant hoặc billing owner bị từ chối; không thể chọn ví tùy ý hay đọc tenant khác | PARTIAL — scope/missing-bearer/missing-patient HTTP6F PASS; full actor/tenant/Clinic matrix NOT RUN |
+| S307-BILL-06 | Concurrency | Hai request reserve đồng thời cho cùng business identity tạo tối đa một reservation logic | PARTIAL — controlled same-key and distinct-key repository concurrency6D PASS; new-image HTTP concurrency NOT RUN |
+| S307-BILL-07 | Event 0.6 | `analysis.completed` hợp lệ capture đúng reservation/generation một lần; event lặp không capture lần hai | NOT RUN — event consumer/completion correlation not implemented by these checks |
+| S307-BILL-08 | Event 0.6 | `analysis.failed` với `retryable=true` giữ reservation; không release sớm | NOT RUN — retryable Analysis failure consumer path |
+| S307-BILL-09 | FR-11/12 | Failure terminal hoặc LOW_QUALITY được Analysis xác nhận và không có result hợp lệ thì release đúng một lần | PARTIAL — repository release/replay6D PASS; authoritative terminal/LOW_QUALITY event path NOT RUN |
+| S307-BILL-10 | Reservation lifecycle | Capture sau release hoặc release sau capture không đổi terminal state; kiểm tra 409 `ERR_RESERVATION_STATE_CONFLICT` theo policy đã duyệt | PARTIAL — repository terminal conflict/race6D PASS; HTTP terminal-state409 NOT RUN |
+| S307-BILL-11 | Reconciliation | Đến ngưỡng 15 phút nhưng Analysis còn QUEUED/PROCESSING hoặc dependency không khả dụng thì giữ pending, không release chỉ theo timer | NOT RUN — 15-minute reconciliation protocol |
+| S307-BILL-12 | Reconciliation | Chỉ release sau khi truy vấn Analysis xác nhận abort/terminal failure; lưu correlation/audit evidence | NOT RUN — authoritative abort-to-release reconciliation |
+| S307-BILL-13 | TEST/LIVE | Mock/test không thể capture hoặc làm thay đổi LIVE ledger | NOT RUN — targeted TEST/mock-to-LIVE boundary |
+| S307-BILL-14 | Service boundary | Với service registry hiện tại, xác nhận `analysis-api` không gọi HTTP capture trái quyền; kiểm thử đường Billing-owned consumer sau khi được duyệt | PARTIAL — issuer denies capture and wrong-scope HTTP4036F PASS; Billing consumer NOT RUN |
+| S307-BILL-15 | Contract governance | Không thêm `reservationId`/`generation` vào event schema 0.6; sự mơ hồ khi correlate phải được giữ pending và báo contract gap | PARTIAL — source/schema baseline pinned; event-to-generation correlation remains open |
 
 ### C. Notification / Chat tests
 

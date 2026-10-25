@@ -18,6 +18,7 @@ $migrations = @(
     "infra/postgres/migrations/003_billing_poc_packages.sql",
     "infra/postgres/migrations/004_billing_business_schema.sql",
     "infra/postgres/migrations/analysis/001_analysis_core.sql",
+    "infra/postgres/migrations/analysis/002_upload_recovery.sql",
     "infra/postgres/migrations/002_service_database_roles.sql"
 )
 

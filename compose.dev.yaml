@@ -1,4 +1,14 @@
 services:
+  analysis-api:
+    environment:
+      Analysis__EnableHttpEndpoints: "false"
+      Analysis__ConcurrentUploads: "4"
+      Services__Identity__BaseUrl: "http://identity-api:8080"
+      Services__Profile__BaseUrl: "http://profile-api:8080"
+      Services__Billing__BaseUrl: "http://billing-api:8080"
+      Services__DependencyTimeoutSeconds: "5"
+      ServiceAuth__ClientId: "analysis-api"
+      ServiceAuth__ClientSecret: "${ANALYSIS_SERVICE_CLIENT_SECRET:?Set ANALYSIS_SERVICE_CLIENT_SECRET}"
   api-gateway:
     environment:
       DOTNET_ENVIRONMENT: Development

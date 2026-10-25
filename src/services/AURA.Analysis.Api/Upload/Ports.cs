@@ -22,7 +22,10 @@ public sealed record UploadCommand(
     IReadOnlyList<IUploadedFile> Files);
 
 // ---- Profile (M6): POST /internal/v1/profile/access/resolve ----
-public sealed record PatientAccessRequest(Guid RequesterId, Guid? ClinicId, Guid PatientId, string Action);
+public sealed record PatientAccessRequest(Guid RequesterId, Guid? ClinicId, Guid PatientId, string Action)
+{
+    public string? CorrelationId { get; init; }
+}
 
 public sealed record AccessDecision(bool Allowed, Guid TenantId, string TenantKind, Guid OwnerPrincipalId,
     string BillingOwner, long PermissionVersion);
@@ -33,8 +36,18 @@ public interface IPatientAccessResolver
 }
 
 // ---- Billing (M3): /internal/v1/billing/reservations ----
-public sealed record ReserveCredit(Guid TenantId, string BillingOwner, Guid AnalysisId, Guid IdempotencyKey);
-public sealed record ReleaseCredit(Guid TenantId, Guid ReservationId, Guid IdempotencyKey);
+public sealed record ReserveCredit(Guid TenantId, string BillingOwner, Guid AnalysisId, Guid IdempotencyKey)
+{
+    public Guid ActorAccountId { get; init; }
+    public Guid PatientId { get; init; }
+    public int Generation { get; init; } = 1;
+    public string? CorrelationId { get; init; }
+}
+public sealed record ReleaseCredit(Guid TenantId, Guid ReservationId, Guid IdempotencyKey)
+{
+    public string Reason { get; init; } = "ANALYSIS_ABORT";
+    public string? CorrelationId { get; init; }
+}
 public enum ReservationStatus { Reserved, InsufficientCredit }
 public sealed record ReservationOutcome(ReservationStatus Status, Guid? ReservationId);
 
@@ -60,7 +73,8 @@ public sealed record IdempotencyScope(Guid TenantId, Guid RequesterId, Guid Key)
 
 public enum IdempotencyState { New, Replay, Conflict }
 
-public sealed record AcceptedItem(Guid AnalysisId, string FileName, string ProcessingStatus, ItemError? Error);
+public sealed record AcceptedItem(Guid AnalysisId, string FileName, string ProcessingStatus, ItemError? Error,
+    Guid? ExistingAnalysisId = null);
 public sealed record ItemError(string Code, string Message, bool Retryable);
 public sealed record AcceptedResponse(Guid BatchId, IReadOnlyList<AcceptedItem> Items, DateTime CreatedAt, string StatusUrl);
 
@@ -77,7 +91,11 @@ public sealed record OutboxPlan(Guid EventId, Guid ImageId, string EventType, st
 public sealed record BatchPlan(
     Guid BatchId, Guid TenantId, Guid OwnerId, Guid RequesterId, Guid PatientId, Guid IdempotencyKey,
     string Fingerprint, string FingerprintVersion, string CorrelationId, DateTimeOffset CreatedAt,
-    AcceptedResponse Response, IReadOnlyList<ImagePlan> Images, IReadOnlyList<OutboxPlan> Outbox);
+    AcceptedResponse Response, IReadOnlyList<ImagePlan> Images, IReadOnlyList<OutboxPlan> Outbox)
+{
+    /// <summary>Internal durable-upload fence; absent only for legacy/domain-only callers.</summary>
+    public Guid? RecoveryAttemptId { get; init; }
+}
 
 /// <summary>Một phiên giữ khóa idempotency (vd. pg advisory lock) cho tới khi Dispose.</summary>
 public interface IUploadSession : IAsyncDisposable

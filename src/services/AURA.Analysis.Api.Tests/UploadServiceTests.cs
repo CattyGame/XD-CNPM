@@ -320,4 +320,38 @@ public class UploadServiceTests
         Assert.Equal(Requester, plan.RequesterId);
         Assert.Equal(Requester, plan.OwnerId);
     }
+
+    [Fact]
+    public async Task Reserve_receives_authoritative_account_patient_and_correlation()
+    {
+        var rig = new Rig();
+        await rig.Service.CreateAsync(Cmd(new[] { Img("a.jpg") }, correlation: "corr-context"), default);
+        var request = Assert.Single(rig.Billing.ReserveRequests);
+        Assert.Equal(Requester, request.ActorAccountId);
+        Assert.Equal(Patient, request.PatientId);
+        Assert.Equal(FakeAccess.Tenant, request.TenantId);
+        Assert.Equal(1, request.Generation);
+        Assert.Equal("corr-context", request.CorrelationId);
+    }
+
+    [Fact]
+    public async Task Storage_failure_uses_storage_abort_release_reason()
+    {
+        var rig = new Rig { Storage = { FailOnPut = 1 } };
+        await Assert.ThrowsAsync<UploadFailure>(() => rig.Service.CreateAsync(Cmd(new[] { Img("a.jpg") }), default));
+        Assert.Equal("STORAGE_ABORT", Assert.Single(rig.Billing.ReleaseRequests).Reason);
+    }
+
+    [Fact]
+    public async Task Caller_disconnect_does_not_pre_cancel_compensation()
+    {
+        using var cts = new CancellationTokenSource();
+        var rig = new Rig();
+        rig.Storage.BeforePut = () => { cts.Cancel(); return Task.CompletedTask; };
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => rig.Service.CreateAsync(Cmd(new[] { Img("a.jpg") }), cts.Token));
+        Assert.Single(rig.Billing.ReleaseRequests);
+        Assert.False(Assert.Single(rig.Billing.ReleaseWasCancelled));
+        Assert.Empty(rig.Repo.Commits);
+    }
+
 }

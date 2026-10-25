@@ -48,6 +48,19 @@ public sealed class CreditReservationRepository(
             await using var transaction = await connection.BeginTransactionAsync(
                 IsolationLevel.ReadCommitted, cancellationToken);
 
+            // Serialize this reserve idempotency scope before the first lookup.
+            // Otherwise a competing commit between the key lookup and generation
+            // lookup can make an exact replay look like an invalid generation.
+            // Transaction ownership releases the lock on commit/rollback/disposal.
+            await using (var scopeCommand = new NpgsqlCommand("""
+                SELECT pg_advisory_xact_lock(hashtextextended(@scope, 0))
+                """, connection, transaction))
+            {
+                scopeCommand.Parameters.AddWithValue("scope",
+                    $"billing-reserve-v1|{request.TenantId:D}|{idempotencyKey:D}");
+                await scopeCommand.ExecuteNonQueryAsync(cancellationToken);
+            }
+
             var priorByKey = await FindByIdempotencyKeyAsync(
                 connection, transaction, request.TenantId, idempotencyKey, cancellationToken);
             if (priorByKey is not null)
@@ -292,11 +305,13 @@ public sealed class CreditReservationRepository(
 
             // Check the operation key before terminal-state checks so an HTTP retry
             // with the same key receives the original result.
+            // Ledger rows are append-only and the runtime has SELECT/INSERT only.
+            // The reservation row lock serializes transitions for this reservation;
+            // ledger uniqueness still guards keys shared by different reservations.
             await using (var keyCommand = new NpgsqlCommand("""
                 SELECT entry_type, request_fingerprint
                 FROM billing.credit_ledger_entries
                 WHERE tenant_id = @tenant_id AND idempotency_key = @idempotency_key
-                FOR UPDATE
                 """, connection, transaction))
             {
                 keyCommand.Parameters.AddWithValue("tenant_id", stored.TenantId);

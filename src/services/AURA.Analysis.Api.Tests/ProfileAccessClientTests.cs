@@ -25,7 +25,7 @@ public class ProfileAccessClientTests
     private static (ProfileAccessClient, StubHandler) Make()
     {
         var h = new StubHandler();
-        return (new ProfileAccessClient(new HttpClient(h) { BaseAddress = new Uri("http://profile.test") }), h);
+        return (new ProfileAccessClient(new HttpClient(h) { BaseAddress = new Uri("http://profile.test") }, new FakeServiceTokens()), h);
     }
 
     private static PatientAccessRequest Req(Guid? clinic = null) =>
@@ -39,12 +39,31 @@ public class ProfileAccessClientTests
         var clinic = Guid.NewGuid(); var req = Req(clinic);
         await c.ResolveAsync(req, default);
         Assert.Equal("/internal/v1/profile/access/resolve", h.LastRequest!.RequestUri!.AbsolutePath);
+        Assert.Equal("test-service-token", h.LastRequest.Headers.Authorization!.Parameter);
         using var doc = JsonDocument.Parse(h.LastBody!);
         var r = doc.RootElement;
         Assert.Equal(req.RequesterId, r.GetProperty("actorAccountId").GetGuid());
         Assert.Equal(req.PatientId, r.GetProperty("patientId").GetGuid());
         Assert.Equal(clinic, r.GetProperty("clinicContextId").GetGuid());
         Assert.Equal("ANALYSIS_CREATE", r.GetProperty("action").GetString());
+    }
+
+    [Theory]
+    [InlineData("FILE_READ", "ANALYSIS_FILE_READ")]
+    [InlineData("ANALYSIS_READ", "ANALYSIS_READ")]
+    public async Task Domain_action_matches_Profile_wire_contract(string domainAction, string wireAction)
+    {
+        var (client, handler) = Make();
+        handler.Respond = (_, _) => Json("""{"allowed":false,"permissionVersion":1}""");
+        var request = new PatientAccessRequest(Guid.NewGuid(), null, Guid.NewGuid(), domainAction);
+
+        await client.ResolveAsync(request, default);
+
+        using var body = JsonDocument.Parse(handler.LastBody!);
+        Assert.Equal(wireAction, body.RootElement.GetProperty("action").GetString());
+        Assert.Equal(request.RequesterId, body.RootElement.GetProperty("actorAccountId").GetGuid());
+        Assert.Equal(request.PatientId, body.RootElement.GetProperty("patientId").GetGuid());
+        Assert.Equal(JsonValueKind.Null, body.RootElement.GetProperty("clinicContextId").ValueKind);
     }
 
     [Fact]
@@ -72,11 +91,11 @@ public class ProfileAccessClientTests
     }
 
     [Fact]
-    public async Task Allowed_true_nhung_thieu_tenant_bi_coi_la_khong_co_quyen()
+    public async Task Allowed_true_nhung_thieu_tenant_la_loi_dependency()
     {
         var (c, h) = Make();
         h.Respond = (_, _) => Json("""{"allowed":true,"tenantId":null,"permissionVersion":1}""");
-        Assert.False((await c.ResolveAsync(Req(), default)).Allowed);
+        Assert.Equal(503, (await Assert.ThrowsAsync<UploadFailure>(() => c.ResolveAsync(Req(), default))).Status);
     }
 
     [Fact]
@@ -101,4 +120,36 @@ public class ProfileAccessClientTests
         var ex = await Assert.ThrowsAsync<UploadFailure>(() => c.ResolveAsync(Req(), default));
         Assert.Equal(503, ex.Status);
     }
+
+    [Theory]
+    [InlineData("not-json")]
+    [InlineData("{}")]
+    [InlineData("""{"allowed":true,"tenantId":"00000000-0000-0000-0000-000000000000"}""")]
+    public async Task Malformed_response_is_a_retryable_dependency_error(string body)
+    {
+        var (c, h) = Make();
+        h.Respond = (_, _) => Json(body);
+        var failure = await Assert.ThrowsAsync<UploadFailure>(() => c.ResolveAsync(Req(), default));
+        Assert.Equal(503, failure.Status);
+        Assert.True(failure.Retryable);
+    }
+
+    [Fact]
+    public async Task Inconsistent_owner_or_tenant_kind_is_rejected()
+    {
+        var (c, h) = Make(); var t = Guid.NewGuid(); var owner = Guid.NewGuid(); var other = Guid.NewGuid();
+        h.Respond = (_, _) => Json($$"""{"allowed":true,"tenantId":"{{t}}","tenantKind":"PERSONAL","ownerPrincipalId":"{{owner}}","billingOwner":{"type":"ACCOUNT","id":"{{other}}"},"permissionVersion":1}""");
+        Assert.Equal(503, (await Assert.ThrowsAsync<UploadFailure>(() => c.ResolveAsync(Req(), default))).Status);
+        h.Respond = (_, _) => Json($$"""{"allowed":true,"tenantId":"{{t}}","tenantKind":"CLINIC","ownerPrincipalId":"{{owner}}","billingOwner":{"type":"ACCOUNT","id":"{{owner}}"},"permissionVersion":1}""");
+        Assert.Equal(503, (await Assert.ThrowsAsync<UploadFailure>(() => c.ResolveAsync(Req(), default))).Status);
+    }
+
+    [Fact]
+    public async Task Caller_cancellation_does_not_call_Profile()
+    {
+        var (c, h) = Make(); using var cts = new CancellationTokenSource(); cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => c.ResolveAsync(Req(), cts.Token));
+        Assert.Null(h.LastRequest);
+    }
+
 }

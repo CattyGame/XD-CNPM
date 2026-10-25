@@ -2,7 +2,7 @@
 
 - Dự án: AURA / SP26SE025.
 
-- Ngày cập nhật: 2026-10-16.
+- Ngày cập nhật: 2026-10-23.
 
 - Owner: M1.
 
@@ -10,7 +10,7 @@
 
 - Trạng thái: Chấp nhận lựa chọn Azure Blob/Azurite cho Sprint 2.
 
-- Service identity JWT: cần hoàn thiện cùng M6, chưa ghi nhận đã triển khai đầy đủ.
+- Service identity JWT: đã có issuer và consumer trong mã nguồn. Luồng local dùng registry/key được cấu hình đã có bằng chứng runtime; các nhánh lỗi cấu hình và phạm vi chưa kiểm thử vẫn cần nghiệm thu riêng.
 
 ## Bối cảnh
 
@@ -114,7 +114,7 @@ Staging cần HTTPS, encryption at rest, tắt public access và
 
 managed identity/RBAC riêng trước khi nghiệm thu.
 
-## Service identity cần hoàn thiện
+## Service identity và trạng thái tích hợp
 
 Theo contract Sprint 2:
 
@@ -132,13 +132,26 @@ Theo contract Sprint 2:
 
 - Không public route /internal/v1 qua Gateway.
 
-M1 chuẩn bị client identities, secret/key/config và ma trận quyền.
+M1 cung cấp client identities, secret/key/config và ma trận quyền.
+M6 đã hiện thực issuance/validation/context/provisioning. Profile dùng client
+riêng `profile-api` để gọi Identity/context với scope `identity:context`.
 
-M6 hiện thực issuance/validation/context/provisioning.
+Tại baseline `87af21d` đã có bằng chứng người dùng chạy local cho các luồng:
 
-Các nội dung này chưa được coi là hoàn tất chỉ vì database role
+- Firebase qua Gateway đến Identity/bootstrap, Identity/me và Profile/me.
+- Profile PATCH với If-Match, tăng version một lần và từ chối ETag cũ.
+- Từ chối thiếu/sai bearer và forged identity headers qua Gateway/Profile.
+- Billing gọi Profile để kiểm quyền trước reserve; reserve/replay/concurrency
+  và replay sau restart giữ nguyên dữ liệu đã được kiểm tra.
 
-hoặc Firebase user authentication đã hoạt động.
+Các kết quả này chỉ áp dụng cho cấu hình và ca đã chạy. Chưa suy rộng sang
+token Firebase hết hạn/thu hồi thật, mọi quyền Clinic/assignment hoặc toàn bộ
+capture/release/reconciliation. Xem [kế hoạch sửa Sprint 2](../integration/sprint2_closeout_plan.md).
+
+Mã Identity hiện còn fallback sinh key và dùng secret Development khi thiếu
+cấu hình; consumer Profile còn tìm một số đường dẫn key dự phòng. Đây là các
+điểm M6 phải sửa và kiểm tra cấu hình lỗi; không được dựa vào fallback để cấp
+quyền hoặc thay thế bộ credentials đang dùng.
 
 ## Kết quả kiểm chứng local
 
@@ -168,4 +181,4 @@ hoặc Firebase user authentication đã hoạt động.
 
   storage và transaction Analysis.
 
-- Cloud deployment và service JWT có các bước nghiệm thu riêng.
+- Cloud deployment và các nhánh service JWT chưa kiểm thử có các bước nghiệm thu riêng.
