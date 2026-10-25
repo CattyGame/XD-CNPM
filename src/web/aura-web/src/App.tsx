@@ -120,6 +120,7 @@ async function handleLogout() {
   }
 }
   const [activePage, setActivePage] = useState('Dashboard')
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('Tất cả trạng thái')
   const [patients] = useState(initialPatients)
@@ -834,18 +835,64 @@ async function handleLogout() {
                 <small>System Admin</small>
               </div>
               <button
-                type="button"
-                onClick={() => void handleLogout()}
-                className="logout-button"
+              type="button"
+              onClick={() => setShowLogoutConfirm(true)}
+              className="logout-button"
               >
                 Đăng xuất
-              </button>
-            </div>
-          </div>
-        </header>
-
-        <main className="page-content">
-          <div className="page-title-row">
+                </button>
+                {showLogoutConfirm && (
+                  <div className="modal-backdrop">
+                    <div
+                    className="modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="logout-confirm-title"
+                    >
+                      <div className="modal-heading">
+                        <div>
+                          <h3 id="logout-confirm-title">Xác nhận đăng xuất</h3>
+                          </div>
+                          <button
+                          type="button"
+                          className="modal-close"
+                          aria-label="Đóng hộp thoại"
+                          onClick={() => setShowLogoutConfirm(false)}
+                          >
+                            ×
+                            </button>
+                            </div>
+                            <p>
+                              Bạn có chắc chắn muốn đăng xuất khỏi hệ thống
+                              AURA không?
+                              </p>
+                              <div className="modal-actions">
+                                <button
+                                type="button"
+                                className="button button-outline"
+                                onClick={() => setShowLogoutConfirm(false)}
+                                >
+                                  Hủy
+                                </button>
+                                <button
+                                type="button"
+                                className="button button-primary"
+                                onClick={() => {
+                                  setShowLogoutConfirm(false)
+                                  void handleLogout()
+                                }}
+                                >
+                                  Đăng xuất
+                                  </button>
+                                  </div>
+                                  </div>
+                                  </div>
+                                )}
+                                </div>
+                                </div>
+                                </header>
+                                <main className="page-content">
+                                  <div className="page-title-row">
             <div>
               <h1>{selectedPatient ? 'Chi tiết hồ sơ' : activePage}</h1>
               <p>

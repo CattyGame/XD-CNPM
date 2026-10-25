@@ -1,4 +1,3 @@
-
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -22,12 +21,12 @@ describe('SCRUM-313 - LoginPage', () => {
       </MemoryRouter>,
     )
 
-    expect(screen.getByText('AURA — Đăng nhập')).toBeTruthy()
-    expect(screen.getByLabelText('Email')).toBeTruthy()
+    expect(screen.getByText('Chào mừng trở lại!')).toBeTruthy()
+    expect(screen.getByLabelText('Địa chỉ Email')).toBeTruthy()
     expect(screen.getByLabelText('Mật khẩu')).toBeTruthy()
 
     expect(
-      screen.getByRole('button', { name: 'Đăng nhập bằng Email' }),
+      screen.getByRole('button', { name: 'Đăng nhập' }),
     ).toBeTruthy()
 
     expect(
@@ -44,7 +43,7 @@ describe('SCRUM-313 - LoginPage', () => {
     )
 
     // Nhập email
-    fireEvent.change(screen.getByLabelText('Email'), {
+    fireEvent.change(screen.getByLabelText('Địa chỉ Email'), {
       target: { value: 'test@example.com' },
     })
 
@@ -55,7 +54,7 @@ describe('SCRUM-313 - LoginPage', () => {
 
     // Nhấn nút đăng nhập
     fireEvent.click(
-      screen.getByRole('button', { name: 'Đăng nhập bằng Email' }),
+      screen.getByRole('button', { name: 'Đăng nhập' }),
     )
 
     // Chờ thông báo lỗi xuất hiện
