@@ -1,0 +1,318 @@
+
+/* ===== AURA LOGIN PAGE ===== */
+
+.aura-login {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: #f5f8fb;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  box-sizing: border-box;
+}
+
+.aura-login *,
+.aura-login *::before,
+.aura-login *::after {
+  box-sizing: border-box;
+}
+
+.aura-login-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+  max-width: 1100px;
+  min-height: 620px;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 16px 55px rgba(16, 42, 67, 0.1);
+}
+
+/* ===== LEFT: GIỚI THIỆU AURA ===== */
+
+.aura-login-brand {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 50px;
+  background: linear-gradient(145deg, #102a43, #176f86);
+  color: #ffffff;
+}
+
+.aura-login-logo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 27px;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+
+.aura-login-logo-icon {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 26px;
+}
+
+.aura-login-brand-content h1 {
+  margin: 0 0 20px;
+  color: #ffffff;
+  font-size: 35px;
+  line-height: 1.3;
+}
+
+.aura-login-brand-content p {
+  max-width: 390px;
+  color: #c5d7e8;
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.aura-login-brand-footer {
+  color: #b6d2df;
+  font-size: 12px;
+}
+
+/* ===== RIGHT: ĐĂNG NHẬP ===== */
+
+.aura-login-form-section {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 60px;
+}
+
+.aura-login-heading {
+  margin-bottom: 35px;
+}
+
+.aura-login-heading h2 {
+  margin: 0 0 10px;
+  color: #20394f;
+  font-size: 29px;
+  font-weight: 700;
+}
+
+.aura-login-heading p {
+  margin: 0;
+  color: #8493a2;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.aura-login-field {
+  margin-bottom: 22px;
+}
+
+.aura-login-field label {
+  display: block;
+  margin-bottom: 9px;
+  color: #344e63;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.aura-login-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.aura-login-input-wrapper input {
+  width: 100%;
+  height: 49px;
+  padding: 0 15px;
+  border: 1px solid #dce5ec;
+  border-radius: 9px;
+  outline: none;
+  color: #20394f;
+  background: #ffffff;
+  font: inherit;
+  font-size: 14px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.aura-login-input-wrapper input:focus {
+  border-color: #176f86;
+  box-shadow: 0 0 0 3px rgba(23, 111, 134, 0.1);
+}
+
+.aura-login-input-wrapper input::placeholder {
+  color: #a0acb7;
+}
+
+.aura-login-input-wrapper input.has-toggle {
+  padding-right: 55px;
+}
+
+.aura-login-password-toggle {
+  position: absolute;
+  right: 12px;
+  padding: 7px;
+  border: 0;
+  border-radius: 6px;
+  color: #176f86;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.aura-login-password-toggle:hover {
+  background: #eaf6f8;
+}
+
+/* ===== BUTTONS ===== */
+
+.aura-login-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 10px;
+  padding: 12px 18px;
+  border: 0;
+  border-radius: 9px;
+  color: #ffffff;
+  background: #176f86;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.2s, transform 0.2s;
+}
+
+.aura-login-submit:hover:not(:disabled) {
+  background: #125b70;
+  transform: translateY(-1px);
+}
+
+.aura-login-submit:disabled,
+.aura-login-google:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.aura-login-divider {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin: 26px 0;
+  color: #95a3af;
+  font-size: 12px;
+}
+
+.aura-login-divider::before,
+.aura-login-divider::after {
+  flex: 1;
+  height: 1px;
+  background: #e6ecf1;
+  content: "";
+}
+
+.aura-login-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 18px;
+  border: 1px solid #dce5ec;
+  border-radius: 9px;
+  color: #344e63;
+  background: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.aura-login-google:hover:not(:disabled) {
+  border-color: #78b9c3;
+  background: #f5fbfc;
+}
+
+.aura-login-google-icon {
+  font-size: 21px;
+  font-weight: 700;
+  color: #4285f4;
+}
+
+/* ===== ERROR & FOOTER ===== */
+
+.aura-login-error {
+  margin: 0 0 18px;
+  padding: 12px 14px;
+  border: 1px solid #f3d5d5;
+  border-radius: 8px;
+  color: #bd4141;
+  background: #fff2f2;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.aura-login-note {
+  margin-top: 30px;
+  color: #95a3af;
+  font-size: 12px;
+  text-align: center;
+  line-height: 1.7;
+}
+
+/* ===== RESPONSIVE ===== */
+
+@media (max-width: 850px) {
+  .aura-login {
+    padding: 20px;
+  }
+
+  .aura-login-container {
+    grid-template-columns: 1fr;
+    max-width: 520px;
+  }
+
+  .aura-login-brand {
+    min-height: 220px;
+    padding: 28px;
+  }
+
+  .aura-login-brand-content h1 {
+    font-size: 24px;
+  }
+
+  .aura-login-brand-footer {
+    display: none;
+  }
+
+  .aura-login-form-section {
+    padding: 35px 28px;
+  }
+}
+
+@media (max-width: 480px) {
+  .aura-login {
+    padding: 12px;
+  }
+
+  .aura-login-form-section {
+    padding: 30px 20px;
+  }
+
+  .aura-login-heading h2 {
+    font-size: 24px;
+  }
+
+  .aura-login-brand-content h1 {
+    font-size: 21px;
+  }
+}

@@ -1365,3 +1365,38 @@ td:first-child {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Nút đăng xuất AURA */
+.logout-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  padding: 9px 16px;
+  border: 1px solid #176f86;
+  border-radius: 8px;
+  background: #176f86;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.logout-button:hover {
+  background: #125b70;
+  border-color: #125b70;
+  box-shadow: 0 3px 10px rgba(23, 111, 134, 0.18);
+}
+
+.logout-button:focus-visible {
+  outline: 2px solid #3197aa;
+  outline-offset: 3px;
+}
+
+.logout-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
