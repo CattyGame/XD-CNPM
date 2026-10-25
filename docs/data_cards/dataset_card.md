@@ -1,9 +1,9 @@
 > **Dự án**: AURA — Phân tích mạch máu võng mạc hỗ trợ đánh giá sức khỏe
 > **Mã Jira**: SCRUM-59, SCRUM-290; SCRUM-308 / SCRUM-310 (Sprint 2 — Tiền xử lý chuẩn hóa & Contract Worker–AI)
 > **Người biên soạn ban đầu**: Đào Duy Quân (M4 — AI Engineer)
-> **Phiên bản tài liệu**: 1.3.0
-> **Ngày cập nhật**: 2026-10-16
-> **Trạng thái**: Đã chuẩn hóa quy trình tiền xử lý ảnh võng mạc (FOV crop, Green-channel, CLAHE) và bộ lọc chất lượng tự động; đồng bộ Worker–AI Contract theo chuẩn Sprint 2 v1.0.
+> **Phiên bản tài liệu**: 1.3.1
+> **Ngày cập nhật**: 2026-10-24
+> **Trạng thái**: Dataset/benchmark offline và module preprocessing đã được mô tả riêng; AI endpoint vẫn mock. 7A preprocessing tests và 7B AI suite/OpenAPI check được người chạy xác nhận PASS; chưa chứng nhận Worker hoặc inference thật.
 
 ---
 
@@ -299,20 +299,45 @@ Việc hoàn thành SCRUM-59 không đồng nghĩa thuật toán đã đạt đ�
 
 ---
 
-## 11. Quy trình Tiền xử lý Chuẩn hóa và Bộ lọc Chất lượng Ảnh (Sprint 2 — W2-M4-01 / W2-M4-03)
+## 11. Module preprocessing Sprint 2 và ranh giới runtime
 
-Nhằm chuẩn bị dữ liệu đầu vào tối ưu cho mô hình suy luận và ngăn ngừa xử lý lãng phí trên ảnh lỗi/kém chất lượng, Sprint 2 bổ sung module chuẩn hóa tiền xử lý ảnh võng mạc (`app/services/preprocessing.py`):
+Module `src/ai-core/app/services/preprocessing.py` cung cấp
+`preprocess_fundus_image` dùng chung. Nó nhận PIL Image, bytes hoặc Base64,
+chuẩn hóa RGB rồi trả `PreprocessResult`. Module chưa được gọi trong
+`app/main.py`: endpoint hiện gọi `process_mock_analysis`.
 
-1. **Phát hiện vùng quan sát tròn (FOV Detection)**:
-   - Tự động tách biệt mô võng mạc có chiếu sáng khỏi viền đen xung quanh camera bằng ngưỡng phân ngưỡng thích ứng và toán tử hình thái học đóng (*morphological closing*).
-2. **Cắt gọn và Căn giữa 1:1 (Centering & Crop)**:
-   - Cắt bỏ viền đen không mang thông tin lâm sàng, duy trì tỷ lệ khung hình vuông 1:1 cân đối.
-3. **Trích xuất kênh Xanh lá (Green-channel Extraction)**:
-   - Kênh màu Xanh lá hấp thụ tối đa bước sóng của hemoglobin mạch máu, mang lại độ tương phản cao nhất giữa thành mạch và đáy mắt.
-4. **Tăng cường tương phản cục bộ (Adaptive Contrast Stretching & Unsharp Mask)**:
-   - Cải thiện độ sắc nét của vi mao mạch mỏng mà không làm khuếch đại nhiễu nền.
-5. **Chuẩn hóa kích thước độ phân giải**:
-   - Resampling chuẩn về $512\times512$ pixel bằng bộ lọc Lanczos chất lượng cao.
-6. **Bộ đánh giá chất lượng đa chiều (Multi-dimensional Quality Filter)**:
-   - Tự động đo lường độ sáng trung bình (*mean luminance*), độ tương phản (*RMS contrast*), độ sắc nét biên (*Laplacian sharpness*) và tỷ lệ diện tích FOV.
-   - Ảnh bị từ chối nếu quá tối ($<15.0$), cháy sáng ($>240.0$), mất nét nghiêm trọng hoặc không nhận diện được võng mạc, lập tức trả về mã lỗi `422 LOW_QUALITY_IMAGE` cho Worker/Analysis xử lý bồi hoàn credit an toàn.
+| Bước module | Thuật toán / cấu hình hiện có |
+|---|---|
+| FOV heuristic | Ngưỡng độ sáng cấu hình `fov_threshold=15` và MaxFilter/MinFilter; không phải bộ phát hiện võng mạc đã được xác thực. |
+| Quality trên ảnh gốc | Mean luminance, độ lệch chuẩn intensity (contrast), điểm biên từ kernel high-pass và FOV ratio. |
+| Crop/pad | Bounding box của FOV và padding, tạo vùng crop vuông khi bật crop. |
+| Resize | Ảnh Lanczos, mask nearest-neighbor; mặc định 512×512, cấu hình được. |
+| Green / enhancement | Kênh xanh lá; `ImageOps.autocontrast` có cutoff/mask, rồi UnsharpMask. Không triển khai CLAHE hoặc local adaptive histogram equalization. |
+| Kết quả | Enhanced image, green channel, FOV mask, kích thước, quality, `is_acceptable` và `rejection_reason`. |
+
+Ngưỡng default: luminance 15..240, contrast >=8, sharpness >=3.5, FOV ratio
+>=0.15. Đây là heuristic kỹ thuật, chưa hiệu chuẩn trên bộ ảnh có nhãn chất
+lượng. `is_valid_fundus` là tên cờ nội bộ của heuristic, không xác nhận chẩn
+đoán hoặc nguồn ảnh. Empty FOV luôn bị từ chối từ bản sửa 7A, kể cả các min
+thresholds bằng 0; config sai miền/kiểu/NaN/Infinity bị ValueError. Config
+mutable được kiểm tra lại tại pipeline và direct quality entry point.
+
+Caller phải đọc `is_acceptable`; module vẫn có thể trả ảnh đã biến đổi khi
+cờ false. Module không tự phát HTTP 422, không gửi Billing release và không
+phát event. LOW_QUALITY_IMAGE của endpoint hiện là mock scenario khi được bật
+rõ ràng, có `quality_assessment_performed: false`; không xem đó là kết quả
+bộ lọc chất lượng này.
+
+Module resize/crop này khác pipeline Frangi offline ở mục 6/8 (không resize,
+metric toàn ảnh). Thay preprocessing cần báo cáo mới với config/version và
+phép đối chiếu nhãn/hình học; không gán số benchmark cũ cho pipeline mới.
+Chưa chứng minh mask inference thật được biến đổi ngược về tọa độ ảnh gốc.
+
+7A: người chạy xác nhận 58 passed in 2.41s (14 cũ +44 regression).
+7B: người chạy xác nhận toàn AI suite, OpenAPI sync --check và whitespace
+checks PASS; log tổng hợp không cho số test. Đây không phải clinical
+validation, benchmark dữ liệu thật mới, Docker deployment hoặc Worker flow.
+
+Kế hoạch đánh giá: [M4 evaluation plan](../testing/m4_evaluation_plan.md).
+Mapping/bằng chứng: [Worker–AI contract](../api/worker_ai_contract_integration_v1.0.md)
+và [M4 integration status](../integration/M4_Sprint2_integration_status.md).

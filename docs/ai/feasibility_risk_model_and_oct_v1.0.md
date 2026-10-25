@@ -1,132 +1,110 @@
-# BÁO CÁO ĐÁNH GIÁ KHẢ THI MÔ HÌNH NGUY CƠ (RISK MODEL) VÀ MODALITY OCT — AURA AI
+# AURA — Khả thi risk model và OCT
 
-> **Dự án**: AURA — AI Retinal Analysis Platform
-> **Mã công việc Jira**: SCRUM-309 (W2-M4-02)
-> **Người thực hiện**: Đào Duy Quân (quandd2937@ut.edu.vn — M4: AI Engineer & NiFi)
-> **Người tiếp nhận / Reviewer**: Nguyễn Trương Hậu (M1 — Tech Lead), Võ Hữu Duy (M2 — Analysis Backend)
-> **Phiên bản tài liệu**: v1.0.0
-> **Ngày lập**: 16/10/2026
-> **Trạng thái**: Đã nghiệm thu khảo sát kỹ thuật; chốt kết luận vận hành cho Sprint 2.
+> SCRUM-309 (W2-M4-02) · Biên soạn ban đầu: Đào Duy Quân (M4).
+> Bản rà soát 1.0.1 · 2026-10-24 · baseline 87af21d cùng closeout patches.
+> Trạng thái: khảo sát kỹ thuật và giới hạn phạm vi; không phải nghiệm thu mô hình lâm sàng.
 
----
+## 1. Đích dự đoán và giới hạn Sprint 2
 
-## 1. Mục tiêu và phạm vi thẩm định
+Phải tách ba bài toán trước khi chọn model, nhãn hoặc metric:
 
-Tài liệu này là báo cáo thẩm định kỹ thuật chính thức cho hai định hướng mở rộng của hệ thống AURA theo phân công Sprint 2:
-1. **Mô hình đánh giá nguy cơ biến cố tim mạch và đột quỵ** (*Cardiovascular & Stroke Risk Assessment*) từ ảnh đáy mắt võng mạc.
-2. **Phương thức chụp cắt lớp quang học võng mạc** (*Optical Coherence Tomography — OCT*).
+| Bài toán | Đầu ra cần định nghĩa | Nhãn / phép đối chiếu cần có | Trạng thái AURA |
+|---|---|---|---|
+| Phân vùng mạch | Mask pixel mạch / nền | Mask người đánh dấu, quy tắc FOV và split theo đối tượng | Có baseline Frangi offline trên CHASE_DB1. |
+| Đo hình thái | Density, tortuosity; AVR cần phân biệt động/tĩnh mạch và định nghĩa phép đo | Phép đo tham chiếu, đơn vị, vùng đo và đánh giá sai số | API hiện phát giá trị mock; mask nhị phân đơn thuần chưa chứng minh đo được AVR. |
+| Dự đoán nguy cơ | Phải chọn endpoint cụ thể, thời hạn dự đoán và quần thể; không trộn risk factor với biến cố stroke/CVD | Dữ liệu ghép ảnh–nhãn phù hợp, thời gian theo dõi/censoring nếu dự đoán biến cố | Chưa có cohort/nhãn phù hợp được xác minh trong dự án; giữ mock. |
 
-Mục tiêu cốt lõi: Xác định căn cứ khoa học, yêu cầu dữ liệu lâm sàng, năng lực tính toán phần cứng, tác động kiến trúc đa dịch vụ (Gateway, Analysis, NiFi, Worker), và đưa ra **kết luận khả thi có căn cứ kỹ thuật** nhằm bảo đảm an toàn hệ thống, tuân thủ nghiêm ngặt **Contract Sprint 2 v1.0**.
+Không coi LOW/MODERATE/HIGH hoặc score trong JSON là một mô hình nguy cơ đã
+được huấn luyện. `is_mock: true`, `limitations` và disclaimer phải được giữ
+xuyên kết quả. Tiền xử lý, phân vùng mạch và heuristic quality không chứng
+minh khả năng chẩn đoán hay dự đoán biến cố.
 
----
+## 2. Nguồn dữ liệu và căn cứ nghiên cứu
 
-## 2. Đánh giá khả thi Mô hình Nguy cơ (Retinal Cardiovascular & Stroke Risk Model)
+- CHASE_DB1: nguồn Kingston University mô tả 28 ảnh của hai mắt từ 14 trẻ em,
+  mỗi ảnh có hai mask mạch do hai người đánh dấu. Các artifact dự án đã kiểm
+  là ảnh/mask segmentation, chưa có nhãn biến cố để huấn luyện risk.
+- DRIVE/STARE là nguồn tham khảo trong dataset card; không coi dữ liệu chưa
+  được xác minh tại dự án là cohort risk sẵn có. Không suy rộng kết luận thành
+  khẳng định trên thế giới không có dataset phù hợp.
+- Poplin và cộng sự (2018) là ví dụ nghiên cứu dự đoán yếu tố nguy cơ/biến cố
+  từ fundus bằng deep learning. Kết quả của nghiên cứu đó không phải metric
+  hoặc bằng chứng hiệu quả của AURA. Việc tiếp cận cohort có điều kiện và
+  kiểm tra quyền sử dụng dữ liệu vẫn là công việc riêng của dự án.
 
-### 2.1. Cơ sở y sinh học (Biological & Clinical Rationale)
-- Hệ mạch máu võng mạc là mạng lưới tuần hoàn vi mạch duy nhất trong cơ thể người có thể quan sát trực tiếp, không xâm lấn thông qua kính chụp đáy mắt (*Fundus camera*).
-- Nhiều nghiên cứu lâm sàng quy mô lớn trên thế giới (như *Atherosclerosis Risk in Communities — ARIC Study*, *Blue Mountains Eye Study*, và các nghiên cứu của *Google Health / UK Biobank*) đã chứng minh:
-  - **Tỉ lệ đường kính động mạch / tĩnh mạch (Arteriolar-to-Venular Ratio — AVR)**: Người bình thường có tỉ lệ $\approx 2/3$ (0.67). Khi tỉ lệ này giảm dưới $0.60$, có tương quan rõ rệt với xơ vữa động mạch, bệnh võng mạc do tăng huyết áp, và làm tăng nguy cơ đột quỵ thiếu máu cục bộ (*ischemic stroke*).
-  - **Độ uốn lượn mạch máu (Vessel Tortuosity)**: Mạch máu ngoằn ngoèo gia tăng là chỉ dấu của tình trạng áp lực thành mạch cao mạn tính và biến đổi huyết động học.
-  - **Mật độ mạch và chiều phân nhánh (Fractal Dimension)**: Giảm mật độ mao mạch quanh hoàng điểm phản ánh tình trạng thiếu máu nuôi vi tuần hoàn.
+Nguồn gốc, truy cập khi rà soát 2026-10-24:
 
-### 2.2. Khảo sát nguồn dữ liệu và rào cản nhãn lâm sàng
-Để huấn luyện hoặc kiểm chứng một mô hình AI đánh giá nguy cơ, yêu cầu bắt buộc là dữ liệu phải có **cặp đôi (paired data)** gồm: Ảnh võng mạc + Hồ sơ bệnh án theo dõi dọc (*longitudinal follow-up data* tối thiểu 5–10 năm) ghi nhận biến cố tim mạch/đột quỵ thực tế.
+1. Kingston University, [CHASE_DB1 retinal vessel reference dataset](https://researchinnovation.kingston.ac.uk/en/datasets/chasedb1-retinal-vessel-reference-dataset-4/).
+2. Poplin et al., *Prediction of cardiovascular risk factors from retinal fundus
+   photographs via deep learning*, Nature Biomedical Engineering (2018),
+   [DOI 10.1038/s41551-018-0195-0](https://doi.org/10.1038/s41551-018-0195-0).
+   [Trang công bố của nhóm nghiên cứu](https://research.google/pubs/predicting-cardiovascular-risk-factors-in-retinal-fundus-photographs-using-deep-learning/).
+3. Artifact dự án: `docs/data_cards/dataset_card.md`, manifest CHASE_DB1 và
+   `docs/benchmarks/frangi_baseline_v0.2.md` / `frangi_test_v0.2.json`.
 
-| Tập dữ liệu | Số lượng ảnh | Nhãn phân đoạn mạch (Segmentation) | Nhãn biến cố tim mạch / Đột quỵ (CVD/Stroke) | Khả năng tích hợp vào Sprint 2 |
-| :--- | :--- | :--- | :--- | :--- |
-| **CHASE_DB1** | 28 ảnh (14 bệnh nhân trẻ em) | ✅ Có Ground-truth chuyên gia | ❌ Không có | Dùng cho baseline phân đoạn mạch, **không dùng được cho risk** |
-| **DRIVE** | 40 ảnh | ✅ Có Ground-truth chuyên gia | ❌ Không có | Chỉ phục vụ segmentation |
-| **STARE** | 20 ảnh | ✅ Có Ground-truth | ❌ Không có biến cố lâm sàng | Chỉ phục vụ segmentation |
-| **UK Biobank** | > 100.000 bệnh nhân | ❌ Không gắn nhãn pixel | ✅ Có nhãn lâm sàng toàn diện | ⚠️ Yêu cầu MTA, phê duyệt đạo đức, phí nghiên cứu, không thể tải vào repo |
+Không giữ các khẳng định cũ về ngưỡng AVR 0.60, số lượng ảnh huấn luyện tối
+thiểu 10.000–50.000 hoặc thời hạn theo dõi bắt buộc 5–10 năm như chuẩn chung.
+Các con số này chưa được xác lập cho một endpoint/cohort cụ thể của AURA.
 
-> [!WARNING]
-> Hiện tại trong phạm vi học phần và dữ liệu công khai sẵn có, **chúng ta không có tập dữ liệu mở nào vừa có ảnh võng mạc vừa có nhãn biến cố tim mạch/đột quỵ được kiểm định y khoa**.
+## 3. Model và metric cần đánh giá
 
-### 2.3. Phân tích hai hướng tiếp cận kỹ thuật
+Frangi offline là baseline segmentation. Các lựa chọn học máy như U-Net hoặc
+encoder tiền huấn luyện là phương án thử nghiệm sau này, cần so sánh trên cùng
+split/nhãn, không khẳng định đã tốt hơn baseline hay đã được nối vào endpoint.
 
-#### Hướng tiếp cận A: Deep Learning End-to-End (Ảnh $\rightarrow$ Risk Score)
-- **Phương pháp**: Huấn luyện ResNet-50 hoặc Vision Transformer (ViT) dự đoán trực tiếp điểm nguy cơ hoặc huyết áp tâm thu từ ảnh thô.
-- **Đánh giá**:
-  - Đòi hỏi tối thiểu $10.000 - 50.000$ ảnh có nhãn lâm sàng để tránh hiện tượng học vẹt (*overfitting*).
-  - Mô hình mang tính chất "hộp đen" (*black box*), khó giải thích cho bác sĩ lâm sàng, tiềm ẩn rủi ro chẩn đoán sai lệch (*hallucination*).
-  - **Kết luận**: **KHÔNG KHẢ THI** trong khuôn khổ Sprint 2 và tài nguyên hiện tại.
+Đối với risk, chưa chọn model triển khai. Trước hết cần định nghĩa target,
+cohort, quyền dữ liệu, số biến cố và baseline thống kê. Nếu đủ dữ liệu, so sánh
+model ảnh với baseline thích hợp và đánh giá trên tập độc lập. Không biến một
+ngưỡng morphology tự đặt thành xác suất risk.
 
-#### Hướng tiếp cận B: Trích xuất chỉ số hình thái mạch máu (Biomarker Morphometry Pipeline)
-- **Phương pháp**:
-  1. Sử dụng kết quả phân đoạn mạch máu (*Segmentation Mask*) đã qua tiền xử lý chuẩn hóa.
-  2. Dùng thuật toán xử lý ảnh hình thái học (*morphological thinning, distance transform, skeleton graph*) để đo đạc khách quan: $AVR$, Mật độ mạch (*Vessel Density*), Chỉ số uốn lượn (*Tortuosity*).
-  3. Đối chiếu các chỉ số này với các ngưỡng tham chiếu y văn (*normal clinical ranges*).
-- **Đánh giá**:
-  - Minh bạch, có thể giải thích được (*Explainable AI*), phản ánh đúng dữ liệu đo đạc thực tế từ mạch máu.
-  - Không cần bộ dữ liệu huấn luyện biến cố tim mạch khổng lồ.
-  - **Kết luận**: **KHẢ THI** để triển khai ở giai đoạn hoàn thiện thuật toán phân đoạn (Sprint 3–Sprint 4).
+| Phạm vi | Metric / điều kiện báo cáo |
+|---|---|
+| Segmentation | Dice, IoU, sensitivity, specificity; ghi rõ toàn ảnh/FOV, nhãn tham chiếu, threshold chọn ở validation, số ảnh/số đối tượng. |
+| Đo morphology | Sai số với phép đo tham chiếu, độ lặp lại và định nghĩa đơn vị/vùng đo; không dùng Dice thay metric AVR. |
+| Risk classification / probability | Discrimination và calibration theo endpoint; confidence interval và đánh giá theo nhóm khi số mẫu cho phép. Không suy ra risk từ pixel metric. |
+| Outcome có thời gian | Chọn metric/phương pháp xử lý follow-up và censoring phù hợp sau khi chốt thiết kế nghiên cứu. |
+| Hệ thống | Thời gian component và end-to-end, CPU/RAM/peak memory, timeout/failure; ghi phần có và không có trong phép đo. |
 
-### 2.4. Kết luận và Cam kết kỹ thuật đối với Risk Model
-1. **Tuân thủ tuyệt đối quy định Contract v1.0**:
-   - Ở Sprint 2, API nội bộ `POST /api/v1/analyze` **tiếp tục giữ `is_mock: true`** cho trường `risk_assessment`.
-   - Tuyệt đối **không tự ý chuyển `is_mock: false`** chỉ vì đã có bước tiền xử lý hoặc phân đoạn Frangi.
-   - Bắt buộc trả về trường `disclaimer` nêu rõ: *"Kết quả hoàn toàn là dữ liệu giả lập phục vụ kiểm thử tích hợp. Không phải kết quả chẩn đoán và không thay thế đánh giá của bác sĩ."*
+Đây là kế hoạch đánh giá, chưa có số liệu risk của AURA. Kết quả Frangi đã lưu
+là baseline trên split nhỏ, không đạt bằng chứng clinical validation hoặc NFR
+toàn luồng chỉ nhờ thời gian component thấp.
 
----
+## 4. Compute và OCT
 
-## 3. Đánh giá khả thi Phương thức ảnh cắt lớp quang học OCT (Modality OCT)
+Sprint 2 chưa có decoder, dữ liệu OCT được xác minh, model OCT, nhãn, metric
+hoặc benchmark tài nguyên phù hợp. Giữ OCT ngoài runtime được hỗ trợ.
 
-### 3.1. Đặc thù kỹ thuật của ảnh OCT so với ảnh đáy mắt (FUNDUS)
-- **FUNDUS (Màu 2D)**: Là ảnh chụp bề mặt võng mạc, định dạng ảnh thông thường (JPEG/PNG), độ phân giải phổ biến từ $512\times512$ đến $3000\times3000$ pixels, dung lượng $1 - 10$ MiB.
-- **OCT (Cắt lớp 2D/3D)**:
-  - Là ảnh quét cắt lớp ngang các tầng tế bào võng mạc (B-scan) hoặc tập hợp hàng trăm lát cắt thể tích 3D (C-scan volume).
-  - Định dạng chuẩn y tế: DICOM đa tầng (*multi-frame DICOM*), file trích xuất từ máy Zeiss/Topcon/Heidelberg (`.vol`, `.fda`, `.e2e`, `.oct`).
-  - Dung lượng mỗi ca chụp thể tích: **100 MiB – 1 GiB**, vượt xa giới hạn upload hiện tại ($10$ MiB/ảnh).
+Không suy ra loại file hay tài nguyên bắt buộc từ tên modality. Khi khảo sát
+OCT tiếp phải xác định dữ liệu cụ thể: B-scan hay volume, định dạng/export và
+metadata, dimensions/voxel spacing, decoder/license, nhãn, đích dự đoán và
+quy tắc de-identification. Xác minh từng nguồn trước khi thêm parser.
 
-### 3.2. Yêu cầu tính toán và hạ tầng Docker
-- Hiện tại container `aura-ai-core` được thiết lập chạy trên môi trường CPU cục bộ, giới hạn thời gian xử lý AI là **30 giây** (`Worker__AiTimeoutSeconds=30`).
-- Việc giải mã file thể tích OCT và chạy các mô hình 3D-CNN / Swin-UNETR để phát hiện phù hoàng điểm (DME) hoặc dịch dưới võng mạc trên CPU sẽ mất từ **$2 - 5$ phút/thể tích**, gây nghẽn hàng đợi (bottleneck), nguy cơ cạn kiệt RAM (OOM Crash container).
-- Để xử lý OCT thời gian thực, hệ thống bắt buộc cần GPU chuyên dụng với tối thiểu $8 - 16$ GiB VRAM (CUDA runtime) và kiến trúc worker bất đồng bộ chuyên biệt.
+Chưa có phép đo AURA để chứng minh các con số cũ 2–5 phút/volume, 100 MiB–1 GiB
+hoặc yêu cầu GPU tối thiểu 8–16 GiB VRAM. Compute phải đo trên model, decoder,
+độ phân giải và phần cứng cụ thể. CPU-only demo hiện tại không chứng minh
+khả thi hay không khả thi cho mọi pipeline OCT.
 
-### 3.3. Tác động kiến trúc hệ thống đa dịch vụ (Architecture Impact)
-Nếu hỗ trợ OCT trong thời điểm này, toàn bộ hệ sinh thái AURA sẽ phải thay đổi lớn:
-1. **API Gateway (M1)**: Phải nâng cấu hình giới hạn multipart request từ $1.05$ GiB lên nhiều GiB, kéo dài request timeout.
-2. **Analysis API (M2)**: Schema hiện tại `modality: FUNDUS` phải nâng cấp lên Contract v0.7+, thay đổi bảng lưu trữ file private và cơ chế trích xuất thumbnail.
-3. **Billing API (M3)**: Phải xây dựng biểu phí credit riêng cho OCT (không thể tính cào bằng 1 credit như ảnh FUNDUS).
-4. **Frontend Web (M5)**: Cần thư viện hiển thị DICOM chuyên biệt (như Cornerstone.js / OHIF Viewer) với thanh trượt lát cắt (slice slider), phức tạp hơn rất nhiều so với thẻ `<img>` hiện tại.
-5. **NiFi Ingestion (M4)**: Cần parser giải mã file nhị phân DICOM/FDA chuyên biệt.
+Nếu mở phạm vi sau này, cần RFC riêng cho upload/storage limits, bảo vệ dữ
+liệu, queue/Worker/timeouts, schema/UI và quyết định giá Billing. Không tự
+nâng giới hạn Gateway, đổi contract version hoặc đặt số credit cho OCT trong
+bản khảo sát này. Cấu hình timeout trong tài liệu là budget thiết kế; chưa
+coi là Worker đang thực thi.
 
-### 3.4. Kết luận và Quyết định kỹ thuật đối với Modality OCT
-1. **Tạm dừng triển khai runtime cho OCT trong Sprint 2 và Sprint 3**:
-   - Nhóm kỹ thuật cần dồn toàn lực hoàn thiện luồng nghiệp vụ cốt lõi của ảnh FUNDUS từ Gateway $\rightarrow$ Analysis $\rightarrow$ Storage $\rightarrow$ Billing $\rightarrow$ Worker.
-2. **Cơ chế từ chối nhất quán đã được thiết lập**:
-   - **Public Gateway / Analysis API (M2)**: Trả về HTTP `400 Bad Request` với mã lỗi `ERR_VALIDATION` khi nhận modality không phải FUNDUS.
-   - **AI Core nội bộ (M4)**: Khi nhận request nội bộ với `modality: OCT`, trả về HTTP `422 Unprocessable Content` với mã lỗi `UNSUPPORTED_MODALITY`, ghi rõ chi tiết:
-     ```json
-     {
-       "error_code": "UNSUPPORTED_MODALITY",
-       "message": "OCT chưa được hỗ trợ; chỉ chấp nhận FUNDUS.",
-       "details": {
-         "supported_modalities": ["FUNDUS"],
-         "received_modality": "OCT"
-       }
-     }
-     ```
-   - Cơ chế này đã được hiện thực hóa và kiểm thử tự động đạt 100% qua test case `test_oct_modality_returns_422`.
+## 5. Hành vi từ chối và quyết định hiện tại
 
----
+- Public Analysis: FUNDUS-only; modality khác trả 400 / ERR_VALIDATION theo
+  contract. Nhóm 5M đã báo PASS trường hợp UnsupportedModality ở candidate
+  kiểm thử; primary Analysis HTTP vẫn disabled, chưa chứng nhận Gateway path
+  bằng chính phép thử đó.
+- AI mock: OCT trả 422 / UNSUPPORTED_MODALITY; modality lạ khác trả
+  422 / INVALID_MODALITY. Có kiểm thử TestClient; 7B được người chạy xác nhận
+  PASS toàn suite. Chưa chạy lại image AI hiện hữu trong bước 7A–7C.
+- Giữ `is_mock: true`; không huấn luyện model risk, bật OCT hoặc chuyển kết
+  quả Frangi offline thành inference thật chỉ bằng sửa tài liệu.
 
-## 4. Lộ trình kỹ thuật đề xuất (Roadmap)
+Phạm vi khảo sát SCRUM-309 đã được bổ sung rõ target, data, model, compute,
+format và metric/giới hạn. Jira hiện ghi Done; bản rà soát không tự xác nhận
+người duyệt đã nghiệm thu, không sửa Jira hoặc đổi phạm vi Sprint sau.
+Phần tích hợp Worker/event/Billing và đánh giá lâm sàng vẫn cần bằng chứng riêng.
 
-| Giai đoạn | Mục tiêu chính cho AI Core (M4) | Trạng thái mô hình Risk | Trạng thái Modality OCT |
-| :--- | :--- | :--- | :--- |
-| **Sprint 2 (Hiện tại)** | • Chuẩn hóa pipeline tiền xử lý ảnh Fundus (crop FOV, cân bằng tương phản, kiểm tra chất lượng).<br>• Hoàn thành báo cáo khả thi Risk/OCT.<br>• Chốt mapping Worker–AI Contract. | Giữ Mock (`is_mock: true`), disclaimer bắt buộc | Từ chối có kiểm soát (Public 400, AI 422) |
-| **Sprint 3** | • Triển khai Worker bất đồng bộ nhận job từ RabbitMQ.<br>• Tích hợp pipeline tiền xử lý vào luồng suy luận thật.<br>• Tối ưu hóa thuật toán phân đoạn mạch máu Frangi/U-Net trên tập CHASE_DB1. | Giữ Mock, bắt đầu viết module tính toán chỉ số hình thái ($AVR$, density) | Giữ nguyên từ chối (bảo toàn tài nguyên) |
-| **Sprint 4** | • Hoàn thiện bộ chỉ số hình thái học vi mạch làm gợi ý khách quan.<br>• Kiểm thử hiệu năng end-to-end trên dữ liệu thực. | Tích hợp thuật toán trích xuất Biomarker khách quan | Xây dựng RFC tài liệu kiến trúc cho Phase 2 |
-
----
-
-## 5. Tổng kết và Đề xuất
-
-1. **Về Risk Model**: Không vội vã xây dựng mô hình Deep Learning phỏng đoán thiếu dữ liệu. Hướng đi khoa học và khả thi nhất cho AURA là trích xuất các chỉ số hình thái học mạch máu ($AVR$, uốn lượn, mật độ) để hỗ trợ quyết định lâm sàng cho bác sĩ.
-2. **Về Modality OCT**: Việc hoãn tích hợp OCT vào runtime Sprint 2 là quyết định đúng đắn, giúp đảm bảo tính ổn định của hạ tầng Docker cục bộ và tiến độ bàn giao của toàn bộ 6 thành viên.
-3. Báo cáo này hoàn thành 100% yêu cầu nghiệm thu của task **SCRUM-309 (W2-M4-02)** theo văn bản chỉ đạo của Tech Lead Trương Hậu.
-
----
-*Biên soạn bởi: Đào Duy Quân — M4 (AI Engineer & NiFi)*
-*Chữ ký kỹ thuật: Daoduyquan*
+Kế hoạch tiếp: [M4 evaluation plan](../testing/m4_evaluation_plan.md).

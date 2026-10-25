@@ -506,7 +506,9 @@ describe('Đồng bộ tự động khi quay lại tab', () => {
   async function enableForSync() {
     mocks.getPermission.mockReturnValue('granted')
     renderSignedIn()
-    enableNotifications()
+    await act(async () => {
+      enableNotifications()
+    })
     await screen.findByText(/Đã đăng ký thiết bị với backend/)
   }
 

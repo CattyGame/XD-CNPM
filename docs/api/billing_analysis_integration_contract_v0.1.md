@@ -1,12 +1,14 @@
 # AURA — Billing–Analysis Integration Contract v0.1
 
-**Status:** DRAFT — review required; not an implementation or runtime test report
+**Status:** Implementation mapping with reported runtime results; business/architecture approval and untested flows remain open
 **Work item:** SCRUM-307 / W2-M3-03
 **Scope:** Contract mapping, error/idempotency semantics, reconciliation, and integration-test expectations.
 
 ## 1. Purpose and authority
 
-This document aligns Billing with the existing Analysis contracts while `SCRUM-306` PR #54 is still under review. The Billing OpenAPI referenced here is the draft in `feature/SCRUM-306-billing-schema-api`, blob `dcd145bd0795226c2aa3ec646bda4f145335323c`; it is not assumed to be merged into `develop`. Re-check the approved PR/revision before implementing or accepting a client.
+This document maps the repository baseline `87af21da20489eda6d4899f7e1f3a428b24960db` plus local closeout patches through6D. `contracts/billing-openapi.yaml` is present in that baseline (version0.1.0); do not describe it solely as an unmerged PR draft. PR references below are provenance, not current merge-status assertions. This mapping does not approve the separate canonical Sprint2 business document or close owner decisions.
+
+Reported runtime results through6F and their limits are recorded in [M3 integration status](../integration/M3_Sprint2_billing_integration_status.md). Evidence files reside on the operator workstation and have not been independently read here.
 
 Authoritative inputs:
 
@@ -14,14 +16,14 @@ Authoritative inputs:
 - Analysis event schema: `contracts/analysis-events.schema.json` (Event 0.6 baseline).
 - Analysis job schema: `contracts/analysis-job.schema.json`.
 - Worker–AI Core integration: `docs/api/worker_ai_contract_integration_v1.0.md`.
-- Billing candidate contract: `contracts/billing-openapi.yaml` on SCRUM-306 PR #54.
-- Billing business policy: SCRUM-305 Confluence design v0.3 and PR #46, both subject to their own review/merge state.
+- Billing implementation contract: `contracts/billing-openapi.yaml` v0.1.0 at the baseline above; PR #54 is provenance.
+- Billing business policy: SCRUM-305 Confluence design v0.3 and PR #46; business decisions remain subject to owner confirmation.
 
 Do not change Analysis REST/Event/Job schema 0.6 or silently add fields to an event. Any approved incompatible/additive schema change must be versioned and reviewed through the project's contract process.
 
 ## 2. Business rules to carry across the boundary
 
-1. One accepted, valid FUNDUS analysis consumes one whole-number credit. Billing owner is resolved from trusted Profile/business context; a client must not choose an arbitrary account or clinic wallet.
+1. One new, valid, billable FUNDUS image reserves one whole-number credit. DUPLICATE reuses its canonical analysis reference without another reservation/job; HTTP202 acceptance is not capture. Billing owner is resolved from trusted Profile/business context; a client must not choose an arbitrary account or clinic wallet.
 2. Reserve credit before an analysis is accepted for processing. A reservation is associated with the tenant, analysis identity and generation according to Billing's stored mapping.
 3. Capture once when the authoritative Analysis state is `COMPLETED` and a valid result exists. The business policy maps successful and warning-with-valid-result outcomes to `COMPLETED`.
 4. Release once on a terminal failure or `LOW_QUALITY` outcome with no valid result. A retryable failure keeps the reservation; it is not a terminal-release signal.
@@ -29,18 +31,18 @@ Do not change Analysis REST/Event/Job schema 0.6 or silently add fields to an ev
 6. A 15-minute reconciliation threshold is not a timer-based release rule. Query Analysis' authoritative state first; release only after an abort is confirmed. If Analysis is unavailable or still `QUEUED`/`PROCESSING`, keep the reservation pending reconciliation.
 7. TEST and LIVE are isolated. Mock/test activity must never capture LIVE credit. Payment-provider integration is outside the Sprint 2 acceptance claim.
 
-## 3. Candidate reserve API mapping
+## 3. Implemented reserve API mapping
 
-The following paths and response codes reflect the Billing OpenAPI draft in PR #54 and must be reconfirmed against the reviewed version before use.
+The following paths and response codes map to the baseline OpenAPI and deployed Billing implementation; approval of unresolved business policy remains separate.
 
-| Operation | Candidate contract | Expected handling |
+| Operation | Implementation contract | Expected handling |
 |---|---|---|
 | Reserve credit | `POST /internal/v1/billing/reservations` | `201` for a new reservation; `200` for an idempotent replay. Do not accept work if reserve is denied or unresolved. |
 | Read reservation | `GET /internal/v1/billing/reservations/{reservationId}` | Internal authenticated lookup for recovery/reconciliation; confirm the required caller scope in the reviewed contract. |
 | Capture | `POST /internal/v1/billing/reservations/{reservationId}/capture` | Billing-domain operation on the completion path; idempotent replay must not debit twice. |
 | Release | `POST /internal/v1/billing/reservations/{reservationId}/release` | Release only when the terminal business rule is satisfied; replay must not release twice. |
 
-Candidate reserve request fields are `analysisId`, `tenantId`, `actorAccountId`, `patientId`, `billingOwner` (`type`, `id`), `units` (1), and `generation` (integer >= 1). The candidate contract also specifies a UUID `Idempotency-Key` and `X-Correlation-Id` with a maximum length of 64. These are candidate contract fields, not a claim that the endpoint has been integrated end-to-end.
+Reserve request fields are `analysisId`, `tenantId`, `actorAccountId`, `patientId`, `billingOwner` (`type`, `id`), `units` (1), and `generation` (integer >= 1). The implementation contract also specifies a UUID `Idempotency-Key` and `X-Correlation-Id` with a maximum length of 64. These are implemented wire fields; executed scope and remaining gaps are distinguished in section8.
 
 Before an implementation is accepted, confirm the exact auth audience/issuer, allowed service identity, reserve/read/release scopes, owner-resolution source, correlation behavior, and all required fields against the reviewed OpenAPI and service-token registry. Do not invent scope names or broaden service-token permissions just to make a test pass.
 
@@ -48,7 +50,7 @@ Before an implementation is accepted, confirm the exact auth audience/issuer, al
 
 Analysis Event 0.6 documents `analysis.completed` as the signal for Billing capture. It documents `analysis.failed` as a release signal only when `retryable=false`. The consumer must also use the authoritative business state/result validity and the reservation state; an event name alone must not override those checks.
 
-**Important boundary:** the SCRUM-306 OpenAPI draft states that the current `analysis-api` service identity is not authorized for the HTTP capture route; the route is kept as an internal Billing interface for the Billing-domain consumer. Therefore, do not design the Analysis API to call capture over HTTP unless the service registry and reviewed contract are explicitly changed. Prefer the approved Billing-owned event-consumer/domain path.
+**Important boundary:** the baseline Billing OpenAPI states that the current `analysis-api` service identity is not authorized for the HTTP capture route; the route is kept as an internal Billing interface for the Billing-domain consumer. Therefore, do not design the Analysis API to call capture over HTTP unless the service registry and reviewed contract are explicitly changed. Prefer the approved Billing-owned event-consumer/domain path.
 
 Event 0.6 does not provide an approved basis here for assuming `reservationId` or `generation` has been added to the event. The implementation must resolve the correct Billing reservation through a durable, unambiguous Billing-side association using only identifiers actually present in the approved event/REST contract. If a duplicate/out-of-order event cannot be matched to one reservation/generation unambiguously, hold for reconciliation and raise a contract gap; do not guess or capture a different generation.
 
@@ -62,7 +64,7 @@ Recommended behavior:
 
 ## 5. Error and retry handling
 
-| Condition in candidate Billing API | Contract expectation for caller/consumer |
+| Condition in Billing API | Contract expectation for caller/consumer |
 |---|---|
 | `401` / `403` | Authentication/authorization or scope problem. Do not retry indefinitely and do not bypass by granting broader scopes without approval. |
 | `402` insufficient credit | Reject the analysis before accepted processing; verify balance/ledger did not change except for the documented rejected attempt. |
@@ -88,25 +90,25 @@ The reservation lifecycle is `RESERVED` → one terminal state (`CAPTURED` or `R
 - Do not log access tokens, secrets, patient images or unnecessary patient-identifying data in billing events/logs.
 - Do not claim sandbox/provider payment behavior is available until it is implemented and supported by runtime evidence.
 
-## 8. Integration test matrix — planned, not executed by this document
+## 8. Integration matrix — reported execution and remaining scope
 
-| ID | Scenario | Expected evidence | Initial status |
+| ID | Scenario | Expected evidence | Current scoped result (2026-10-24) |
 |---|---|---|---|
-| S307-BILL-01 | New reserve request | `201`; one `RESERVED` record and one reservation/ledger effect according to schema | PLANNED / NOT RUN |
-| S307-BILL-02 | Exact replay with same idempotency key and payload | `200` replay; same reservation; no duplicate debit/reserve effect | PLANNED / NOT RUN |
-| S307-BILL-03 | Reuse key with changed payload | Conflict; no second reservation; exact error code confirmed with contract owner | PLANNED / NOT RUN |
-| S307-BILL-04 | Insufficient credit | `402`; Analysis not accepted; no unintended balance/ledger mutation | PLANNED / NOT RUN |
-| S307-BILL-05 | Missing/wrong service identity, tenant, owner or scope | `401`/`403`; no cross-tenant access or wallet selection by caller | PLANNED / NOT RUN |
-| S307-BILL-06 | Concurrent duplicate reserve | One logical reservation under the agreed uniqueness constraint | PLANNED / NOT RUN |
-| S307-BILL-07 | Completion event replay/out of order | Only the correct generation can be captured; duplicate event has no duplicate ledger effect | PLANNED / NOT RUN |
-| S307-BILL-08 | Retryable `analysis.failed` | Reservation remains pending/reserved; no premature release | PLANNED / NOT RUN |
-| S307-BILL-09 | Confirmed terminal failure / LOW_QUALITY | Release once; valid `COMPLETED` result must not be released | PLANNED / NOT RUN |
-| S307-BILL-10 | Capture then release, or release then capture | `409 ERR_RESERVATION_STATE_CONFLICT`; terminal state unchanged | PLANNED / NOT RUN |
-| S307-BILL-11 | Reconciliation threshold while Analysis is processing/unavailable | Reservation remains pending; no timer-only release | PLANNED / NOT RUN |
-| S307-BILL-12 | Confirmed aborted analysis after reconciliation | Release once with traceable evidence | PLANNED / NOT RUN |
-| S307-BILL-13 | TEST/mock request reaches LIVE boundary | LIVE ledger/capture remains unchanged | PLANNED / NOT RUN |
-| S307-BILL-14 | Analysis API tries HTTP capture with current service registry | Denied as currently configured; Billing-owned consumer/domain path is used unless an approved contract change says otherwise | PLANNED / NOT RUN |
-| S307-BILL-15 | Analysis REST/Event/Job schema baseline and event-to-reservation correlation | Keep approved schema version 0.6 unchanged; if existing identifiers cannot map one reservation/generation unambiguously, block the transition and record a contract gap | PLANNED / NOT RUN |
+| S307-BILL-01 | New reserve request | `201`; one `RESERVED` record and one reservation/ledger effect according to schema | PARTIAL — reserve creation verified before6E and repository6D; new-image HTTP201 NOT RUN |
+| S307-BILL-02 | Exact replay with same idempotency key and payload | `200` replay; same reservation; no duplicate debit/reserve effect | PASS — new-image HTTP replay6F, original ID/time and no data changes |
+| S307-BILL-03 | Reuse key with changed payload | Conflict; no second reservation; exact error code confirmed with contract owner | PASS — new-image HTTP409 ERR_IDEMPOTENCY_CONFLICT6F |
+| S307-BILL-04 | Insufficient credit | `402`; Analysis not accepted; no unintended balance/ledger mutation | PARTIAL — Analysis HTTP402/abort5M and repository6D; direct new-image Billing402 NOT RUN |
+| S307-BILL-05 | Missing/wrong service identity, tenant, owner or scope | `401`/`403`; no cross-tenant access or wallet selection by caller | PARTIAL — scope/missing-bearer/missing-patient HTTP6F PASS; full actor/tenant/Clinic matrix NOT RUN |
+| S307-BILL-06 | Concurrent duplicate reserve | One logical reservation under the agreed uniqueness constraint | PARTIAL — controlled same-key and distinct-key repository concurrency6D PASS; new-image HTTP concurrency NOT RUN |
+| S307-BILL-07 | Completion event replay/out of order | Only the correct generation can be captured; duplicate event has no duplicate ledger effect | NOT RUN — event consumer/completion correlation not implemented by these checks |
+| S307-BILL-08 | Retryable `analysis.failed` | Reservation remains pending/reserved; no premature release | NOT RUN — retryable Analysis failure consumer path |
+| S307-BILL-09 | Confirmed terminal failure / LOW_QUALITY | Release once; valid `COMPLETED` result must not be released | PARTIAL — repository release/replay6D PASS; authoritative terminal/LOW_QUALITY event path NOT RUN |
+| S307-BILL-10 | Capture then release, or release then capture | `409 ERR_RESERVATION_STATE_CONFLICT`; terminal state unchanged | PARTIAL — repository terminal conflict/race6D PASS; HTTP terminal-state409 NOT RUN |
+| S307-BILL-11 | Reconciliation threshold while Analysis is processing/unavailable | Reservation remains pending; no timer-only release | NOT RUN — 15-minute reconciliation protocol |
+| S307-BILL-12 | Confirmed aborted analysis after reconciliation | Release once with traceable evidence | NOT RUN — authoritative abort-to-release reconciliation |
+| S307-BILL-13 | TEST/mock request reaches LIVE boundary | LIVE ledger/capture remains unchanged | NOT RUN — targeted TEST/mock-to-LIVE boundary |
+| S307-BILL-14 | Analysis API tries HTTP capture with current service registry | Denied as currently configured; Billing-owned consumer/domain path is used unless an approved contract change says otherwise | PARTIAL — issuer denies capture and wrong-scope HTTP4036F PASS; Billing consumer NOT RUN |
+| S307-BILL-15 | Analysis REST/Event/Job schema baseline and event-to-reservation correlation | Keep approved schema version 0.6 unchanged; if existing identifiers cannot map one reservation/generation unambiguously, block the transition and record a contract gap | PARTIAL — source/schema baseline pinned; event-to-generation correlation remains open |
 
 Record actual results only after execution. Every run should record commit SHA, environment, command/test name, result, relevant logs with secrets/PHI redacted, and an evidence location. `PLANNED` or `NOT RUN` is not a pass. Existing frontend/mock tests do not establish service-to-service authorization, event-consumer, reconciliation or Billing end-to-end acceptance.
 
@@ -122,7 +124,7 @@ Record actual results only after execution. Every run should record commit SHA, 
 
 - Analysis baseline: https://nguyentruonghau2202.atlassian.net/wiki/spaces/XPMHIT/pages/1736808/Analysis+Contract+Baseline+W1+v0.2+REST+0.6.0+Event+Job+0.6
 - Worker–AI Core contract: https://nguyentruonghau2202.atlassian.net/wiki/spaces/XPMHIT/pages/4718651/c+t+h+p+ng+t+ch+h+p+Worker+AI+Core+v1.0+SCRUM-310
-- Billing schema/API candidate PR #54: https://github.com/CattyGame/XD-PMHDT/pull/54
+- Billing schema/API provenance PR #54: https://github.com/CattyGame/XD-PMHDT/pull/54
 - Billing policy SCRUM-305 v0.3: https://nguyentruonghau2202.atlassian.net/wiki/spaces/XPMHIT/pages/5406727/SCRUM-305+Ch+nh+s+ch+v+thi+t+k+Billing+v0.3
 
 ---

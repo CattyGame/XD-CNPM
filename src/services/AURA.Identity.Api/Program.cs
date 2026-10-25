@@ -38,6 +38,9 @@ builder.Services.AddHttpClient("ProfileClient", (sp, client) =>
 
 var app = builder.Build();
 
+// Validate provisioned service-auth material before health or business routes start.
+_ = app.Services.GetRequiredService<ServiceTokenIssuer>();
+
 app.UseExceptionHandler();
 
 if (app.Environment.IsDevelopment())

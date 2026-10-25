@@ -82,6 +82,7 @@ paths:
         trước job/hold credit. accepted items thông thường ở QUEUED sau transaction chứa Job/Outbox; replay không
         biến item cũ thành DUPLICATE.'
       parameters:
+      - $ref: '#/components/parameters/ClinicContext'
       - $ref: '#/components/parameters/IdempotencyKey'
       - $ref: '#/components/parameters/CorrelationId'
       requestBody:
@@ -118,6 +119,20 @@ paths:
                       processingStatus: QUEUED
                     createdAt: '2026-10-08T03:15:00Z'
                     statusUrl: /api/v1/batches/b0000000-0000-4000-8000-000000000001
+                duplicate:
+                  value:
+                    batchId: b0000000-0000-4000-8000-000000000002
+                    items:
+                    - analysisId: 3f6c1d52-8a41-4c5e-9b0a-6d2f7a1e0003
+                      fileName: duplicate.png
+                      processingStatus: DUPLICATE
+                      existingAnalysisId: 3f6c1d52-8a41-4c5e-9b0a-6d2f7a1e0001
+                      error:
+                        code: ERR_DUPLICATE_REQUEST
+                        message: Ảnh đã được gửi trước đó.
+                        retryable: false
+                    createdAt: '2026-10-24T03:15:00Z'
+                    statusUrl: /api/v1/batches/b0000000-0000-4000-8000-000000000002
         '400':
           $ref: '#/components/responses/ValidationError'
         '401':
@@ -646,6 +661,7 @@ paths:
       operationId: getBatch
       summary: Trạng thái từng ảnh trong batch
       parameters:
+      - $ref: '#/components/parameters/ClinicContext'
       - name: batchId
         in: path
         required: true
@@ -739,6 +755,7 @@ paths:
       - DOCTOR
       - CLINIC_ADMIN
       parameters:
+      - $ref: '#/components/parameters/ClinicContext'
       - $ref: '#/components/parameters/AnalysisId'
       - name: fileId
         in: path
@@ -776,6 +793,14 @@ components:
       description: 'JWT đã xác minh từ Identity: sub, tenantId và role đối với người dùng hoặc scope đối với service.
         Không tin tenant client gửi. analysis:ingest chỉ cấp cho service tạo analysis trong tenant được phép.'
   parameters:
+    ClinicContext:
+      name: clinicContextId
+      in: query
+      required: false
+      description: Optional clinic selector; Profile must authorize patient/assignment/tenant. This value grants no permission.
+      schema:
+        type: string
+        format: uuid
     AnalysisId:
       name: analysisId
       in: path
@@ -1170,6 +1195,10 @@ components:
         analysisId:
           type: string
           format: uuid
+        existingAnalysisId:
+          type: string
+          format: uuid
+          description: Có khi processingStatus là DUPLICATE; ID phân tích gốc trong phạm vi dedupe đã được kiểm quyền. Không tự cấp quyền đọc resource được tham chiếu.
         fileName:
           type: string
         processingStatus:

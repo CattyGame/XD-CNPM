@@ -213,7 +213,7 @@ BEGIN
     END LOOP;
 
     FOREACH table_name IN ARRAY ARRAY[
-        'analysis_results', 'doctor_reviews', 'audit_logs'
+        'analysis_results', 'doctor_reviews', 'audit_logs', 'upload_recovery_operations'
     ]
     LOOP
         IF to_regclass(format('analysis.%I', table_name)) IS NOT NULL THEN
@@ -226,6 +226,15 @@ BEGIN
     END LOOP;
 END
 $$;
+
+-- Recovery plans/bindings are immutable; only lifecycle/checkpoint columns may change.
+DO $$ BEGIN
+    IF to_regclass('analysis.upload_recovery_attempts') IS NOT NULL THEN
+        REVOKE UPDATE, DELETE ON analysis.upload_recovery_attempts FROM aura_analysis_app;
+        GRANT UPDATE (revision,phase,effects,abort_reason,updated_at)
+            ON analysis.upload_recovery_attempts TO aura_analysis_app;
+    END IF;
+END $$;
 
 -- SCRUM-306: restrict runtime access to Billing financial records.
 -- Keep the ledger append-only and limit updates to lifecycle/balance columns.

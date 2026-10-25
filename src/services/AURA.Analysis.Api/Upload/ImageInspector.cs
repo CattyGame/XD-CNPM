@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Security.Cryptography;
+using SkiaSharp;
 
 namespace AURA.Analysis.Api.Upload;
 
@@ -15,21 +16,52 @@ public sealed record InspectionOutcome(ImageInspection? Image, ImageProblem? Pro
 }
 
 /// <summary>
-/// Kiểm tra JPEG/PNG theo header, giới hạn kích thước/pixel và checksum SHA-256.
-/// Với PNG, kiểm tra CRC32 của mọi chunk và cấu trúc IEND; chưa giải mã JPEG/IDAT đầy đủ.
-/// Vì vậy CRC hợp lệ không đồng nghĩa dữ liệu nén chắc chắn giải mã được.
+/// Check byte/pixel limits, PNG CRC/framing, then decode all image pixels with Skia.
+/// Hash and store the original bytes; do not resize, re-encode or apply EXIF rotation here.
 /// </summary>
 public static class ImageInspector
 {
     private static readonly byte[] PngSignature = { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A };
 
+    private const long HardMaxBytes = 10_485_760;
+    private const long HardMaxPixels = 16_000_000;
+    private static readonly SemaphoreSlim DecodeSlots = new(2, 2);
+
     public static async Task<InspectionOutcome> InspectAsync(Stream stream, string? declaredContentType,
         UploadOptions options, CancellationToken ct = default)
     {
-        if (!stream.CanSeek)
-            throw new ArgumentException("Stream phải hỗ trợ seek.", nameof(stream));
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(options);
+        ct.ThrowIfCancellationRequested();
+        if (!stream.CanRead || !stream.CanSeek)
+            throw new ArgumentException("Stream phải hỗ trợ read và seek.", nameof(stream));
+        if (options.MaxImageBytes is <= 0 or > HardMaxBytes || options.MaxImagePixels is <= 0 or > HardMaxPixels)
+            throw new ArgumentOutOfRangeException(nameof(options), "Image limits must stay within the Sprint 2 byte/pixel ceilings.");
+        await DecodeSlots.WaitAsync(ct);
+        try
+        {
+            long size = stream.Length;
+            if (size == 0) return InspectionOutcome.Fail(400, "ERR_VALIDATION", "empty");
+            if (size > options.MaxImageBytes) return InspectionOutcome.Fail(413, "ERR_PAYLOAD_TOO_LARGE", "too_large");
+            stream.Position = 0;
+            // Snapshot a bounded input once. Header, decoder and hash see identical bytes.
+            var bytes = new byte[checked((int)size)];
+            try { await stream.ReadExactlyAsync(bytes, ct); }
+            catch (EndOfStreamException) { return InspectionOutcome.Fail(400, "ERR_VALIDATION", "corrupt"); }
+            using var snapshot = new MemoryStream(bytes, writable: false);
+            return await InspectSnapshotAsync(snapshot, declaredContentType, options, bytes, ct);
+        }
+        finally
+        {
+            try { stream.Position = 0; }
+            finally { DecodeSlots.Release(); }
+        }
+    }
 
-        long size = stream.Length;
+    private static async Task<InspectionOutcome> InspectSnapshotAsync(Stream stream, string? declaredContentType,
+        UploadOptions options, byte[] bytes, CancellationToken ct)
+    {
+        long size = bytes.Length;
         if (size == 0) return InspectionOutcome.Fail(400, "ERR_VALIDATION", "empty");
         if (size > options.MaxImageBytes) return InspectionOutcome.Fail(413, "ERR_PAYLOAD_TOO_LARGE", "too_large");
 
@@ -69,10 +101,36 @@ public static class ImageInspector
         if ((long)width * height > options.MaxImagePixels)
             return InspectionOutcome.Fail(413, "ERR_PAYLOAD_TOO_LARGE", "pixels_exceeded");
 
-        stream.Position = 0;
-        var hash = await SHA256.HashDataAsync(stream, ct);
-        stream.Position = 0;
-        return InspectionOutcome.Ok(new ImageInspection(mime, width, height, size, Convert.ToHexString(hash).ToLowerInvariant()));
+        ct.ThrowIfCancellationRequested();
+        if (!DecodeAllPixels(bytes, mime, width, height))
+            return InspectionOutcome.Fail(400, "ERR_VALIDATION", "corrupt");
+        // A native decode is synchronous: cancellation is observed before and after it, not by abandoning a live decoder.
+        ct.ThrowIfCancellationRequested();
+        var hash = SHA256.HashData(bytes);
+        return InspectionOutcome.Ok(new ImageInspection(mime, width, height, size, Convert.ToHexStringLower(hash)));
+    }
+
+    private static bool DecodeAllPixels(byte[] bytes, string mime, int width, int height)
+    {
+        try
+        {
+            using var encoded = SKData.CreateCopy(bytes);
+            using var codec = SKCodec.Create(encoded);
+            if (codec is null || codec.Info.Width != width || codec.Info.Height != height
+                || codec.EncodedFormat != (mime == "image/png" ? SKEncodedImageFormat.Png : SKEncodedImageFormat.Jpeg)
+                || codec.FrameCount > 1) return false;
+            // Four bytes per pixel, at most 64,000,000 output bytes. The header limit is checked before allocation.
+            var info = new SKImageInfo(width, height, SKColorType.Rgba8888, SKAlphaType.Premul);
+            using var bitmap = new SKBitmap();
+            if (!bitmap.TryAllocPixels(info)) throw UploadFailure.Dependency("image decoder");
+            // IncompleteInput can provide a partial bitmap. Only a complete, successful decode is accepted.
+            return codec.GetPixels(info, bitmap.GetPixels(), bitmap.RowBytes, SKCodecOptions.Default) == SKCodecResult.Success;
+        }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException or TypeInitializationException)
+        {
+            // A missing/incompatible native runtime is a server dependency error, not corrupt user input.
+            throw UploadFailure.Dependency("image decoder");
+        }
     }
 
     private static async Task<int> ReadUpToAsync(Stream s, byte[] buf, CancellationToken ct)

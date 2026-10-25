@@ -36,6 +36,9 @@ builder.Services.AddSingleton<ServiceTokenValidator>();
 
 var app = builder.Build();
 
+// Validate provisioned service-auth material before health or business routes start.
+_ = app.Services.GetRequiredService<ServiceTokenValidator>();
+
 app.UseExceptionHandler();
 
 if (app.Environment.IsDevelopment())

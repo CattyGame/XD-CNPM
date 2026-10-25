@@ -1,64 +1,46 @@
-# AURA Frontend — Component Usage
+# AURA Frontend — Component Usage hiện tại (8M)
 
-## 1. LoginPage
+## Session provider và route
 
-**File:** `src/pages/LoginPage.tsx`
+`BackendSessionProvider` phải bọc router và các trang tài khoản thật. Provider giữ một store; `onAuthStateChanged` dẫn tới xác nhận Identity/Profile. Không tạo một Firebase observer khác ở trang chủ hoặc ProtectedRoute.
 
-**Chức năng:** Cung cấp giao diện đăng nhập Firebase Authentication.
+`ApplicationRoutes` là bảng route được `main.tsx` sử dụng thực tế. `/login` công khai; `/`, `/upload`, `/demo/*` được bảo vệ theo session ready. `/router-demo/*` chỉ là khu vực kiểm thử router/component có nhãn giả lập. URL không có route trả NotFoundPage.
 
-- Đăng nhập bằng Email và mật khẩu.
-- Đăng nhập bằng Google.
-- Duy trì phiên đăng nhập.
-- Hiển thị thông báo lỗi khi xác thực thất bại.
-- Điều hướng về trang chủ sau khi đăng nhập thành công.
+## SessionHomePage
 
-**Phụ thuộc:** `firebase/auth`, `getFirebaseAuth()`, `react-router-dom`.
+File: `src/pages/SessionHomePage.tsx`.
 
-**Kiểm thử:** `src/pages/LoginPage.test.tsx` — 2 tests passed.
+Lấy displayName và toàn bộ roles từ `useBackendSession()`. ROLE_LABELS chỉ đổi nhãn hiển thị, không tự gán hoặc nâng quyền. Không hiện Firebase UID, account/patient/tenant ID, giá trị risk hoặc số hồ sơ demo. Trang chủ không gọi API, không polling và không tự mở Notification/FCM demo.
 
-## 2. UploadPage
+Link `/upload` chỉ hiển thị theo cùng `canUploadPersonal` của UploadPage: có PATIENT và không SYSTEM_ADMIN. Link giao diện không thay thế authorization của API. Doctor có thêm PATIENT vẫn dùng được hồ sơ cá nhân; doctor-only/Clinic cần luồng riêng.
 
-**File:** `src/pages/UploadPage.tsx`
+Nút Đăng xuất gọi `logout()` của context. Không gọi signOut/navigate trực tiếp từ trang này. Session loading/error làm mất UI tài khoản cũ; ProtectedRoute chỉ điều hướng login khi anonymous. Lỗi signOut dùng BackendSessionNotice và cho người dùng chủ động thử lại.
 
-**Chức năng:** Chọn và gửi ảnh võng mạc đến Backend AURA.
+## LoginPage
 
-**Dữ liệu nhập:**
+Email/mật khẩu và Google qua Firebase SDK, browserLocalPersistence hiện có. Sau Firebase login, chờ store xác nhận `POST /api/v1/identity/bootstrap` và `GET /api/v1/profiles/me`; Firebase user chưa đủ để mở UI thật. Khi backend-ready, điều hướng `/` tới trang chủ thật.
 
-| Trường | Mô tả |
+Không ghi password/token vào log, storage của workspace hoặc dữ liệu gửi backend. Firebase SDK quản lý persistence của nó; ứng dụng không bổ sung cache token/profile.
+
+## UploadPage
+
+| Trường | Nguồn |
 | --- | --- |
-| patientId | UUID của bệnh nhân |
-| eyeSide | `left`, `right`, `unknown` |
-| images | Một hoặc nhiều ảnh JPEG/PNG |
-| modality | Giá trị cố định `FUNDUS` |
+| patientId | BackendContext đã xác nhận, không có ô nhập tay |
+| modality | FUNDUS |
+| eyeSide | Người dùng chọn left/right/unknown |
+| images | 1..100 JPEG/PNG, mỗi ảnh tối đa 10 MiB và 16 triệu pixel |
+| Authorization | Firebase ID token của đúng phiên tại thời điểm gửi |
+| Idempotency-Key | UUID bất biến của một lượt gửi |
 
-**Kiểm tra phía Frontend:**
+`personalUploadWorkspace` giữ draft trong bộ nhớ của đúng context. `sendUploadAttempt` gửi cùng-origin multipart POST `/api/v1/analyses`, deadline 60 giây; không follow redirect hoặc gửi service token. Timeout/lỗi chưa rõ giữ key/payload, không tự gửi lại hoặc cho tạo lượt mới để bỏ qua kết quả cũ. 202 phải khớp receipt contract trước khi hiển thị tiếp nhận; không suy ra đã có kết quả AI.
 
-- Tối đa 100 ảnh.
-- Tối đa 10 MB mỗi ảnh.
-- Tối đa 16 triệu pixel mỗi ảnh.
-- Yêu cầu đăng nhập trước khi gửi ảnh.
+## Khu vực minh họa
 
-**API:** `POST /api/v1/analyses`.
+`App.tsx` giữ Dashboard/component demo cũ ở `/demo/*`, có banner nêu rõ role/data giả lập. `AppRouter` và roleMenus của demo vẫn ở `/router-demo/*`. Không dùng demoUserRole làm BackendContext hay gọi đó là quyền thật.
 
-**Headers:** `Authorization: Bearer <Firebase ID Token>` và `Idempotency-Key`.
+## Kiểm thử
 
-**Body:** `multipart/form-data`.
+Chạy `npm test`, `npm run lint`, `npm run build`. Bộ cũ 246 tests vẫn được giữ. Test mới nằm ở `SessionHomePage.test.tsx` và `ApplicationRoutes.test.tsx`; route test dùng đúng ApplicationRoutes, ProtectedRoute, LoginPage và session store, SDK/HTTP được giả lập. App.test.tsx vẫn kiểm thử Dashboard demo riêng.
 
-**Phản hồi thành công:** HTTP 202 với `batchId`, `items`, `createdAt` và `statusUrl`.
-
-**Kiểm thử:** `src/pages/UploadPage.test.tsx` — 17 tests passed.
-
-## 3. Kiểm thử Component
-
-Chạy từ thư mục `src/web/aura-web`:
-
-```powershell
-npm run test -- src/pages/LoginPage.test.tsx
-npm run test -- src/pages/UploadPage.test.tsx
-```
-
-Các bài test sử dụng Firebase mock và API mock, không gửi dữ liệu đến Backend thật.
-
-## 4. Giới hạn
-
-Các bài test hiện tại chưa xác minh quá trình xử lý ảnh thực tế của Backend hoặc AI. Việc nhận HTTP 202 trong mock không đồng nghĩa Backend thật đã tiếp nhận yêu cầu.
+Kiểm thử giả lập không thay cho Firebase/logout/Google, phân quyền backend, batch/file UI hoặc xử lý Worker/AI thật. 8K/8L chứng minh upload cá nhân theo phạm vi evidence, không chứng nhận toàn bộ M5.

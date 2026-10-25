@@ -1,3 +1,49 @@
+# Hiện trạng M5 sau 8L / thay đổi 8M (25/10/2026)
+
+Luồng cá nhân dùng Firebase + backend context đã được xác nhận; giao diện minh họa có đường dẫn riêng. Phần tài liệu lịch sử phía dưới không thay thế mô tả hiện tại ở mục này.
+
+| Route | Hành vi hiện tại |
+| --- | --- |
+| `/login` | Email/Google qua Firebase SDK; chỉ điều hướng khi Identity/Profile xác nhận backend-ready |
+| `/` | `SessionHomePage`: tên và toàn bộ vai trò từ BackendContext; không dùng System Admin, số hồ sơ hoặc risk demo làm dữ liệu tài khoản thật |
+| `/upload` | Upload cá nhân; Patient đủ điều kiện, không SYSTEM_ADMIN; patientId lấy từ context, không nhập tay |
+| `/demo/*` | Dashboard minh họa cũ; cần session ready và có nhãn vai trò/dữ liệu giả lập |
+| `/router-demo/*` | Router/layout/component demo, có nhãn giả lập; demo role không cấp quyền backend |
+| `/403`, `/500`, route không tồn tại | Trang lỗi riêng; URL lạ không rơi vào Dashboard demo |
+
+Trang chủ gọi `logout()` của session chung. Store hủy context load, ẩn danh tính cũ ngay khi bắt đầu sign-out; chỉ trạng thái anonymous dẫn tới `/login`. Lỗi sign-out hiển thị notice chuẩn và không giả vờ đã đăng xuất. `ProtectedRoute` tiếp tục chặn truy cập/Back vào trang cần đăng nhập.
+
+### API mapping hiện tại
+
+| Hành động | Đường gọi |
+| --- | --- |
+| Đăng nhập Email/Google | Firebase SDK; mật khẩu/token không ghi vào log ứng dụng |
+| Xác nhận tài khoản | `POST /api/v1/identity/bootstrap` với Firebase ID token |
+| Xác nhận profile | `GET /api/v1/profiles/me`, đối chiếu account/patient/personal tenant/roles/version |
+| Hiển thị trang chủ | Đọc context chung; không tự fetch, polling, mở listener thông báo hay gửi ảnh |
+| Upload | Cùng-origin `POST /api/v1/analyses`; FUNDUS, eyeSide và patientId từ draft/context; một UUID cố định cho một lượt gửi |
+| Logout | `BackendSession.logout()` → Firebase `signOut()`; không thêm endpoint logout backend |
+
+Upload giữ nguyên key/ảnh/metadata khi kết quả chưa rõ; không tự retry/poll, đổi key, refill/capture/release hay gọi Worker/AI. 202 hợp lệ chỉ là tiếp nhận/QUEUED; `statusUrl` chưa được tự gọi từ UI. Xem [m5_personal_upload.md](../../../docs/development/m5_personal_upload.md).
+
+### Bằng chứng và giới hạn
+
+Trước 8M: người dùng đã chạy 12 file / 246 tests, lint 0 warning/error và build PASS. UI402 (8H v2), UI202/QUEUED (8K v2, fixture TEST cô lập) và review closeout 8L đã PASS theo log; nguồn gốc và phạm vi được giữ trong evidence `.aura/checks`, không chép token, profile body hoặc ảnh vào README.
+
+8M đã kiểm tra trong môi trường dựng gói: 14 file / 277 tests PASS, lint sạch và TypeScript/Vite build PASS. 8M bổ sung kiểm thử khởi động main.tsx, trang chủ/route và wiring logout với Firebase giả lập; kiểm tra thành công, thất bại, pending callback và Back sau logout. Đây chưa là nghiệm thu nút logout với Firebase thật, Google runtime, toàn bộ RBAC/Clinic, batch-status/file-access UI, Worker/AI hay rollout chính. Bằng chứng 8K/8L vẫn thuộc source202; source mới của 8M có checkpoint riêng. Không chạy lại runner baseline cũ sau khi apply.
+
+Chạy từ `src/web/aura-web`:
+
+```powershell
+npm test
+npm run lint
+npm run build
+```
+
+Hướng dẫn component hiện tại: [docs/component-usage.md](docs/component-usage.md). Chi tiết 8M và phạm vi Jira: [m5_session_home.md](../../../docs/development/m5_session_home.md).
+
+---
+
 # AURA Web
 
 Frontend AURA sử dụng React, TypeScript và Vite.
@@ -242,7 +288,10 @@ Nhánh fix/sprint1-m2-m5-completion; thay đổi chưa commit.
 Kết quả 81 test trước đó là bằng chứng của lần chạy trước.
 Kết quả mới không thay thế kiểm thử FCM thật, phân quyền
 backend, usability/accessibility hoặc nghiệm thu NFR.
-## Cập nhật SCRUM-313 — Kiểm thử và tài liệu Frontend
+## Lịch sử SCRUM-313 — Kiểm thử ngày 2026-10-17
+
+Mục dưới đây ghi kết quả lịch sử, gồm patientId nhập tay và mock-only. Luồng hiện tại lấy patient từ context đã xác nhận; xem mục 8M ở đầu tệp và tài liệu m5_personal_upload.md.
+
 
 Ngày kiểm thử: 2026-10-17.
 

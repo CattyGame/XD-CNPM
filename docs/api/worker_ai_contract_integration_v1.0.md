@@ -1,36 +1,47 @@
-# ĐẶC TẢ HỢP ĐỒNG TÍCH HỢP WORKER — AI CORE (AURA MODULE M4 — M2)
+# Hợp đồng tích hợp Worker–AI Core — Sprint 2
 
-> **Dự án**: AURA — AI Retinal Analysis Platform
-> **Mã công việc Jira**: SCRUM-310 (W2-M4-03)
-> **Người biên soạn**: Đào Duy Quân (quandd2937@ut.edu.vn — M4: AI Engineer & NiFi)
-> **Phối hợp kỹ thuật**: Võ Hữu Duy (M2 — Analysis Service & Worker)
-> **Người duyệt**: Nguyễn Trương Hậu (M1 — Tech Lead)
-> **Phiên bản tài liệu**: v1.0.0
-> **Ngày hiệu lực**: 16/10/2026 (Khóa chuẩn Sprint 2)
-> **Tài liệu căn cứ**: `AURA_Sprint2_Contract_Cau_hinh_chung_v1.0.md` (Mục 9)
+> Dự án AURA · SCRUM-310 (W2-M4-03)
+> Biên soạn ban đầu: Đào Duy Quân (M4); phối hợp: Võ Hữu Duy (M2).
+> Bản rà soát 1.0.1 · 2026-10-24 · Git baseline 87af21d cùng local closeout patches.
 
----
+## 1. Phạm vi và bằng chứng
 
-## 1. Mục đích và nguyên tắc kiến trúc
+Đây là đặc tả bàn giao cho Worker. M4 cung cấp endpoint mock và module
+preprocessing riêng; endpoint hiện gọi `process_mock_analysis`, chưa gọi
+`preprocess_fundus_image`. Không suy diễn đặc tả Worker, retry hoặc Billing
+trong tài liệu này là luồng đã chạy.
 
-Tài liệu này chuẩn hóa giao thức giao tiếp nội bộ giữa **Analysis Worker** (phía backend M2) và **AI Core Service** (phía M4).
-- **Phạm vi mạng**: Hoàn toàn nội bộ trong mạng Docker `aura_network`. Endpoint: `http://ai-core:8000/api/v1/analyze`.
-- **Bảo mật & Phân quyền**: Trình duyệt và API Gateway tuyệt đối **không được định tuyến công khai** tới endpoint `/api/v1/analyze`.
-- **Khử định danh (De-identification)**: Worker gửi `patient_id: null` mặc định sang AI Core nhằm bảo vệ danh tính bệnh nhân theo tiêu chuẩn an toàn dữ liệu y tế. AI Core không sử dụng `patient_id` để cấp quyền.
+Nguồn đối chiếu: `src/ai-core/app/main.py`, `app/schemas/analysis.py`,
+`app/schemas/common.py`, `app/services/mock_service.py`,
+`contracts/ai_service_openapi.yaml` / `.json` và `contracts/analysis-openapi.yaml`.
+AI API version là `1.1.0`; service version `0.1.0`; model mock `mock-v0.1`.
+Ba version này có ý nghĩa khác nhau.
 
----
+Người thực hiện xác nhận 7A: 58/58 preprocessing tests PASS; 7B: toàn bộ AI
+suite, OpenAPI sync `--check` và `git diff --check` PASS. Log 7B gửi lại chỉ
+chứa kết quả tổng hợp, không ghi số test; không tự điền số lượng.
+Đây là kiểm thử source/TestClient, chưa phải kiểm chứng Worker hoặc image
+AI đang chạy. Checklist 43/43 trong bản cũ là ghi nhận lịch sử, đã được thay
+bằng phạm vi bằng chứng ở đây.
 
-## 2. Đặc tả Giao thức Yêu cầu (Request Specification)
+## 2. Request và quyền truy cập
 
-### 2.1. Cấu trúc HTTP Request
-- **Method**: `POST`
-- **URL**: `http://ai-core:8000/api/v1/analyze`
-- **Headers**:
-  - `Content-Type: application/json`
-  - `X-Correlation-Id: <UUID>` (Truyền xuyên suốt từ Gateway $\rightarrow$ Analysis $\rightarrow$ Worker $\rightarrow$ AI Core)
-  - `User-Agent: AURA.Analysis.Worker/0.6.0`
+- Endpoint nội bộ: `POST http://ai-core:8000/api/v1/analyze`.
+- Mạng dependency đã xác minh tại máy kiểm tra: `aura_aura_network`.
+  Đây là tên Docker network thực tế; không nhầm với key mạng trong Compose.
+- Không thêm route Gateway công khai tới endpoint AI. Cổng host loopback dùng
+  phát triển không phải bằng chứng endpoint có service authentication.
+- Worker phải tự xác minh quyền ở Analysis/Profile trước khi lấy ảnh.
+  AI không dùng `patient_id` để cấp quyền. Gửi `patient_id: null` giảm thông
+  tin định danh trong payload; riêng thao tác này không chứng minh ảnh đã
+  được khử định danh hoặc đáp ứng một tiêu chuẩn y tế/pháp lý.
+- Không log Base64, ảnh, bearer token, SAS hoặc connection string.
 
-### 2.2. Chi tiết Payload đầu vào (JSON)
+Headers dự kiến của Worker: `Content-Type: application/json`,
+`X-Correlation-Id: <UUID>` và User-Agent có version của Worker thực tế.
+`main.py` hiện chưa đọc/echo/persist `X-Correlation-Id`; truyền header không
+chứng minh correlation đã được nối xuyên luồng. Worker phải kiểm tra
+`response.request_id` trùng request, không dùng trường này thay kiểm soát tenant.
 
 ```json
 {
@@ -39,90 +50,88 @@ Tài liệu này chuẩn hóa giao thức giao tiếp nội bộ giữa **Analys
   "mode": "retina_vessels",
   "modality": "FUNDUS",
   "eye_side": "left",
-  "image_base64": "<Chuỗi Base64 ảnh JPEG/PNG lấy từ Private Storage>",
+  "image_base64": "<Base64 PNG/JPEG lấy từ private storage>",
   "include_mask": true,
   "include_overlay": true
 }
 ```
 
-| Trường | Kiểu dữ liệu | Bắt buộc | Ràng buộc & Quy tắc nghiệp vụ |
-| :--- | :--- | :---: | :--- |
-| `request_id` | String (UUID) | Có | Là `analysisId` chuỗi. Khi Worker retry, **phải giữ nguyên `analysisId`** này để AI nhận biết cùng một phiên phân tích. |
-| `patient_id` | String hoặc null | Không | Gửi `null` theo quy định bảo mật khử định danh. |
-| `mode` | String | Có | Bắt buộc là `"retina_vessels"`. Giá trị khác trả mã HTTP `422 UNSUPPORTED_MODE`. |
-| `modality` | String | Có | Bắt buộc là `"FUNDUS"`. Nếu nhận `"OCT"` trả HTTP `422 UNSUPPORTED_MODALITY`. |
-| `eye_side` | String | Có | Nhận `"left"`, `"right"`, hoặc `"unknown"` (chuyển đổi từ `eyeSide` public). |
-| `image_base64` | String | Có | Chuỗi Base64 đọc trực tiếp từ container private `aura-originals`. Không log nội dung chuỗi này vào file log hay outbox. |
-| `include_mask` | Boolean | Không | Mặc định `true` khi Worker cần lưu file phân đoạn nhị phân (`aura-annotations`). |
-| `include_overlay` | Boolean | Không | Mặc định `true` khi Worker cần lưu file lớp phủ thị giác cho bác sĩ. |
+Đây là template: thay placeholder bằng bytes ảnh tổng hợp khi kiểm thử;
+không dùng placeholder làm ảnh hợp lệ hoặc đưa SAS vào `image_base64`.
 
----
+| Trường | AI schema hiện tại | Quy ước Worker |
+|---|---|---|
+| `request_id` | String bắt buộc; schema không ép UUID | Dùng analysisId UUID; giữ nguyên qua retry. AI echo ID, không cung cấp durable idempotency/cache theo ID. |
+| `image_base64` | String bắt buộc; decoder kiểm tra ảnh | Lấy bytes qua quyền private storage; không log. |
+| `patient_id` | Optional, mặc định null | Gửi null; lưu binding bệnh nhân ở Analysis. |
+| `mode` | Optional, mặc định `retina_vessels` | Gửi rõ `retina_vessels`; mode khác bị từ chối. |
+| `modality` | Optional string, mặc định FUNDUS | Gửi rõ FUNDUS; OCT bị từ chối ở endpoint. |
+| `eye_side` | Optional, mặc định unknown | left / right / unknown theo binding đã xác minh. |
+| `include_mask`, `include_overlay` | Optional bool, mặc định true | Chỉ yêu cầu artifact cần lưu; không tự tạo FileRef cho null. |
 
-## 3. Ma trận Ánh xạ Dữ liệu (AI Core Snake_case $\longrightarrow$ Public CamelCase)
+## 3. Response và ánh xạ sang Analysis
 
-Worker có trách nhiệm ánh xạ chính xác kết quả phân tích từ AI Core sang schema công khai của Analysis Service theo bảng dưới đây:
+Các đường dẫn public dưới đây nằm trong `AnalysisResult`; trạng thái xử lý
+nằm trên `Analysis.processingStatus`. Đây là quy ước triển khai Worker,
+không khẳng định mapper/persistence đã được kiểm thử runtime ở 7B.
 
-| Trường AI Core (nội bộ - snake_case) | Trường Analysis Public (camelCase) | Kiểu dữ liệu | Ý nghĩa & Quy tắc ánh xạ |
-| :--- | :--- | :--- | :--- |
-| `status` | `status` | String | `"SUCCESS"` hoặc `"WARNING"` $\rightarrow$ Analysis chuyển thành `COMPLETED`. |
-| `is_mock` | `isMock` | Boolean | Phản ánh tính chất giả lập. Hiện tại **bắt buộc `true`** theo Sprint 2 baseline. |
-| `model_version` | `modelVersion` | String | Phiên bản mô hình AI (VD: `"mock-v0.1"` hoặc `"frangi-v0.2"`). |
-| `threshold_version`| `thresholdVersion`| String | Phiên bản ngưỡng phân đoạn (VD: `"v0.1"`). |
-| `config_version` | `configVersion` | String | Phiên bản cấu hình thuật toán. |
-| `processing_time_ms`| `processingTimeMs`| Float | Thời gian thực thi đo đạc tại runtime AI Core (ms). |
-| **`vessel_metrics`** | | Object | Các chỉ số hình thái mạch máu võng mạc |
-| `.vessel_density` | `.vesselDensity` | Float | Tỷ lệ diện tích mạch máu trên diện tích FOV (0.0 – 1.0). |
-| `.tortuosity_index`| `.tortuosityIndex`| Float | Chỉ số độ cong uốn lượn của mạch máu. |
-| `.av_ratio` | `.avRatio` | Float | Tỷ lệ đường kính động mạch / tĩnh mạch (AVR). |
-| `.fractal_dimension`| `.fractalDimension`| Float | Chiều fractal đặc trưng cho mức độ phân nhánh vi mạch. |
-| `.branching_points`| `.branchingPoints`| Integer | Số lượng điểm ngã ba phân nhánh của mạng lưới mạch. |
-| **`risk_assessment`** | | Object | Đánh giá nguy cơ tim mạch/đột quỵ sơ bộ |
-| `.risk_score` | `.riskScore` | Float | Điểm số rủi ro chuẩn hóa (0.0 – 1.0). |
-| `.risk_level` | `.riskLevel` | Enum | Mức độ rủi ro: `"LOW"`, `"MEDIUM"`, `"HIGH"`. |
-| `.confidence_score`| `.confidenceScore`| Float | Độ tin cậy của thuật toán (0.0 – 1.0). |
-| `.indicators` | `.indicators` | Array[String]| Danh sách căn cứ chỉ dấu hình thái học. |
-| `.disclaimer` | `.disclaimer` | String | Cảnh báo pháp lý y khoa bắt buộc (không được lược bỏ). |
-| **`segmentation`** | | Object | Dữ liệu nhị phân phân đoạn mạch |
-| `.mask_base64` | `maskFileId` (UUID) | String | Worker giải mã PNG Base64, lưu vào `aura-annotations`, cấp `fileId`. |
-| `.overlay_base64` | `overlayFileId` (UUID)| String | Worker giải mã PNG Base64, lưu vào `aura-annotations`, cấp `fileId`. |
+| AI wire field | Analysis public field | Quy tắc |
+|---|---|---|
+| `request_id` | `Analysis.analysisId` | Đối chiếu binding hiện hữu; không lấy ID tùy ý từ response để tạo quyền. |
+| `status` = SUCCESS hoặc WARNING | `Analysis.processingStatus` = COMPLETED | Chỉ commit khi response/artifact hợp lệ; WARNING không tự thành LOW_QUALITY. |
+| `is_mock` | `isMock` | Giữ true với mock hiện tại. |
+| `model_version`, `threshold_version`, `config_version` | `modelVersion`, `thresholdVersion`, `configVersion` | Giữ nguyên giá trị; không suy ra từ API version. |
+| `processing_time_ms` | `processingTimeMs` | Thời gian component; không phải latency toàn luồng. |
+| `metrics.vessel_density` | `metrics.vesselDensity` | AI dùng `metrics`, không có object `vessel_metrics`. Giá trị hiện là mock. |
+| `metrics.tortuosity_index` | `metrics.tortuosityIndex` | Giữ nhãn mock. |
+| `metrics.av_ratio` | `metrics.avRatio` | Không coi là phép đo AVR đã xác thực. |
+| `metrics.fractal_dimension` | `metrics.fractalDimension` | Không suy ra độ chính xác từ schema parse thành công. |
+| `metrics.branching_points` | `metrics.branchingPoints` | Giữ dữ liệu và provenance. |
+| `risk_assessment.risk_score` | `riskScore` | Public field phẳng, không phải `riskAssessment.riskScore`. |
+| `risk_assessment.risk_level` | `riskLevel` | LOW / MODERATE / HIGH. |
+| `risk_assessment.confidence_score` | `confidenceScore` | Mock, chưa hiệu chuẩn. |
+| `risk_assessment.indicators`, `.disclaimer` | `indicators`, `disclaimer` | Giữ đầy đủ disclaimer, không biến dữ liệu mock thành kết quả thật. |
+| `warnings`, `limitations` | `warnings`, `limitations` | Lưu nguyên cảnh báo/giới hạn cùng kết quả hợp lệ. |
+| `segmentation.mask_base64` | `annotations[]` với `kind: mask` và `fileId` | Decode PNG, kiểm tra hình học, lưu private `aura-annotations`, tạo FileRef. |
+| `segmentation.overlay_base64` | `annotations[]` với `kind: overlay` và `fileId` | Cùng quy tắc; public schema không có top-level `maskFileId`/`overlayFileId`. |
+| Không có AI field tương ứng | `version` | Version kết quả do Analysis quản lý, không dùng API/model/config version thay thế. |
 
-> [!IMPORTANT]
-> **Quy tắc về Warning và Limitations**:
-> Khi AI trả về `status: WARNING`, Worker **không được tự ý đánh dấu là `LOW_QUALITY`**. Phải lưu trữ đầy đủ `warnings` và `limitations` đi kèm kết quả hợp lệ để hiển thị minh bạch cho bác sĩ.
+Mask và overlay mock có kích thước ảnh đầu vào. Module preprocessing riêng có
+thể crop/resize; khi nối inference thật phải lưu phép biến đổi và đưa annotation
+về hệ tọa độ ảnh gốc theo public contract. Chưa chứng minh đường biến đổi này.
+Không trả object key hoặc Base64 như public FileRef; cấp quyền tải qua Analysis.
 
----
+## 4. Error, retry và Billing — yêu cầu tích hợp chưa được chứng nhận
 
-## 4. Xử lý Mã lỗi và Cơ chế Thử lại (Error Handling & Retry Strategy)
+| AI outcome | Hành vi Worker dự kiến |
+|---|---|
+| 200 SUCCESS / WARNING có kết quả hợp lệ | Commit kết quả và terminal state; WARNING vẫn có thể COMPLETED. |
+| 400 INVALID_IMAGE_PAYLOAD | Terminal validation failure, không retry payload hỏng. |
+| 422 LOW_QUALITY_IMAGE | Terminal LOW_QUALITY, không có kết quả risk hợp lệ. Mock scenario có `quality_assessment_performed: false`. |
+| 422 UNSUPPORTED_MODALITY / INVALID_MODALITY / UNSUPPORTED_MODE / SCHEMA_VALIDATION_ERROR | Terminal input/config error; kiểm tra nguyên nhân, không retry nguyên payload vô hạn. |
+| Network timeout / 500, hoặc 503 từ dependency | Có thể transient; kiểm tra retry budget. 503 không phải nhánh response đang được endpoint mock khai báo. |
 
-### 4.1. Bảng quy đổi mã lỗi và hành vi Worker
+Chính sách bàn giao từ bản v1.0: tối đa 3 lần gọi, chờ 5s rồi 15s; giữ cùng
+analysisId và hold trong retry. Đây là lịch retry hữu hạn, chưa có bằng chứng
+Worker đã áp dụng cấu hình này. Không tuyên bố AI tự dedupe request lặp.
+Sau hết retry, việc FAILED/DEAD_LETTER và phát event cần transaction/outbox,
+dedupe và recovery theo contract Analysis. Không xóa ảnh gốc theo lỗi AI.
 
-| Mã HTTP AI Core | Mã lỗi nội bộ | Tính chất lỗi | Hành vi của Worker đối với Analysis & Billing |
-| :---: | :--- | :---: | :--- |
-| **400** | `INVALID_IMAGE_PAYLOAD` | Terminal (Không retry) | • Đánh dấu Analysis: `FAILED` (`retryable: false`).<br>• Gửi yêu cầu Billing: `release` 1 credit với lý do `VALIDATION_ABORT`. |
-| **422** | `LOW_QUALITY_IMAGE` | Terminal (Chất lượng kém) | • Đánh dấu Analysis: `LOW_QUALITY` (không có risk result).<br>• Gửi yêu cầu Billing: `release` 1 credit với lý do `LOW_QUALITY`. |
-| **422** | `UNSUPPORTED_MODALITY`<br>`UNSUPPORTED_MODE` | Terminal (Sai cấu hình) | • Đánh dấu Analysis: `FAILED` (`retryable: false`).<br>• Gửi yêu cầu Billing: `release` 1 credit. |
-| **500 / 503** | `INFERENCE_RUNTIME_ERROR`<br>hoặc Network Timeout | Transient (Lỗi tạm thời) | • **Thực hiện Retry** theo chính sách giãn cách bên dưới.<br>• Giữ nguyên reservation credit trong suốt các lần retry. |
+Billing chỉ được chuyển hold sau outcome có thẩm quyền, theo
+`billing_analysis_integration_contract_v0.1.md`. Không dùng bảng lỗi AI như
+bằng chứng release đã thành công; chưa chốt event/reconcile toàn luồng.
+Không tự chọn chuỗi reason mới, mở scope capture cho analysis-api hoặc gọi
+đồng thời direct release và event release mà không thiết kế idempotency.
+Giữ nguyên reservation 5J trong đợt closeout này.
 
-### 4.2. Chính sách Retry giãn cách (Exponential Backoff)
-- **Số lần thử tối đa**: Tổng cộng **3 lần** (1 lần gọi đầu tiên + tối đa 2 lần retry).
-- **Thời gian chờ giữa các lần**:
-  - Thử lần 1 thất bại $\longrightarrow$ Chờ **5 giây** (`Worker__RetryDelaysSeconds__0=5`) $\longrightarrow$ Thử lần 2.
-  - Thử lần 2 thất bại $\longrightarrow$ Chờ **15 giây** (`Worker__RetryDelaysSeconds__1=15`) $\longrightarrow$ Thử lần 3.
-- **Vượt quá 3 lần thất bại**:
-  - Đẩy message vào hàng đợi chết (`DEAD_LETTER` queue).
-  - Cập nhật trạng thái Analysis: `FAILED` (`retryable: false`), lưu `lastError`.
-  - Phát sự kiện `analysis.failed` để Billing thực hiện `release` credit hoàn tiền cho bệnh nhân.
-  - Tuyệt đối **không làm mất ảnh gốc** trong Private Storage.
+## 5. Điều kiện kiểm chứng tiếp
 
----
+- Đối chiếu response đầy đủ với schema, ID, version và range; validate lỗi và
+  PNG trước khi commit. Không chỉ kiểm tra JSON có các key mong muốn.
+- Kiểm thử mapper thực, transaction/result version, annotation coordinates,
+  retry/crash recovery, correlation và consumer Billing bằng fixture cô lập.
+- Không dùng số test source, enum mapping hoặc YAML/JSON sync để suy ra
+  Worker/event/financial end-to-end đã hoàn thành.
 
-## 5. Danh mục Kiểm tra Nghiệm thu Tích hợp (Verification Checklist)
-
-- [x] AI Core expose cổng 8000 nội bộ trong `aura_network`, Swagger UI sẵn sàng tại `/docs`.
-- [x] Kích thước PNG mask và overlay trả về trùng khớp tuyệt đối với kích thước ảnh gốc hoặc kích thước chuẩn hóa.
-- [x] Schema và tài liệu OpenAPI YAML (`contracts/ai_service_openapi.yaml`) đồng bộ 100% với file JSON (`contracts/ai_service_openapi.json`).
-- [x] Test suite 43/43 tests tự động bao phủ toàn bộ các kịch bản thành công, cảnh báo, từ chối định dạng và ảnh kém chất lượng.
-
----
-*Biên soạn bởi: Đào Duy Quân (M4 — AI & NiFi)*
-*Xác nhận phối hợp: Module M4 (AI Core) & Module M2 (Analysis Worker)*
+Kế hoạch chi tiết: [M4 evaluation plan](../testing/m4_evaluation_plan.md).
+Trạng thái bàn giao: [M4 integration status](../integration/M4_Sprint2_integration_status.md).
