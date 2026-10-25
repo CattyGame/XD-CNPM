@@ -227,4 +227,43 @@ BEGIN
 END
 $$;
 
+-- SCRUM-306: restrict runtime access to Billing financial records.
+-- Keep the ledger append-only and limit updates to lifecycle/balance columns.
+DO $$
+BEGIN
+    IF to_regclass('billing.package_price_versions') IS NOT NULL THEN
+        EXECUTE
+            'REVOKE UPDATE, DELETE ON billing.package_price_versions FROM aura_billing_app';
+        EXECUTE
+            'GRANT UPDATE (status, currency_code, effective_to) ON billing.package_price_versions TO aura_billing_app';
+    END IF;
+
+    IF to_regclass('billing.credit_wallets') IS NOT NULL THEN
+        EXECUTE
+            'REVOKE UPDATE, DELETE ON billing.credit_wallets FROM aura_billing_app';
+        EXECUTE
+            'GRANT UPDATE (balance, updated_at) ON billing.credit_wallets TO aura_billing_app';
+    END IF;
+
+    IF to_regclass('billing.orders') IS NOT NULL THEN
+        EXECUTE
+            'REVOKE UPDATE, DELETE ON billing.orders FROM aura_billing_app';
+        EXECUTE
+            'GRANT UPDATE (status, updated_at) ON billing.orders TO aura_billing_app';
+    END IF;
+
+    IF to_regclass('billing.credit_reservations') IS NOT NULL THEN
+        EXECUTE
+            'REVOKE UPDATE, DELETE ON billing.credit_reservations FROM aura_billing_app';
+        EXECUTE
+            'GRANT UPDATE (state, release_reason, updated_at, captured_at, released_at) ON billing.credit_reservations TO aura_billing_app';
+    END IF;
+
+    IF to_regclass('billing.credit_ledger_entries') IS NOT NULL THEN
+        EXECUTE
+            'REVOKE UPDATE, DELETE ON billing.credit_ledger_entries FROM aura_billing_app';
+    END IF;
+END
+$$;
+
 COMMIT;

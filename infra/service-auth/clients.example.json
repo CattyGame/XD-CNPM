@@ -38,6 +38,15 @@
           "profile:resolve"
         ]
       }
+    },
+    {
+      "clientId": "profile-api",
+      "principalId": "a1000000-0000-4000-8000-000000000004",
+      "allowedTargets": {
+        "aura-identity": [
+          "identity:context"
+        ]
+      }
     }
   ]
 }

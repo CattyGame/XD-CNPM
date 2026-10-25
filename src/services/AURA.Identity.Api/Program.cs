@@ -163,15 +163,29 @@ app.MapPost("/api/v1/identity/bootstrap", async (
                 !string.IsNullOrWhiteSpace(name) ? name : "Người dùng AURA",
                 email);
 
-            var serviceTokenResult = issuer.IssueToken("identity-api", "secret_identity_pass", "aura-profile", "profile:provision");
+            var profileClientSecret = builder.Configuration["ServiceAuth:ClientSecret"];
+            if (string.IsNullOrWhiteSpace(profileClientSecret))
+            {
+                throw new InvalidOperationException("ServiceAuth:ClientSecret is not configured.");
+            }
+
+            var serviceTokenResult = issuer.IssueToken(
+                "identity-api",
+                profileClientSecret,
+                "aura-profile",
+                "profile:provision");
+            var serviceAccessToken = serviceTokenResult.AccessToken;
+            if (!serviceTokenResult.Success || string.IsNullOrWhiteSpace(serviceAccessToken))
+            {
+                throw new InvalidOperationException(
+                    "Could not issue service token for Profile provisioning. Error code: " +
+                    (serviceTokenResult.ErrorCode ?? "ERR_UNAUTHORIZED"));
+            }
             var requestMsg = new HttpRequestMessage(HttpMethod.Post, "/internal/v1/profile/provision")
             {
                 Content = JsonContent.Create(provisionPayload)
             };
-            if (serviceTokenResult.Success && !string.IsNullOrWhiteSpace(serviceTokenResult.AccessToken))
-            {
-                requestMsg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", serviceTokenResult.AccessToken);
-            }
+            requestMsg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", serviceAccessToken);
             requestMsg.Headers.Add("X-Correlation-Id", correlationId);
 
             var profileResponse = await profileClient.SendAsync(requestMsg);

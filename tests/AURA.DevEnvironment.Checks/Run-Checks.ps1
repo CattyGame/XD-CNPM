@@ -10,7 +10,8 @@ $variables = @(
     "AURA_DOCKER_NETWORK", "FIREBASE_PROJECT_ID", "FIREBASE_SERVICE_ACCOUNT_PATH",
     "NOTIFICATION_ENCRYPTION_KEY_ID", "NOTIFICATION_ENCRYPTION_KEY",
     "IDENTITY_DB_PASSWORD", "PROFILE_DB_PASSWORD", "ANALYSIS_DB_PASSWORD",
-    "BILLING_DB_PASSWORD", "NOTIFICATION_DB_PASSWORD"
+    "BILLING_DB_PASSWORD", "NOTIFICATION_DB_PASSWORD",
+    "IDENTITY_SERVICE_CLIENT_SECRET", "BILLING_SERVICE_CLIENT_SECRET", "PROFILE_SERVICE_CLIENT_SECRET"
 )
 $original = @{}
 foreach ($name in $variables) { $original[$name] = [Environment]::GetEnvironmentVariable($name, "Process") }
@@ -52,7 +53,13 @@ try {
     # Deliberately not a signing credential: this fixture only tests configuration validation.
     [IO.File]::WriteAllText($credential, '{"type":"service_account","project_id":"aura-dev-97716"}')
     [IO.File]::WriteAllText($key, [Convert]::ToBase64String((New-Object byte[] 32)))
-    $arguments = @{ CredentialPath = $credential; NotificationKeyPath = $key }
+    $serviceAuthDirectory = Join-Path $temporary "service-auth"
+    $clientsDirectory = Join-Path $serviceAuthDirectory "clients"
+    New-Item -ItemType Directory -Path $clientsDirectory -Force | Out-Null
+    [IO.File]::WriteAllText((Join-Path $clientsDirectory "identity-api.json"), '{"clientId":"identity-api","clientSecret":"test-identity-client-secret"}')
+    [IO.File]::WriteAllText((Join-Path $clientsDirectory "billing-api.json"), '{"clientId":"billing-api","clientSecret":"test-billing-client-secret"}')
+    [IO.File]::WriteAllText((Join-Path $clientsDirectory "profile-api.json"), '{"clientId":"profile-api","clientSecret":"test-profile-client-secret"}')
+    $arguments = @{ CredentialPath = $credential; NotificationKeyPath = $key; ServiceAuthDirectory = $serviceAuthDirectory }
 
     & $setup @arguments -DockerNetwork "existing-aura-network" -NotificationKeyId "existing-key-id"
     Assert-Check ($global:AuraM1EnvironmentCheckState.promptCount -eq 5) "All five runtime database accounts are prompted"
@@ -63,6 +70,9 @@ try {
         Assert-Check ([Environment]::GetEnvironmentVariable($name) -eq $global:AuraM1EnvironmentCheckState.password.Replace('"', '""')) ($name + " supports quoted Npgsql passwords")
     }
     Assert-Check ($env:NOTIFICATION_DB_PASSWORD -eq $global:AuraM1EnvironmentCheckState.password) "Notification separate password field remains unchanged"
+    Assert-Check ($env:IDENTITY_SERVICE_CLIENT_SECRET -eq "test-identity-client-secret") "Identity service secret is loaded from its client credentials file"
+    Assert-Check ($env:BILLING_SERVICE_CLIENT_SECRET -eq "test-billing-client-secret") "Billing service secret is loaded from its client credentials file"
+    Assert-Check ($env:PROFILE_SERVICE_CLIENT_SECRET -eq "test-profile-client-secret") "Profile service secret is loaded from its own client credentials file"
 
     [IO.File]::WriteAllText($credential, '{"type":"service_account","project_id":"wrong-project"}')
     Assert-SetupRejected $arguments "Mismatched Firebase project is rejected"
@@ -78,10 +88,12 @@ try {
     $global:AuraM1EnvironmentCheckState.emptyAt = -1
 
     $plan = @(& $initialize -PlanOnly)
-    Assert-Check ($plan.Count -eq 7) "Migration plan includes every service and final grants pass"
+    Assert-Check ($plan.Count -eq 8) "Migration plan includes every service and final grants pass"
     Assert-Check ($plan[0] -eq "infra/postgres/migrations/001_notification_devices.sql") "Notification schema is bootstrapped first"
     Assert-Check ($plan[2] -eq "infra/postgres/migrations/002_identity_and_profile.sql") "Identity/Profile migration is included"
     Assert-Check ($plan[3] -eq "infra/postgres/migrations/003_doctor_assignments.sql") "Doctor assignments follow Profile schema"
+    Assert-Check ($plan[4] -eq "infra/postgres/migrations/003_billing_poc_packages.sql") "Legacy Billing PoC migration is included"
+    Assert-Check ($plan[5] -eq "infra/postgres/migrations/004_billing_business_schema.sql") "Billing business migration follows Billing PoC schema"
     Assert-Check ($plan[-1] -eq "infra/postgres/migrations/002_service_database_roles.sql") "Ownership and append-only restrictions are reapplied last"
 
     $global:AuraM1EnvironmentCheckState.dockerCalls = New-Object System.Collections.Generic.List[string]
@@ -100,7 +112,7 @@ try {
     }
     $originalEncoding = $OutputEncoding
     & $initialize -EnvFile ".env.example"
-    Assert-Check ($global:AuraM1EnvironmentCheckState.dockerCalls.Count -eq 8) "Migration runner invokes config validation and all seven migrations"
+    Assert-Check ($global:AuraM1EnvironmentCheckState.dockerCalls.Count -eq 9) "Migration runner invokes config validation and all eight migrations"
     Assert-Check ($OutputEncoding -eq $originalEncoding) "Migration runner restores pipeline encoding"
     Assert-Check (@($global:AuraM1EnvironmentCheckState.dockerCalls | Where-Object { $_ -like '*ALTER ROLE*' }).Count -eq 0) "Default migration run preserves existing passwords/logins"
     $global:AuraM1EnvironmentCheckState.dockerCalls.Clear()

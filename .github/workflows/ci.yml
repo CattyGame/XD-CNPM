@@ -40,6 +40,11 @@ jobs:
           dotnet test src/services/AURA.Analysis.Api.Tests/AURA.Analysis.Api.Tests.csproj
           --configuration Release --no-build --no-restore
 
+      - name: Check Profile identity resolver
+        run: >-
+          dotnet run --project tests/AURA.Profile.IdentityChecks/AURA.Profile.IdentityChecks.csproj
+          --configuration Release --no-launch-profile
+
       - name: Check development configuration scripts
         shell: pwsh
         run: ./tests/AURA.DevEnvironment.Checks/Run-Checks.ps1
@@ -133,6 +138,51 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup .NET for service identity credentials
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Generate isolated service identity credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/aura-service-auth"
+          dotnet run \
+            --project tools/AURA.ServiceIdentity.Setup/AURA.ServiceIdentity.Setup.csproj \
+            --configuration Release \
+            --no-launch-profile \
+            -- \
+            --registry "$GITHUB_WORKSPACE/infra/service-auth/clients.example.json" \
+            --output "$output"
+
+          identity_secret="$(jq -r '.clientSecret' "$output/clients/identity-api.json")"
+          billing_secret="$(jq -r '.clientSecret' "$output/clients/billing-api.json")"
+          profile_secret="$(jq -r '.clientSecret' "$output/clients/profile-api.json")"
+          if [[ -z "$identity_secret" || "$identity_secret" == "null" ]]; then
+            echo "Failed to read generated Identity client secret." >&2
+            exit 1
+          fi
+          if [[ -z "$billing_secret" || "$billing_secret" == "null" ]]; then
+            echo "Failed to read generated Billing client secret." >&2
+            exit 1
+          fi
+          if [[ -z "$profile_secret" || "$profile_secret" == "null" ]]; then
+            echo "Failed to read generated Profile client secret." >&2
+            exit 1
+          fi
+          echo "::add-mask::$identity_secret"
+          echo "::add-mask::$billing_secret"
+          echo "::add-mask::$profile_secret"
+          # .NET 10 ASP.NET runtime images use APP_UID 1654.
+          # Keep restrictive file modes; make the runtime UID the owner.
+          sudo chown -R 1654:1654 "$output"
+          printf 'AURA_SERVICE_AUTH_HOME=%s\n' "$output" >> "$GITHUB_ENV"
+          printf 'IDENTITY_SERVICE_CLIENT_SECRET=%s\n' "$identity_secret" >> "$GITHUB_ENV"
+          printf 'BILLING_SERVICE_CLIENT_SECRET=%s\n' "$billing_secret" >> "$GITHUB_ENV"
+          printf 'PROFILE_SERVICE_CLIENT_SECRET=%s\n' "$profile_secret" >> "$GITHUB_ENV"
+          unset identity_secret billing_secret profile_secret
 
       - name: Validate Compose
         run: docker compose --env-file .env.example config -q
@@ -332,3 +382,12 @@ jobs:
       - name: Stop applications
         if: always()
         run: docker compose --env-file .env.example down
+
+      - name: Remove temporary service identity credentials
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -d "$RUNNER_TEMP/aura-service-auth" ]]; then
+            sudo rm -rf -- "$RUNNER_TEMP/aura-service-auth"
+          fi

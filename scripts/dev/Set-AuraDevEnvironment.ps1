@@ -4,7 +4,8 @@ param(
     [string]$FirebaseProjectId = "aura-dev-97716",
     [string]$CredentialPath = "",
     [string]$NotificationKeyPath = "",
-    [string]$NotificationKeyId = "local-v1"
+    [string]$NotificationKeyId = "local-v1",
+    [string]$ServiceAuthDirectory = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,6 +31,10 @@ if ([string]::IsNullOrWhiteSpace($NotificationKeyPath)) {
     $NotificationKeyPath = Join-Path $env:USERPROFILE `
         ".aura\credentials\notification-token-key-v1.txt"
 }
+if ([string]::IsNullOrWhiteSpace($ServiceAuthDirectory)) {
+    $ServiceAuthDirectory = Join-Path $env:USERPROFILE `
+        ".aura\service-auth\local-v1"
+}
 
 foreach ($path in @($CredentialPath, $NotificationKeyPath)) {
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
@@ -41,6 +46,35 @@ $CredentialPath = (Resolve-Path -LiteralPath $CredentialPath).Path
 $NotificationKeyPath = (
     Resolve-Path -LiteralPath $NotificationKeyPath
 ).Path
+
+$identityClientPath = Join-Path $ServiceAuthDirectory "clients\identity-api.json"
+$billingClientPath = Join-Path $ServiceAuthDirectory "clients\billing-api.json"
+$profileClientPath = Join-Path $ServiceAuthDirectory "clients\profile-api.json"
+
+foreach ($clientPath in @($identityClientPath, $billingClientPath, $profileClientPath)) {
+    if (-not (Test-Path -LiteralPath $clientPath -PathType Leaf)) {
+        throw "Service client credentials file not found."
+    }
+}
+
+$identityClient = Get-Content -LiteralPath $identityClientPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$billingClient = Get-Content -LiteralPath $billingClientPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$profileClient = Get-Content -LiteralPath $profileClientPath -Raw -Encoding UTF8 | ConvertFrom-Json
+
+if ($identityClient.clientId -ne "identity-api" -or [string]::IsNullOrWhiteSpace([string]$identityClient.clientSecret)) {
+    throw "Invalid Identity service client credentials."
+}
+if ($billingClient.clientId -ne "billing-api" -or [string]::IsNullOrWhiteSpace([string]$billingClient.clientSecret)) {
+    throw "Invalid Billing service client credentials."
+}
+
+if ($profileClient.clientId -ne "profile-api" -or [string]::IsNullOrWhiteSpace([string]$profileClient.clientSecret)) {
+    throw "Invalid Profile service client credentials."
+}
+
+$identityServiceClientSecret = [string]$identityClient.clientSecret
+$billingServiceClientSecret = [string]$billingClient.clientSecret
+$profileServiceClientSecret = [string]$profileClient.clientSecret
 
 # Validate project without printing credential contents.
 $credential = Get-Content -LiteralPath $CredentialPath -Raw |
@@ -112,6 +146,9 @@ try {
         NOTIFICATION_ENCRYPTION_KEY_ID = $NotificationKeyId
         NOTIFICATION_ENCRYPTION_KEY = $keyText
         NOTIFICATION_DB_PASSWORD = $notificationPassword
+        IDENTITY_SERVICE_CLIENT_SECRET = $identityServiceClientSecret
+        BILLING_SERVICE_CLIENT_SECRET = $billingServiceClientSecret
+        PROFILE_SERVICE_CLIENT_SECRET = $profileServiceClientSecret
 
         # Npgsql connection strings quote these values in compose.yaml.
         IDENTITY_DB_PASSWORD = $identityPassword.Replace('"', '""')
@@ -137,6 +174,12 @@ finally {
     $analysisPassword = $null
     $billingPassword = $null
     $notificationPassword = $null
+    $identityServiceClientSecret = $null
+    $billingServiceClientSecret = $null
+    $profileServiceClientSecret = $null
+    $identityClient = $null
+    $billingClient = $null
+    $profileClient = $null
     $keyText = $null
     $values = $null
 }
