@@ -3,6 +3,7 @@ import { Link, Route, Routes } from 'react-router-dom'
 import App from '../App'
 import LoginPage from '../pages/LoginPage'
 import UploadPage from '../pages/UploadPage'
+import BatchProgressPage from '../pages/BatchProgressPage'
 import SessionHomePage from '../pages/SessionHomePage'
 import ForbiddenPage from '../pages/ForbiddenPage'
 import NotFoundPage from '../pages/NotFoundPage'
@@ -29,6 +30,8 @@ export default function ApplicationRoutes() {
       <Route path="/router-demo/*" element={<DemoScope><AppRouter /></DemoScope>} />
       <Route path="/demo/*" element={<ProtectedRoute><DemoScope><App /></DemoScope></ProtectedRoute>} />
       <Route path="/upload" element={<ProtectedRoute><UploadPage /></ProtectedRoute>} />
+      <Route path="/batches" element={<ProtectedRoute><BatchProgressPage /></ProtectedRoute>} />
+      <Route path="/batches/:batchId" element={<ProtectedRoute><BatchProgressPage /></ProtectedRoute>} />
       <Route path="/" element={<ProtectedRoute><SessionHomePage /></ProtectedRoute>} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
