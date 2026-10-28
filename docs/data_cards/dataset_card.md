@@ -341,3 +341,32 @@ validation, benchmark dữ liệu thật mới, Docker deployment hoặc Worker 
 Kế hoạch đánh giá: [M4 evaluation plan](../testing/m4_evaluation_plan.md).
 Mapping/bằng chứng: [Worker–AI contract](../api/worker_ai_contract_integration_v1.0.md)
 và [M4 integration status](../integration/M4_Sprint2_integration_status.md).
+
+
+---
+
+## 12. Tích hợp Frangi v0.2 Runtime, Quality Gate và Smoke-Training Sprint 3
+
+> **Mã Jira**: SCRUM-329 (`W3-M4-01`), SCRUM-330 (`W3-M4-02`), SCRUM-331 (`W3-M4-03`) · **Cập nhật**: 2026-10-28
+
+### 12.1. Đồng nhất thuật toán Frangi v0.2 ở Runtime (`src/ai-core/app/services/frangi_service.py`)
+- Runtime mặc định của `ai-core` trong Sprint 3 (`AURA_AI_ENGINE=frangi`, `allowMock=false`) thực thi đúng thuật toán Frangi v0.2 đã chốt tại mục 6 & 8 theo cấu hình `src/ai-core/config/ai-frangi.yaml`:
+  - Giữ nguyên kích thước gốc `999 × 960` (không gọi `preprocess_fundus_image` resize 512×512).
+  - Kiểm tra chất lượng ảnh trước khi chạy Frangi trên vùng ước lượng nội vùng (`max(R,G,B) > 20` → `binary_fill_holes` → `binary_erosion` 3×3 lặp 12 lần):
+    - `grayscale = 0.299*R + 0.587*G + 0.114*B` (`float64`)
+    - `luminance = mean(grayscale[estimatedRegion])`
+    - `contrast = std(grayscale[estimatedRegion], ddof=0)`
+    - `sharpness = var(convolve(grayscale, [[0,1,0],[1,-4,1],[0,1,0]], mode='reflect')[estimatedRegion], ddof=0)`
+    - `regionRatio = estimatedRegionPixels / (width * height)`
+    - Từ chối bằng HTTP `422 LOW_QUALITY_IMAGE` khi vùng ước lượng rỗng hoặc `regionRatio < 0.15`, `luminance < 15`, `luminance > 240`, `contrast < 8`, `sharpness < 3.5` (trường hợp bằng đúng ngưỡng biên vẫn được chấp nhận).
+  - Kết quả phân vùng trả về qua API `POST /api/v1/analyze` trên 6 ảnh tập `test` (`docs/benchmarks/frangi_runtime_api_v1.2.json`) khớp 100% với báo cáo offline `docs/benchmarks/frangi_test_v0.2.json` (`Mean Dice = 0.4201`, `Mean IoU = 0.2662`, `Mean Sensitivity = 0.4198`, `Mean Specificity = 0.9565`).
+  - Trả về `is_mock: false`, `risk_available: false`, `risk_assessment: null`, `status: "WARNING"` kèm `RISK_UNAVAILABLE`.
+
+### 12.2. Kiểm thử khói (Smoke-Run) Pipeline Huấn luyện Phân vùng (`src/ai-core/scripts/run_training_smoke.py`)
+- Cấu hình: `src/ai-core/config/segmentation-training-smoke.yaml`
+- Báo cáo đầu ra: `docs/benchmarks/segmentation_training_smoke_v0.1.json`
+- Đặc tính kỹ thuật và bảo toàn tập dữ liệu:
+  - Chỉ nạp `16` ảnh tập `train` (8 đối tượng: `03, 06, 07, 08, 09, 12, 13, 14`) và `6` ảnh tập `validation` (3 đối tượng: `04, 05, 10`) theo `manifest.csv` (`seed=42`).
+  - Tuyệt đối không nạp hoặc chạm tới tập `test` (`test_images_loaded: 0`, `test_split_touched: false`, `subject_leakage_detected: false`).
+  - Hàm mất mát `train_weighted_bce_loss` giảm đều qua 5 epoch (`0.653302` → `0.598443`).
+  - Không tổng hợp hoặc suy diễn nhãn rủi ro lâm sàng (`risk_labels_used: false`, `replaces_runtime_frangi: false`).

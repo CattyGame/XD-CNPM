@@ -3,38 +3,40 @@ openapi: 3.0.3
 info:
   title: AURA AI Analysis Service API
   description: >
-    AI API nội bộ của AURA. Runtime hiện là Mock Service phục vụ
-    kiểm thử giao tiếp; chưa tích hợp thuật toán phân vùng thật.
+    AI API nội bộ của AURA (Sprint 3 Contract 1.2.0). Runtime mặc định chạy
+    thuật toán phân vùng mạch máu võng mạc Frangi v0.2 thật theo cấu hình cố định
+    trong config/ai-frangi.yaml và xác thực RS256 Service JWT fail-closed.
+    Phân vùng Frangi chưa cung cấp đánh giá rủi ro lâm sàng (risk_available=false,
+    risk_assessment=null, status=WARNING kèm RISK_UNAVAILABLE).
     WARNING có kết quả hợp lệ không tự đồng nghĩa LOW_QUALITY.
-    API_VERSION không phải phiên bản public Analysis contract.
-  version: 1.1.0
+  version: 1.2.0
   contact:
     name: Dao Duy Quan (M4 Lead)
     email: quandd2937@ut.edu.vn
 
 servers:
+  - url: http://ai-core:8000
+    description: Internal Docker network (Sprint 3 canonical)
   - url: http://localhost:8000
     description: Local development
-  - url: http://ai-core:8000
-    description: Internal Docker network
 
 tags:
   - name: Health
-    description: Kiểm tra tình trạng service
+    description: Kiểm tra liveness (/health) và readiness (/ready) của AI Service
   - name: Platform
-    description: Kiểm tra kết nối
+    description: Kiểm tra kết nối nền tảng
   - name: Analysis
-    description: Phân tích ảnh giả lập phục vụ kiểm thử
+    description: Phân vùng mạch máu võng mạc FUNDUS thực tế bằng Frangi v0.2
 
 paths:
   /health:
     get:
       tags: [Health]
-      summary: Kiểm tra trạng thái AI Service
+      summary: Kiểm tra liveness AI Service
       operationId: checkHealth
       responses:
         '200':
-          description: Service đang hoạt động
+          description: Liveness only
           content:
             application/json:
               schema:
@@ -46,6 +48,41 @@ paths:
                 device: cpu
                 model_loaded: false
                 uptime_seconds: 124.8
+
+  /ready:
+    get:
+      tags: [Health]
+      summary: Kiểm tra readiness (cấu hình Frangi thật và khóa công khai JWT RS256 đã sẵn sàng)
+      operationId: checkReady
+      responses:
+        '200':
+          description: Real Frangi configuration and signing keys loaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+              example:
+                status: ready
+                service: AURA.AiCore
+                version: 0.2.0
+                api_version: 1.2.0
+                engine: frangi
+                model_version: frangi-v0.2
+                config_version: s3-frangi-1.0.0
+                threshold_version: frangi-threshold-0.02-v1
+                jwt_verification_ready: true
+                timestamp: '2026-10-28T02:00:00Z'
+        '503':
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: SERVICE_NOT_READY
+                message: Khóa công khai kiểm chữ ký JWT dịch vụ chưa được cấu hình.
+                details: null
+                timestamp: '2026-10-28T02:00:00Z'
 
   /api/v1/platform/ping:
     get:
@@ -62,30 +99,23 @@ paths:
               example:
                 service: AURA.AiCore
                 message: AI Core template is running
-                timestamp: '2026-10-10T03:00:00Z'
+                timestamp: '2026-10-28T02:00:00Z'
 
   /api/v1/analyze:
     post:
       tags: [Analysis]
-      summary: Nhận ảnh Base64 và trả kết quả mock
+      summary: Nhận ảnh FUNDUS Base64 và thực thi phân vùng mạch máu Frangi v0.2 thật
       description: |
-        Endpoint nội bộ dành cho Analysis Worker.
+        Endpoint nội bộ dành cho Analysis Worker (Sprint 3 Contract 1.2.0).
 
-        Runtime chưa tích hợp Frangi hoặc U-Net. Các chỉ số,
-        mask và overlay là dữ liệu giả lập.
-
-        Cấu hình kiểm thử phía server:
-        - AURA_MOCK_SCENARIO=SUCCESS: mặc định.
-        - AURA_MOCK_SCENARIO=WARNING và
-          AURA_MOCK_SCENARIOS_ENABLED=true: trả WARNING với kết quả đầy đủ.
-        - Scenario không hợp lệ hoặc chưa được bật: trả lỗi 500.
-
-        Không chọn scenario bằng request_id hoặc tham số client.
-        WARNING không tự đồng nghĩa LOW_QUALITY.
-
-        Example dùng PNG RGB tổng hợp 64x48, không phải ảnh đáy mắt.
-        processing_time_ms trong example chỉ minh họa cấu trúc.
-      operationId: analyzeRetinaBase64
+        - Yêu cầu xác thực RS256 Service JWT (`iss=aura-identity-s3-v1`, `aud=aura-ai`, `scope=ai:analyze`, `client_id=analysis-worker`).
+        - Nhận ảnh PNG hoặc JPEG dưới dạng Base64 trần (không nhận data URL), giới hạn 10 MiB và 16.000.000 pixel.
+        - Giữ nguyên kích thước ảnh gốc (width, height), không crop/resize 512.
+        - Kiểm tra chất lượng ảnh trước khi chạy Frangi theo công thức trong `config/ai-frangi.yaml`; từ chối bằng HTTP 422 `LOW_QUALITY_IMAGE` nếu không đạt.
+        - Trả về `status=WARNING` kèm `RISK_UNAVAILABLE`, `is_mock=false`, `risk_available=false`, `risk_assessment=null`, cùng PNG mask (`L`, `0/255`) và PNG overlay (`RGB`).
+      operationId: analyzeRetina
+      security:
+        - serviceBearer: []
       requestBody:
         required: true
         content:
@@ -93,98 +123,59 @@ paths:
             schema:
               $ref: '#/components/schemas/AnalysisRequest'
             example:
-              request_id: demo-ai-001
+              request_id: 58685092-7782-5bb6-b147-1b73c6047edd
               patient_id: null
-              eye_side: unknown
+              eye_side: left
               mode: retina_vessels
               modality: FUNDUS
-              image_base64: "iVBORw0KGgoAAAANSUhEUgAAAEAAAAAwCAIAAAAuKetIAAAAZUlEQVR4nO3PUQkAIBTAwBfCEMaxfxpD+HEIgwW4zdnr64YLGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEteOwCadmQWyWfhSMAAAAASUVORK5CYII="
-              include_mask: false
-              include_overlay: false
+              image_base64: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZfoAAAAASUVORK5CYII=
+              include_mask: true
+              include_overlay: true
       responses:
         '200':
-          description: >
-            SUCCESS hoặc WARNING với kết quả giả lập hợp lệ.
-            WARNING vẫn giữ metrics và risk_assessment.
+          description: Valid SUCCESS or WARNING
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/AnalysisResponse'
               examples:
-                success:
-                  summary: Kết quả mock thành công
+                frangiWarning:
+                  summary: Kết quả phân vùng Frangi v0.2 thật (Sprint 3)
                   value:
-                    request_id: demo-ai-001
+                    request_id: 58685092-7782-5bb6-b147-1b73c6047edd
                     patient_id: null
-                    timestamp: '2026-10-10T03:00:00Z'
-                    status: SUCCESS
-                    warnings: []
-                    is_mock: true
-                    model_version: mock-v0.1
-                    threshold_version: v0.1
-                    config_version: v0.1
-                    limitations: Kết quả giả lập, chưa tích hợp phân vùng thật.
-                    processing_time_ms: 10.0
-                    image_info:
-                      width: 64
-                      height: 48
-                      channels: 3
-                      eye_side: unknown
-                      modality: FUNDUS
-                    metrics:
-                      vessel_density: 0.1485
-                      tortuosity_index: 1.165
-                      av_ratio: 0.672
-                      fractal_dimension: 1.475
-                      branching_points: 62
-                    risk_assessment:
-                      risk_score: 0.32
-                      risk_level: LOW
-                      confidence_score: 0.91
-                      indicators:
-                        - '[MOCK] Chỉ số cố định phục vụ kiểm thử.'
-                      disclaimer: Kết quả giả lập, không phải chẩn đoán.
-                    segmentation: null
-
-                warning:
-                  summary: Cảnh báo nhưng vẫn có kết quả mock
-                  value:
-                    request_id: demo-ai-001
-                    patient_id: null
-                    timestamp: '2026-10-10T03:00:00Z'
+                    timestamp: '2026-10-28T02:00:00Z'
                     status: WARNING
                     warnings:
-                      - code: AI_WARNING
-                        message: '[MOCK] Cảnh báo kỹ thuật, không xác nhận ảnh kém chất lượng.'
-                    is_mock: true
-                    model_version: mock-v0.1
-                    threshold_version: v0.1
-                    config_version: v0.1
-                    limitations: Kết quả giả lập, chưa tích hợp phân vùng thật.
-                    processing_time_ms: 10.0
+                      - code: RISK_UNAVAILABLE
+                        message: Frangi provides vessel segmentation only; clinical risk assessment is not available.
+                    is_mock: false
+                    model_version: frangi-v0.2
+                    config_version: s3-frangi-1.0.0
+                    threshold_version: frangi-threshold-0.02-v1
+                    limitations: Segmentation research baseline; no clinical risk assessment.
+                    processing_time_ms: 100.0
                     image_info:
-                      width: 64
-                      height: 48
+                      width: 999
+                      height: 960
                       channels: 3
-                      eye_side: unknown
+                      eye_side: left
                       modality: FUNDUS
                     metrics:
-                      vessel_density: 0.1485
-                      tortuosity_index: 1.165
-                      av_ratio: 0.672
-                      fractal_dimension: 1.475
-                      branching_points: 62
-                    risk_assessment:
-                      risk_score: 0.32
-                      risk_level: LOW
-                      confidence_score: 0.91
-                      indicators:
-                        - '[MOCK] Chỉ số cố định phục vụ kiểm thử.'
-                      disclaimer: Kết quả giả lập, không phải chẩn đoán.
-                    segmentation: null
+                      vessel_density: 0.0842
+                      tortuosity_index: null
+                      av_ratio: null
+                      fractal_dimension: null
+                      branching_points: null
+                    risk_available: false
+                    risk_assessment: null
+                    segmentation:
+                      mask_format: png_base64
+                      mask_base64: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZfoAAAAASUVORK5CYII=
+                      overlay_base64: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZfoAAAAASUVORK5CYII=
 
         '400':
-          description: Base64 sai, ảnh hỏng hoặc vượt giới hạn
+          description: Invalid Base64/image payload
           content:
             application/json:
               schema:
@@ -193,16 +184,49 @@ paths:
                 error_code: INVALID_IMAGE_PAYLOAD
                 message: Dữ liệu ảnh không hợp lệ.
                 details:
-                  supported_formats: [PNG, JPEG, WEBP]
-                timestamp: '2026-10-10T03:00:00Z'
+                  supported_formats: [PNG, JPEG]
+                timestamp: '2026-10-28T02:00:00Z'
+
+        '401':
+          description: Invalid token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: INVALID_BEARER_TOKEN
+                message: Chữ ký JWT dịch vụ không hợp lệ hoặc token đã hết hạn.
+                details: null
+                timestamp: '2026-10-28T02:00:00Z'
+
+        '403':
+          description: Wrong audience/scope
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: INSUFFICIENT_TOKEN_SCOPE
+                message: Token dịch vụ thiếu quyền 'ai:analyze'.
+                details: null
+                timestamp: '2026-10-28T02:00:00Z'
 
         '422':
-          description: Sai schema hoặc modality/mode không được hỗ trợ
+          description: LOW_QUALITY_IMAGE or unsupported input
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
               examples:
+                lowQualityImage:
+                  value:
+                    error_code: LOW_QUALITY_IMAGE
+                    message: Ảnh không đạt ngưỡng chất lượng kỹ thuật đầu vào.
+                    details:
+                      is_mock: false
+                      quality_assessment_performed: true
+                      failed_checks: [LOW_LUMINANCE]
+                    timestamp: '2026-10-28T02:00:00Z'
                 unsupportedModality:
                   value:
                     error_code: UNSUPPORTED_MODALITY
@@ -210,42 +234,39 @@ paths:
                     details:
                       supported_modalities: [FUNDUS]
                       received_modality: OCT
-                    timestamp: '2026-10-10T03:00:00Z'
-                unsupportedMode:
-                  value:
-                    error_code: UNSUPPORTED_MODE
-                    message: Chỉ hỗ trợ retina_vessels.
-                    details:
-                      supported_modes: [retina_vessels]
-                    timestamp: '2026-10-10T03:00:00Z'
-                invalidModality:
-                  value:
-                    error_code: INVALID_MODALITY
-                    message: Modality không hợp lệ.
-                    details:
-                      supported_modalities: [FUNDUS]
-                    timestamp: '2026-10-10T03:00:00Z'
-                schemaValidation:
-                  value:
-                    error_code: SCHEMA_VALIDATION_ERROR
-                    message: Sai định dạng hoặc thiếu trường bắt buộc.
-                    details:
-                      errors: []
-                    timestamp: '2026-10-10T03:00:00Z'
+                    timestamp: '2026-10-28T02:00:00Z'
 
         '500':
-          description: Lỗi nội bộ hoặc cấu hình mock không hợp lệ
+          description: Processing failure
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
               example:
                 error_code: INFERENCE_RUNTIME_ERROR
-                message: Lỗi nội bộ khi xử lý AI.
+                message: Lỗi nội bộ khi xử lý phân vùng mạch máu Frangi.
                 details: null
-                timestamp: '2026-10-10T03:00:00Z'
+                timestamp: '2026-10-28T02:00:00Z'
+
+        '503':
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error_code: SERVICE_NOT_READY
+                message: Khóa công khai kiểm chữ ký JWT dịch vụ chưa được cấu hình.
+                details: null
+                timestamp: '2026-10-28T02:00:00Z'
 
 components:
+  securitySchemes:
+    serviceBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
   schemas:
     HealthResponse:
       type: object
@@ -276,6 +297,52 @@ components:
           type: number
           example: 124.8
 
+    ReadyResponse:
+      type: object
+      required:
+        - status
+        - service
+        - version
+        - api_version
+        - engine
+        - model_version
+        - config_version
+        - threshold_version
+        - jwt_verification_ready
+        - timestamp
+      properties:
+        status:
+          type: string
+          example: ready
+        service:
+          type: string
+          example: AURA.AiCore
+        version:
+          type: string
+          example: 0.2.0
+        api_version:
+          type: string
+          example: 1.2.0
+        engine:
+          type: string
+          example: frangi
+        model_version:
+          type: string
+          example: frangi-v0.2
+        config_version:
+          type: string
+          example: s3-frangi-1.0.0
+        threshold_version:
+          type: string
+          example: frangi-threshold-0.02-v1
+        jwt_verification_ready:
+          type: boolean
+          example: true
+        timestamp:
+          type: string
+          format: date-time
+          pattern: 'Z$'
+
     PingResponse:
       type: object
       required: [service, message, timestamp]
@@ -287,6 +354,7 @@ components:
         timestamp:
           type: string
           format: date-time
+          pattern: 'Z$'
 
     EyeSide:
       type: string
@@ -305,36 +373,43 @@ components:
     AnalysisStatus:
       type: string
       enum: [SUCCESS, WARNING, FAILED]
-      default: SUCCESS
-      description: >
-        Runtime mock hiện trả SUCCESS hoặc WARNING cho HTTP 200.
-        Lỗi xử lý hiện được trả bằng ErrorResponse với HTTP 4xx/5xx.
+      default: WARNING
 
     AnalysisRequest:
       type: object
-      required: [request_id, image_base64]
+      additionalProperties: false
+      required:
+        - request_id
+        - patient_id
+        - eye_side
+        - mode
+        - modality
+        - image_base64
+        - include_mask
+        - include_overlay
       properties:
         request_id:
           type: string
-          description: ID yêu cầu do bên gọi cung cấp; không dùng chọn mock scenario.
+          format: uuid
+          description: UUID của lượt phân tích (analysisId).
         patient_id:
           type: string
           nullable: true
           default: null
+          description: Luôn là null trong contract AI nội bộ 1.2.
         eye_side:
           $ref: '#/components/schemas/EyeSide'
         mode:
           $ref: '#/components/schemas/AnalysisMode'
         modality:
           type: string
+          enum: [FUNDUS]
           default: FUNDUS
-          description: FUNDUS; OCT bị từ chối với HTTP 422.
         image_base64:
           type: string
-          description: >
-            Ảnh PNG/JPEG/WEBP hợp lệ của AI nội bộ.
-            Giới hạn dữ liệu giải mã 10 MiB và 16 triệu pixel.
-            Không tự mở rộng định dạng public Analysis API.
+          minLength: 4
+          maxLength: 13981016
+          description: Chuỗi Base64 trần của ảnh PNG/JPEG (tối đa 10 MiB và 16 triệu pixel).
         include_mask:
           type: boolean
           default: true
@@ -344,114 +419,146 @@ components:
 
     ImageInfo:
       type: object
-      required: [width, height]
+      additionalProperties: false
+      required: [width, height, channels, eye_side, modality]
       properties:
         width:
           type: integer
+          minimum: 1
         height:
           type: integer
+          minimum: 1
         channels:
           type: integer
+          enum: [3]
           default: 3
         eye_side:
           $ref: '#/components/schemas/EyeSide'
         modality:
           type: string
+          enum: [FUNDUS]
           default: FUNDUS
 
     VesselMetrics:
       type: object
+      additionalProperties: false
       required:
         - vessel_density
         - tortuosity_index
         - av_ratio
         - fractal_dimension
         - branching_points
-      description: Các giá trị hiện là hằng số mock, không phải đo từ ảnh.
       properties:
         vessel_density:
           type: number
-          example: 0.1485
+          minimum: 0
+          maximum: 1
+          example: 0.0842
         tortuosity_index:
           type: number
-          example: 1.165
+          nullable: true
+          default: null
         av_ratio:
           type: number
-          example: 0.672
+          nullable: true
+          default: null
         fractal_dimension:
           type: number
-          example: 1.475
+          nullable: true
+          default: null
         branching_points:
           type: integer
-          example: 62
+          nullable: true
+          minimum: 0
+          default: null
 
     RiskAssessment:
       type: object
+      additionalProperties: false
       required:
         - risk_score
         - risk_level
         - confidence_score
         - indicators
-      description: Phân tầng giả lập phục vụ kiểm thử, chưa có giá trị lâm sàng.
+        - disclaimer
       properties:
         risk_score:
           type: number
-          example: 0.32
+          minimum: 0
+          maximum: 1
         risk_level:
           $ref: '#/components/schemas/RiskLevel'
         confidence_score:
           type: number
-          example: 0.91
+          minimum: 0
+          maximum: 1
         indicators:
           type: array
           items:
             type: string
+            minLength: 1
         disclaimer:
           type: string
-          description: Runtime luôn trả cảnh báo không thay thế chẩn đoán.
+          minLength: 1
 
     SegmentationResult:
       type: object
+      additionalProperties: false
+      required:
+        - mask_format
+        - mask_base64
+        - overlay_base64
       properties:
         mask_format:
           type: string
+          enum: [png_base64]
           default: png_base64
         mask_base64:
           type: string
           nullable: true
-          default: null
-          description: PNG mock mode L, pixel 0/255, cùng kích thước ảnh đầu vào.
+          minLength: 4
         overlay_base64:
           type: string
           nullable: true
-          default: null
-          description: PNG mock RGB cùng kích thước; không phủ trên ảnh gốc.
+          minLength: 4
 
     AnalysisWarning:
       type: object
+      additionalProperties: false
       required: [code, message]
       properties:
         code:
           type: string
           minLength: 1
-          example: AI_WARNING
+          example: RISK_UNAVAILABLE
         message:
           type: string
           minLength: 1
-          description: Không tự đồng nghĩa LOW_QUALITY.
 
     AnalysisResponse:
       type: object
+      additionalProperties: false
       required:
         - request_id
+        - patient_id
         - timestamp
+        - status
+        - warnings
+        - is_mock
+        - model_version
+        - config_version
+        - threshold_version
+        - limitations
         - processing_time_ms
         - image_info
         - metrics
+        - risk_available
         - risk_assessment
+        - segmentation
       properties:
         request_id:
           type: string
+          format: uuid
         patient_id:
           type: string
           nullable: true
@@ -459,37 +566,46 @@ components:
         timestamp:
           type: string
           format: date-time
+          pattern: 'Z$'
         status:
           $ref: '#/components/schemas/AnalysisStatus'
         warnings:
           type: array
           items:
             $ref: '#/components/schemas/AnalysisWarning'
-          description: Danh sách cảnh báo của kết quả hợp lệ; mặc định rỗng.
         is_mock:
           type: boolean
-          default: true
+          default: false
         model_version:
           type: string
-          default: mock-v0.1
-        threshold_version:
-          type: string
-          default: v0.1
+          minLength: 1
+          default: frangi-v0.2
         config_version:
           type: string
-          default: v0.1
+          minLength: 1
+          default: s3-frangi-1.0.0
+        threshold_version:
+          type: string
+          minLength: 1
+          default: frangi-threshold-0.02-v1
         limitations:
           type: string
-          description: Giới hạn kỹ thuật của kết quả mock.
+          minLength: 1
         processing_time_ms:
           type: number
-          description: Thời gian xử lý runtime, không phải latency toàn hệ thống.
+          minimum: 0
         image_info:
           $ref: '#/components/schemas/ImageInfo'
         metrics:
           $ref: '#/components/schemas/VesselMetrics'
+        risk_available:
+          type: boolean
+          default: false
         risk_assessment:
-          $ref: '#/components/schemas/RiskAssessment'
+          allOf:
+            - $ref: '#/components/schemas/RiskAssessment'
+          nullable: true
+          default: null
         segmentation:
           allOf:
             - $ref: '#/components/schemas/SegmentationResult'
@@ -497,12 +613,15 @@ components:
 
     ErrorResponse:
       type: object
+      additionalProperties: false
       required: [error_code, message, timestamp]
       properties:
         error_code:
           type: string
+          minLength: 1
         message:
           type: string
+          minLength: 1
         details:
           type: object
           nullable: true
@@ -510,3 +629,4 @@ components:
         timestamp:
           type: string
           format: date-time
+          pattern: 'Z$'

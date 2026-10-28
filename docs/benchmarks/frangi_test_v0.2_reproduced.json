@@ -1,6 +1,6 @@
 {
   "status": "FROZEN_BASELINE_TEST_EVALUATION",
-  "timestamp_utc": "2026-10-09T09:08:42.808658+00:00",
+  "timestamp_utc": "2026-10-28T13:36:40.817454+00:00",
   "dataset": "CHASE_DB1",
   "split": "test",
   "sample_count": 6,
@@ -9,10 +9,10 @@
   "evaluation_region": "whole_image",
   "manifest_sha256": "2fbfb652d7c824fa53608d1aff7aeaefcadcc90a96f264d35dac84e1023bcc76",
   "baseline_script_sha256": "3298614b6194a71562db63fa62c18755eeb9448cbfdeb01c85b75e6cc1770126",
-  "evaluation_script_sha256": "0465dd6660655078996fc332a5a3bcbc253f935965f51862976c10b0c50b21d8",
+  "evaluation_script_sha256": "5dadb43e7160a1901c47ffbb1674cddee1e082d1a1fae26b05f79007c46bc57b",
   "validation_report_sha256": "e0e2a03565d45f489164d589f13ed8202a6d4865a8f01ed42690dea17c41097a",
   "environment": {
-    "os": "Windows-11-10.0.26200-SP0",
+    "os": "Windows-11-10.0.26300-SP0",
     "python": "3.12.14",
     "Pillow": "12.3.0",
     "numpy": "2.5.3",
@@ -65,10 +65,10 @@
     "scope": "green extraction, smoothing, region estimation, Frangi, normalization, threshold",
     "excludes": "disk I/O, SHA-256 verification, metrics, PNG output, API, queue, database",
     "warmup_performed": false,
-    "median_ms": 3000.8699000009074,
-    "p95_ms": 3241.067175000353,
+    "median_ms": 2965.808200000083,
+    "p95_ms": 3128.041024999675,
     "percentile_method": "linear",
-    "max_ms": 3267.128600000433,
+    "max_ms": 3144.833699999708,
     "note": "Descriptive local CPU timing on 6 test images from 3 subjects only. Interpolated with linear percentile method. Does NOT reflect end-to-end system latency or overall NFR."
   },
   "samples": [
@@ -83,7 +83,7 @@
       "fp": 28796,
       "fn": 41094,
       "tn": 863359,
-      "local_segmentation_ms": 3267.128600000433
+      "local_segmentation_ms": 3077.662999999575
     },
     {
       "image": "Image_01R.jpg",
@@ -96,7 +96,7 @@
       "fp": 25038,
       "fn": 48493,
       "tn": 861164,
-      "local_segmentation_ms": 3162.8829000001133
+      "local_segmentation_ms": 2945.852599999853
     },
     {
       "image": "Image_02L.jpg",
@@ -109,7 +109,7 @@
       "fp": 48629,
       "fn": 45755,
       "tn": 832591,
-      "local_segmentation_ms": 3044.4653000013204
+      "local_segmentation_ms": 3144.833699999708
     },
     {
       "image": "Image_02R.jpg",
@@ -122,7 +122,7 @@
       "fp": 72146,
       "fn": 39991,
       "tn": 812004,
-      "local_segmentation_ms": 2957.2745000004943
+      "local_segmentation_ms": 2934.7304999996595
     },
     {
       "image": "Image_11L.jpg",
@@ -135,7 +135,7 @@
       "fp": 34309,
       "fn": 26020,
       "tn": 873612,
-      "local_segmentation_ms": 2886.787799998274
+      "local_segmentation_ms": 2973.377199999959
     },
     {
       "image": "Image_11R.jpg",
@@ -148,7 +148,7 @@
       "fp": 23515,
       "fn": 29155,
       "tn": 884392,
-      "local_segmentation_ms": 2906.4810999989277
+      "local_segmentation_ms": 2958.2392000002073
     }
   ],
   "end_to_end_nfr_status": "NOT_VERIFIED",

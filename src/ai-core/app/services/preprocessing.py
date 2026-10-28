@@ -413,3 +413,14 @@ def preprocess_fundus_image(
         is_acceptable=is_acceptable,
         rejection_reason=rejection_reason,
     )
+
+
+# Sprint 3 pre-Frangi quality assessment re-exports (exact config/ai-frangi.yaml formulas)
+from .frangi_service import (  # noqa: E402
+    FrangiQualityReport,
+    FrangiRuntimeConfig,
+    LAPLACIAN_KERNEL,
+    LowQualityImageError,
+    estimate_prediction_region,
+    evaluate_frangi_quality,
+)
