@@ -27,4 +27,3 @@ training:
   decisionThreshold: 0.5
 output:
   reportPath: docs/benchmarks/segmentation_training_smoke_v0.1.json
-

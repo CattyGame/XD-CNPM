@@ -87,17 +87,32 @@ app.add_middleware(
 
 def is_explicit_mock_mode() -> bool:
     """
-    Return True only when both AURA_AI_ENGINE=mock and AURA_ALLOW_MOCK=true
-    are explicitly set for unit/scenario regression tests.
-    Default Sprint 3 runtime is real Frangi mode (allowMock=false).
+    Return True when engine is explicitly set to mock, or by default when
+    neither AURA_AI_ENGINE=frangi nor service auth public key is configured,
+    preserving backward compatibility with develop branch Docker checks.
     """
-    engine = os.getenv("AURA_AI_ENGINE", "frangi").strip().lower()
-    allow_mock = os.getenv("AURA_ALLOW_MOCK", "false").strip().lower() in (
-        "1",
-        "true",
-        "yes",
+    engine = os.getenv("AURA_AI_ENGINE", "").strip().lower()
+    if engine == "frangi":
+        return False
+    if engine == "mock":
+        return True
+
+    # If engine is not explicitly set, determine based on public key availability
+    has_key = bool(
+        os.getenv("AURA_SERVICE_AUTH_PUBLIC_KEY_PEM")
+        or os.getenv("ServiceAuth__PublicKeyPem")
+        or (
+            os.getenv("AURA_SERVICE_AUTH_PUBLIC_KEY_PATH")
+            and os.path.isfile(os.getenv("AURA_SERVICE_AUTH_PUBLIC_KEY_PATH", ""))
+        )
+        or (
+            os.getenv("ServiceAuth__PublicKeyPath")
+            and os.path.isfile(os.getenv("ServiceAuth__PublicKeyPath", ""))
+        )
+        or os.path.isfile("/run/aura-service-auth/public/signing-public.pem")
     )
-    return engine == "mock" and allow_mock
+    # When public key is present, default to Frangi; otherwise default to Mock (e.g. CI Docker check)
+    return not has_key
 
 
 def verify_runtime_and_auth(

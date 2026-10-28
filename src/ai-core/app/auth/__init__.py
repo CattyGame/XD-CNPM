@@ -14,4 +14,3 @@ __all__ = [
     "ServiceJwtVerifier",
     "load_verifier_from_env",
 ]
-

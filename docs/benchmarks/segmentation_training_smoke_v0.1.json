@@ -2,7 +2,7 @@
   "status": "SEGMENTATION_TRAINING_SMOKE_PASSED",
   "pipeline_version": "seg-smoke-v0.1",
   "task": "retinal_vessel_segmentation",
-  "timestamp_utc": "2026-10-28T13:48:59.806171Z",
+  "timestamp_utc": "2026-10-28T14:08:58.867895Z",
   "replaces_runtime_frangi": false,
   "runtime_model_version_preserved": "frangi-v0.2",
   "risk_available": false,
@@ -147,6 +147,6 @@
     "val_sensitivity": 0.04607,
     "val_specificity": 0.998416
   },
-  "execution_time_ms": 382.36,
+  "execution_time_ms": 722.67,
   "notes": "Smoke-run scaffold for supervised vessel segmentation on CHASE_DB1 train/validation splits only. Test split was never loaded or touched. No clinical risk labels exist or were inferred. Sprint 3 runtime inference continues to use frozen Frangi baseline (frangi-v0.2)."
 }

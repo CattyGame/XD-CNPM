@@ -68,4 +68,3 @@ training:
     seed42
 dependencyReference: config/ai.requirements-baseline.reference.txt; exact pins from
   develop baseline; M4 must demonstrate successful build and benchmark before acceptance
-

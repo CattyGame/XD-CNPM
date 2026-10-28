@@ -40,4 +40,3 @@ Khi M1 dựng Docker Compose cho namespace `aura-s3`, container `ai-core` sử d
 
 - **Phụ thuộc vào M1 & M6**: Mount khóa công khai `/run/aura-service-auth/public/signing-public.pem` vào container `ai-core` và cấp client credential `analysis-worker` (scope `ai:analyze`, audience `aura-ai`) trong namespace `aura-s3`.
 - **Phụ thuộc vào M2**: Worker gọi `POST http://ai-core:8000/api/v1/analyze` với Bearer token dịch vụ, kiểm tra invariants của response `1.2.0`, lưu PNG `mask` và `overlay` vào `aura-annotations`, ánh xạ `risk_available=false` / `risk_assessment=null` sang `riskAvailable=false` và phát sự kiện `analysis.completed` (`schemaVersion: "0.7"`).
-

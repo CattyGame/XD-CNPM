@@ -632,4 +632,3 @@ def process_frangi_analysis(
             overlay_base64=overlay_b64,
         ),
     )
-
