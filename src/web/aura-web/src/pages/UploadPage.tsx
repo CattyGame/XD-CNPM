@@ -92,6 +92,7 @@ function PersonalUploadForm({ context }: { context: BackendContext }) {
         <p><strong>Số ảnh:</strong> {receipt.items.length}</p>
         <p><strong>Thời gian:</strong> {receipt.createdAt}</p>
         <p><strong>Status URL:</strong> {receipt.statusUrl}</p>
+        <p><a href={`/batches/${receipt.batchId}`}>Theo dõi tiến trình batch (GET, không gửi lại ảnh)</a></p>
         <ul>{receipt.items.map((item) => <li key={item.analysisId}>
           {item.fileName}: {item.processingStatus === 'DUPLICATE'
             ? `Ảnh trùng, tham chiếu phân tích ${item.existingAnalysisId}. Không tạo kết quả AI mới.`
