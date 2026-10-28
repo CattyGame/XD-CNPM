@@ -1,0 +1,152 @@
+{
+  "status": "SEGMENTATION_TRAINING_SMOKE_PASSED",
+  "pipeline_version": "seg-smoke-v0.1",
+  "task": "retinal_vessel_segmentation",
+  "timestamp_utc": "2026-10-28T14:08:58.867895Z",
+  "replaces_runtime_frangi": false,
+  "runtime_model_version_preserved": "frangi-v0.2",
+  "risk_available": false,
+  "risk_labels_used": false,
+  "clinical_risk_inference": false,
+  "dataset": {
+    "name": "CHASE_DB1",
+    "seed": 42,
+    "split_type": "project_defined_subject_split",
+    "reference_mask": "mask_1st",
+    "manifest_sha256": "2fbfb652d7c824fa53608d1aff7aeaefcadcc90a96f264d35dac84e1023bcc76",
+    "split_subjects": {
+      "train": [
+        "03",
+        "06",
+        "07",
+        "08",
+        "09",
+        "12",
+        "13",
+        "14"
+      ],
+      "validation": [
+        "04",
+        "05",
+        "10"
+      ],
+      "test": [
+        "01",
+        "02",
+        "11"
+      ]
+    },
+    "train_image_count": 16,
+    "validation_image_count": 6,
+    "test_images_loaded": 0,
+    "test_split_touched": false,
+    "subject_leakage_detected": false,
+    "train_images": [
+      "Image_03L.jpg",
+      "Image_03R.jpg",
+      "Image_06L.jpg",
+      "Image_06R.jpg",
+      "Image_07L.jpg",
+      "Image_07R.jpg",
+      "Image_08L.jpg",
+      "Image_08R.jpg",
+      "Image_09L.jpg",
+      "Image_09R.jpg",
+      "Image_12L.jpg",
+      "Image_12R.jpg",
+      "Image_13L.jpg",
+      "Image_13R.jpg",
+      "Image_14L.jpg",
+      "Image_14R.jpg"
+    ],
+    "validation_images": [
+      "Image_04L.jpg",
+      "Image_04R.jpg",
+      "Image_05L.jpg",
+      "Image_05R.jpg",
+      "Image_10L.jpg",
+      "Image_10R.jpg"
+    ]
+  },
+  "environment": {
+    "os": "Windows-11-10.0.26300-SP0",
+    "python": "3.12.14",
+    "Pillow": "12.3.0",
+    "numpy": "2.5.3",
+    "scipy": "1.18.1",
+    "scikit_image": "0.26.0"
+  },
+  "training_config": {
+    "architecture": "multiscale_green_vessel_logistic_scaffold",
+    "featureScalesSigma": [
+      1.0,
+      2.0,
+      4.0
+    ],
+    "sampleStride": 8,
+    "epochs": 5,
+    "learningRate": 0.25,
+    "l2Regularization": 0.0005,
+    "positiveClassWeight": 4.0,
+    "decisionThreshold": 0.5
+  },
+  "epoch_history": [
+    {
+      "epoch": 1,
+      "train_weighted_bce_loss": 0.653302,
+      "val_weighted_bce_loss": 0.66304,
+      "val_dice": 0.0,
+      "val_iou": 0.0,
+      "val_sensitivity": 0.0,
+      "val_specificity": 1.0
+    },
+    {
+      "epoch": 2,
+      "train_weighted_bce_loss": 0.63589,
+      "val_weighted_bce_loss": 0.647301,
+      "val_dice": 0.0,
+      "val_iou": 0.0,
+      "val_sensitivity": 0.0,
+      "val_specificity": 1.0
+    },
+    {
+      "epoch": 3,
+      "train_weighted_bce_loss": 0.621203,
+      "val_weighted_bce_loss": 0.63401,
+      "val_dice": 0.020502,
+      "val_iou": 0.010357,
+      "val_sensitivity": 0.010388,
+      "val_specificity": 0.99976
+    },
+    {
+      "epoch": 4,
+      "train_weighted_bce_loss": 0.608851,
+      "val_weighted_bce_loss": 0.622768,
+      "val_dice": 0.049476,
+      "val_iou": 0.025366,
+      "val_sensitivity": 0.025595,
+      "val_specificity": 0.99928
+    },
+    {
+      "epoch": 5,
+      "train_weighted_bce_loss": 0.598443,
+      "val_weighted_bce_loss": 0.61321,
+      "val_dice": 0.086441,
+      "val_iou": 0.045173,
+      "val_sensitivity": 0.04607,
+      "val_specificity": 0.998416
+    }
+  ],
+  "loss_decreased": true,
+  "final_validation_metrics": {
+    "epoch": 5,
+    "train_weighted_bce_loss": 0.598443,
+    "val_weighted_bce_loss": 0.61321,
+    "val_dice": 0.086441,
+    "val_iou": 0.045173,
+    "val_sensitivity": 0.04607,
+    "val_specificity": 0.998416
+  },
+  "execution_time_ms": 722.67,
+  "notes": "Smoke-run scaffold for supervised vessel segmentation on CHASE_DB1 train/validation splits only. Test split was never loaded or touched. No clinical risk labels exist or were inferred. Sprint 3 runtime inference continues to use frozen Frangi baseline (frangi-v0.2)."
+}

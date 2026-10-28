@@ -1,0 +1,29 @@
+pipelineVersion: seg-smoke-v0.1
+task: retinal_vessel_segmentation
+replacesRuntimeFrangi: false
+riskLabelsAllowed: false
+clinicalRiskInference: false
+dataset:
+  name: CHASE_DB1
+  manifestPath: docs/datasets/chase_db1/manifest.csv
+  referenceMask: mask_1st
+  seed: 42
+  allowedSplits:
+  - train
+  - validation
+  forbiddenSplits:
+  - test
+training:
+  architecture: multiscale_green_vessel_logistic_scaffold
+  featureScalesSigma:
+  - 1.0
+  - 2.0
+  - 4.0
+  sampleStride: 8
+  epochs: 5
+  learningRate: 0.25
+  l2Regularization: 0.0005
+  positiveClassWeight: 4.0
+  decisionThreshold: 0.5
+output:
+  reportPath: docs/benchmarks/segmentation_training_smoke_v0.1.json

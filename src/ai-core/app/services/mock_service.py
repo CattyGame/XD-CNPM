@@ -261,7 +261,7 @@ def process_mock_analysis(request: AnalysisRequest) -> AnalysisResponse:
     return AnalysisResponse(
         request_id=request.request_id,
         patient_id=request.patient_id,
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         status=result_status,
         warnings=result_warnings,
         is_mock=True,
@@ -276,6 +276,7 @@ def process_mock_analysis(request: AnalysisRequest) -> AnalysisResponse:
         processing_time_ms=elapsed_ms,
         image_info=image_info,
         metrics=metrics,
+        risk_available=True,
         risk_assessment=risk_assessment,
         segmentation=segmentation,
     )

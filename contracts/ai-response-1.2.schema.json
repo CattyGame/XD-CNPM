@@ -1,0 +1,320 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "request_id",
+    "patient_id",
+    "timestamp",
+    "status",
+    "warnings",
+    "is_mock",
+    "model_version",
+    "config_version",
+    "threshold_version",
+    "limitations",
+    "processing_time_ms",
+    "image_info",
+    "metrics",
+    "risk_available",
+    "risk_assessment",
+    "segmentation"
+  ],
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "patient_id": {
+      "type": "null"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "status": {
+      "enum": [
+        "SUCCESS",
+        "WARNING"
+      ]
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "is_mock": {
+      "type": "boolean"
+    },
+    "model_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "config_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "threshold_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "limitations": {
+      "type": "string",
+      "minLength": 1
+    },
+    "processing_time_ms": {
+      "type": "number",
+      "minimum": 0
+    },
+    "image_info": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width",
+        "height",
+        "channels",
+        "eye_side",
+        "modality"
+      ],
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "channels": {
+          "enum": [
+            3
+          ]
+        },
+        "eye_side": {
+          "enum": [
+            "left",
+            "right",
+            "unknown"
+          ]
+        },
+        "modality": {
+          "const": "FUNDUS"
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "vessel_density",
+        "tortuosity_index",
+        "av_ratio",
+        "fractal_dimension",
+        "branching_points"
+      ],
+      "properties": {
+        "vessel_density": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "tortuosity_index": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "av_ratio": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "fractal_dimension": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "branching_points": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "risk_available": {
+      "type": "boolean"
+    },
+    "risk_assessment": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "risk_score",
+            "risk_level",
+            "confidence_score",
+            "indicators",
+            "disclaimer"
+          ],
+          "properties": {
+            "risk_score": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "risk_level": {
+              "enum": [
+                "LOW",
+                "MODERATE",
+                "HIGH"
+              ]
+            },
+            "confidence_score": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "indicators": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "disclaimer": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "segmentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mask_format",
+        "mask_base64",
+        "overlay_base64"
+      ],
+      "properties": {
+        "mask_format": {
+          "const": "png_base64"
+        },
+        "mask_base64": {
+          "type": "string",
+          "minLength": 4,
+          "contentEncoding": "base64"
+        },
+        "overlay_base64": {
+          "type": "string",
+          "minLength": 4,
+          "contentEncoding": "base64"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "risk_available": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "risk_assessment": {
+            "type": "null"
+          },
+          "status": {
+            "const": "WARNING"
+          },
+          "warnings": {
+            "contains": {
+              "type": "object",
+              "required": [
+                "code"
+              ],
+              "properties": {
+                "code": {
+                  "const": "RISK_UNAVAILABLE"
+                }
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "risk_assessment": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "risk_score",
+              "risk_level",
+              "confidence_score",
+              "indicators",
+              "disclaimer"
+            ],
+            "properties": {
+              "risk_score": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "risk_level": {
+                "enum": [
+                  "LOW",
+                  "MODERATE",
+                  "HIGH"
+                ]
+              },
+              "confidence_score": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "indicators": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "disclaimer": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

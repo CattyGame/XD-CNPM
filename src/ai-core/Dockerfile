@@ -18,11 +18,13 @@ COPY requirements.txt requirements.lock ./
 RUN pip install --no-cache-dir \
     -c requirements.lock \
     -r requirements.txt
+
 # Create non-root user for container security
 RUN useradd -m -u 1001 appuser
 
-# Copy application source code
+# Copy application source code and configuration
 COPY ./app /app/app
+COPY ./config /app/config
 
 # Set ownership
 RUN chown -R appuser:appuser /app

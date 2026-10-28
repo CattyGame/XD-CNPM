@@ -1,59 +1,94 @@
 """
 Analysis request and response schemas for AURA AI Service (Module M4).
-Conforms strictly to OpenAPI 3.0 contract and task requirements for SCRUM-61 & SCRUM-62.
+Conforms strictly to OpenAPI 1.2.0 contract and JSON schemas for Sprint 3
+(SCRUM-329, SCRUM-330, SCRUM-331) while preserving explicit mock test support.
 """
-from typing import Optional, List, Dict, Any
-from datetime import datetime, timezone
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .common import EyeSide, AnalysisMode, RiskLevel, AnalysisStatus
+from .common import AnalysisMode, AnalysisStatus, EyeSide, RiskLevel
 
 
 class AnalysisRequest(BaseModel):
-    request_id: str = Field(..., description="Mã định danh duy nhất của yêu cầu")
-    patient_id: Optional[str] = Field(None, description="Mã định danh bệnh nhân (tùy chọn)")
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(..., description="Mã định danh duy nhất của yêu cầu (UUID analysisId)")
+    patient_id: Optional[str] = Field(
+        None,
+        description="Mã định danh bệnh nhân (bắt buộc null trên đường truyền Worker -> AI theo contract 1.2.0)",
+    )
     eye_side: EyeSide = Field(EyeSide.UNKNOWN, description="Mắt trái / mắt phải / không xác định")
     mode: AnalysisMode = Field(AnalysisMode.RETINA_VESSELS, description="Chế độ phân tích")
-    modality: str = Field("FUNDUS", description="Loại ảnh y tế: FUNDUS hoặc OCT")
-    image_base64: str = Field(..., description="Chuỗi ảnh Base64")
+    modality: str = Field("FUNDUS", description="Loại ảnh y tế: FUNDUS (OCT bị từ chối HTTP 422)")
+    image_base64: str = Field(..., description="Chuỗi ảnh Base64 trần (PNG/JPEG)")
     include_mask: bool = Field(True, description="Trả về ảnh mặt nạ nhị phân")
     include_overlay: bool = Field(True, description="Trả về ảnh phủ viền mạch")
 
 
 class ImageInfo(BaseModel):
-    width: int
-    height: int
-    channels: int = 3
+    model_config = ConfigDict(extra="forbid")
+
+    width: int = Field(..., ge=1)
+    height: int = Field(..., ge=1)
+    channels: int = Field(3)
     eye_side: EyeSide = EyeSide.UNKNOWN
     modality: str = "FUNDUS"
 
 
 class VesselMetrics(BaseModel):
-    vessel_density: float = Field(..., description="Mật độ diện tích mạch máu")
-    tortuosity_index: float = Field(..., description="Chỉ số xoắn mạch máu")
-    av_ratio: float = Field(..., description="Tỷ lệ đường kính động mạch / tĩnh mạch")
-    fractal_dimension: float = Field(..., description="Số chiều Fractal phân nhánh")
-    branching_points: int = Field(..., description="Số điểm phân nhánh mạch máu")
+    model_config = ConfigDict(extra="forbid")
+
+    vessel_density: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Tỷ lệ pixel mạch máu foreground trên tổng diện tích ảnh gốc",
+    )
+    tortuosity_index: Optional[float] = Field(
+        None,
+        description="Chỉ số xoắn mạch máu (null với Frangi baseline v0.2)",
+    )
+    av_ratio: Optional[float] = Field(
+        None,
+        description="Tỷ lệ đường kính động mạch / tĩnh mạch (null với Frangi baseline v0.2)",
+    )
+    fractal_dimension: Optional[float] = Field(
+        None,
+        description="Số chiều Fractal phân nhánh (null với Frangi baseline v0.2)",
+    )
+    branching_points: Optional[int] = Field(
+        None,
+        ge=0,
+        description="Số điểm phân nhánh mạch máu (null với Frangi baseline v0.2)",
+    )
 
 
 class RiskAssessment(BaseModel):
-    risk_score: float = Field(..., description="Điểm rủi ro tổng hợp chuẩn hóa (0.0 -> 1.0)")
+    model_config = ConfigDict(extra="forbid")
+
+    risk_score: float = Field(..., ge=0.0, le=1.0, description="Điểm rủi ro chuẩn hóa (0.0 -> 1.0)")
     risk_level: RiskLevel = Field(..., description="Mức độ rủi ro: LOW, MODERATE, HIGH")
-    confidence_score: float = Field(..., description="Độ tin cậy của thuật toán (0.0 -> 1.0)")
-    indicators: List[str] = Field(..., description="Danh sách các nhận định dựa trên chỉ số hình thái học")
+    confidence_score: float = Field(..., ge=0.0, le=1.0, description="Độ tin cậy (0.0 -> 1.0)")
+    indicators: List[str] = Field(..., description="Danh sách các nhận định")
     disclaimer: str = Field(
         "Kết quả ước lượng dựa trên phân tích hình thái học võng mạc (Heuristic). "
         "Mang tính chất tham khảo kỹ thuật, không thay thế chẩn đoán y khoa chính thức từ bác sĩ chuyên khoa.",
-        description="Tuyên bố miễn trừ trách nhiệm y khoa bắt buộc"
+        min_length=1,
+        description="Tuyên bố miễn trừ trách nhiệm y khoa bắt buộc",
     )
 
 
 class SegmentationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     mask_format: str = "png_base64"
     mask_base64: Optional[str] = None
     overlay_base64: Optional[str] = None
 
+
 class AnalysisWarning(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     code: str = Field(
         ...,
         min_length=1,
@@ -65,12 +100,15 @@ class AnalysisWarning(BaseModel):
         description="Nội dung cảnh báo.",
     )
 
+
 class AnalysisResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     request_id: str
     patient_id: Optional[str] = None
     timestamp: str
 
-    status: AnalysisStatus = AnalysisStatus.SUCCESS
+    status: AnalysisStatus = AnalysisStatus.WARNING
 
     warnings: List[AnalysisWarning] = Field(
         default_factory=list,
@@ -81,40 +119,59 @@ class AnalysisResponse(BaseModel):
     )
 
     is_mock: bool = Field(
-        True,
-        description="Kết quả được tạo bởi Mock Engine để kiểm thử tích hợp.",
+        False,
+        description="True nếu tạo bởi Mock Engine; False khi chạy thuật toán Frangi thật.",
     )
 
     model_version: str = Field(
-        "mock-v0.1",
-        description="Phiên bản mô hình hoặc bộ xử lý giả lập.",
-    )
-
-    threshold_version: str = Field(
-        "v0.1",
-        description="Phiên bản cấu hình ngưỡng.",
+        "frangi-v0.2",
+        min_length=1,
+        description="Phiên bản thuật toán hoặc mô hình.",
     )
 
     config_version: str = Field(
-        "v0.1",
+        "s3-frangi-1.0.0",
+        min_length=1,
         description="Phiên bản cấu hình xử lý.",
     )
 
+    threshold_version: str = Field(
+        "frangi-threshold-0.02-v1",
+        min_length=1,
+        description="Phiên bản cấu hình ngưỡng.",
+    )
+
     limitations: str = Field(
-        "Kết quả mô phỏng (Mock Engine) phục vụ kiểm thử tích hợp; "
-        "chưa tích hợp thuật toán phân vùng thật. "
-        "Mask và overlay là hình vẽ tổng hợp, không phải kết quả từ ảnh.",
+        "Segmentation research baseline; no clinical risk assessment.",
+        min_length=1,
         description="Giới hạn kỹ thuật của phiên bản hiện tại.",
     )
 
-    processing_time_ms: float
+    processing_time_ms: float = Field(..., ge=0.0)
     image_info: ImageInfo
     metrics: VesselMetrics
-    risk_assessment: RiskAssessment
+    risk_available: Optional[bool] = Field(
+        None,
+        description="False khi thuật toán chỉ phân vùng mạch máu và không cung cấp đánh giá rủi ro.",
+    )
+    risk_assessment: Optional[RiskAssessment] = None
     segmentation: Optional[SegmentationResult] = None
 
+    @model_validator(mode="after")
+    def _validate_risk_invariants(self) -> "AnalysisResponse":
+        if self.risk_available is None:
+            self.risk_available = self.risk_assessment is not None
+        if not self.risk_available and self.risk_assessment is not None:
+            raise ValueError("risk_assessment must be null when risk_available is false.")
+        if self.risk_available and self.risk_assessment is None:
+            raise ValueError("risk_assessment is required when risk_available is true.")
+        return self
+
+
 class ErrorResponse(BaseModel):
-    error_code: str = Field(..., description="Mã lỗi máy đọc được")
-    message: str = Field(..., description="Thông điệp mô tả lỗi chi tiết")
+    model_config = ConfigDict(extra="forbid")
+
+    error_code: str = Field(..., min_length=1, description="Mã lỗi máy đọc được")
+    message: str = Field(..., min_length=1, description="Thông điệp mô tả lỗi chi tiết")
     details: Optional[Dict[str, Any]] = Field(None, description="Chi tiết lỗi bổ sung (nếu có)")
-    timestamp: str = Field(..., description="Thời điểm xảy ra lỗi theo chuẩn ISO 8601 UTC")
+    timestamp: str = Field(..., description="Thời điểm xảy ra lỗi theo chuẩn ISO 8601 UTC kết thúc bằng Z")

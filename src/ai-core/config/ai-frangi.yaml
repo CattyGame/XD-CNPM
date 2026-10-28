@@ -1,0 +1,70 @@
+engine: frangi
+allowMock: false
+modelVersion: frangi-v0.2
+configVersion: s3-frangi-1.0.0
+thresholdVersion: frangi-threshold-0.02-v1
+riskAvailable: false
+input:
+  modality: FUNDUS
+  color: RGB
+  maxBytes: 10485760
+  maxPixels: 16000000
+  resize: false
+  crop: false
+algorithm:
+  channel: green
+  scale: 255
+  gaussianSigma: 1.0
+  estimatedRegion:
+    maxRgbGreaterThan: 20
+    fillHoles: true
+    erosionKernel:
+    - 3
+    - 3
+    erosionIterations: 12
+  frangi:
+    sigmas:
+    - 1
+    - 2
+    - 3
+    - 5
+    - 8
+    alpha: 0.5
+    beta: 0.5
+    gamma: null
+    blackRidges: true
+    mode: reflect
+  outsideRegion: 0
+  normalize: per-image maximum; all-zero response gives zero mask
+  threshold: 0.02
+output:
+  mask: PNG L binary 0 or 255; original geometry
+  overlay: PNG RGB/RGBA; original geometry
+  vesselDensity: foreground_pixels/(original_width*original_height)
+  unsupportedMetrics: null
+quality:
+  minLuminance: 15
+  maxLuminance: 240
+  minContrast: 8
+  minSharpness: 3.5
+  minEstimatedRegionRatio: 0.15
+  thresholdStatus: engineering heuristics; M4 implement exact definitions and fixture
+    tests before acceptance
+  definitions:
+    grayscale: float64 0.299*R + 0.587*G + 0.114*B on RGB 0..255
+    luminance: mean grayscale over estimatedRegion after fill and erosion
+    contrast: population standard deviation grayscale over estimatedRegion
+    sharpness: population variance of grayscale Laplacian, kernel [[0,1,0],[1,-4,1],[0,1,0]],
+      reflect boundary, sampled over estimatedRegion
+    regionRatio: estimatedRegionPixels/(width*height)
+    rejectIf: region empty OR regionRatio<0.15 OR luminance<15 OR luminance>240 OR
+      contrast<8 OR sharpness<3.5
+    boundary: equality to each threshold is accepted; all measurements before Frangi;
+      no resize/crop
+training:
+  frangiHasTrainableWeights: false
+  futureTrainableModel: separate pipeline/version; not substituted into this baseline
+  datasetPolicy: license checked, no patient identifiers in repo, split by subject
+    seed42
+dependencyReference: config/ai.requirements-baseline.reference.txt; exact pins from
+  develop baseline; M4 must demonstrate successful build and benchmark before acceptance

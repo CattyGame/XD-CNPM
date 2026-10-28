@@ -1,29 +1,29 @@
 """
-Unit test validating that OpenAPI schemas, contracts, and Python models parse properly (SCRUM-61).
+Unit test validating that OpenAPI schemas, contracts, and Python models parse properly (SCRUM-61 / SCRUM-331).
 """
 import io
 import json
 import os
-import sys
 import yaml
 from PIL import Image
 from fastapi.testclient import TestClient
 
 from app.main import app
 from app.schemas import (
-    AnalysisRequest,
-    ImageInfo,
-    VesselMetrics,
-    RiskAssessment,
-    SegmentationResult,
-    AnalysisResponse,
-    ErrorResponse,
-    HealthResponse,
-    PingResponse,
-    EyeSide,
     AnalysisMode,
-    RiskLevel,
+    AnalysisRequest,
+    AnalysisResponse,
     AnalysisStatus,
+    ErrorResponse,
+    EyeSide,
+    HealthResponse,
+    ImageInfo,
+    PingResponse,
+    ReadyResponse,
+    RiskAssessment,
+    RiskLevel,
+    SegmentationResult,
+    VesselMetrics,
 )
 
 client = TestClient(app)
@@ -39,38 +39,31 @@ def create_tiny_png_base64() -> str:
 
 def test_analysis_request_and_response():
     req = AnalysisRequest(
-        request_id="req_test_001",
-        patient_id="PAT-12345",
+        request_id="58685092-7782-5bb6-b147-1b73c6047edd",
+        patient_id=None,
         eye_side=EyeSide.RIGHT,
         mode=AnalysisMode.RETINA_VESSELS,
         image_base64="fake_base64_data",
         include_mask=True,
         include_overlay=True,
     )
-    assert req.request_id == "req_test_001"
+    assert req.request_id == "58685092-7782-5bb6-b147-1b73c6047edd"
     assert req.eye_side == EyeSide.RIGHT
 
     img_info = ImageInfo(
-        width=512,
-        height=512,
+        width=999,
+        height=960,
         channels=3,
         eye_side=req.eye_side,
         modality="FUNDUS",
     )
 
     metrics = VesselMetrics(
-        vessel_density=0.155,
-        tortuosity_index=1.12,
-        av_ratio=0.68,
-        fractal_dimension=1.45,
-        branching_points=52,
-    )
-
-    risk = RiskAssessment(
-        risk_score=0.28,
-        risk_level=RiskLevel.LOW,
-        confidence_score=0.91,
-        indicators=["Mật độ mạch máu bình thường", "Chỉ số xoắn mạch ổn định"],
+        vessel_density=0.0842,
+        tortuosity_index=None,
+        av_ratio=None,
+        fractal_dimension=None,
+        branching_points=None,
     )
 
     seg = SegmentationResult(
@@ -82,21 +75,24 @@ def test_analysis_request_and_response():
     resp = AnalysisResponse(
         request_id=req.request_id,
         patient_id=req.patient_id,
-        timestamp="2026-10-05T18:00:00Z",
-        status=AnalysisStatus.SUCCESS,
+        timestamp="2026-10-28T02:00:00Z",
+        status=AnalysisStatus.WARNING,
         processing_time_ms=135.2,
         image_info=img_info,
         metrics=metrics,
-        risk_assessment=risk,
+        risk_available=False,
+        risk_assessment=None,
         segmentation=seg,
     )
 
-    assert resp.request_id == "req_test_001"
-    assert resp.metrics.vessel_density == 0.155
-    assert resp.risk_assessment.risk_level == RiskLevel.LOW
-    assert resp.threshold_version == "v0.1"
-    assert resp.config_version == "v0.1"
-    assert resp.is_mock is True
+    assert resp.request_id == "58685092-7782-5bb6-b147-1b73c6047edd"
+    assert resp.metrics.vessel_density == 0.0842
+    assert resp.risk_available is False
+    assert resp.risk_assessment is None
+    assert resp.model_version == "frangi-v0.2"
+    assert resp.threshold_version == "frangi-threshold-0.02-v1"
+    assert resp.config_version == "s3-frangi-1.0.0"
+    assert resp.is_mock is False
 
 
 def test_contract_yaml_and_json_sync():
@@ -115,7 +111,9 @@ def test_contract_yaml_and_json_sync():
 
     assert yaml_data == json_data, "contracts/ai_service_openapi.json is not identical to yaml!"
     assert yaml_data["openapi"] == "3.0.3"
+    assert yaml_data["info"]["version"] == "1.2.0"
     assert "/health" in yaml_data["paths"]
+    assert "/ready" in yaml_data["paths"]
     assert "/api/v1/platform/ping" in yaml_data["paths"]
     assert "/api/v1/analyze" in yaml_data["paths"]
 
@@ -124,20 +122,22 @@ def test_runtime_openapi_schema_matches_contract():
     resp = client.get("/openapi.json")
     assert resp.status_code == 200
     runtime = resp.json()
+    assert runtime["info"]["version"] == "1.2.0"
 
     # Paths check
-    for path in ["/health", "/api/v1/platform/ping", "/api/v1/analyze"]:
+    for path in ["/health", "/ready", "/api/v1/platform/ping", "/api/v1/analyze"]:
         assert path in runtime["paths"], f"Missing {path} in runtime OpenAPI"
 
-    # Analyze responses check: 200, 400, 422, 500
+    # Analyze responses check: 200, 400, 401, 403, 422, 500, 503
     analyze_responses = runtime["paths"]["/api/v1/analyze"]["post"]["responses"]
-    for code in ["200", "400", "422", "500"]:
+    for code in ["200", "400", "401", "403", "422", "500", "503"]:
         assert code in analyze_responses, f"Missing HTTP {code} in /api/v1/analyze responses"
 
     # Component schemas check
     schemas = runtime["components"]["schemas"]
     expected_schemas = [
         "HealthResponse",
+        "ReadyResponse",
         "PingResponse",
         "AnalysisRequest",
         "AnalysisResponse",
@@ -148,13 +148,14 @@ def test_runtime_openapi_schema_matches_contract():
         "SegmentationResult",
         "EyeSide",
         "AnalysisMode",
-        "RiskLevel",
     ]
     for s in expected_schemas:
         assert s in schemas, f"Missing schema {s} in runtime OpenAPI"
 
 
-def test_api_real_calls_conform_to_error_and_response_schemas():
+def test_api_real_calls_conform_to_error_and_response_schemas(monkeypatch):
+    monkeypatch.setenv("AURA_AI_ENGINE", "mock")
+    monkeypatch.setenv("AURA_ALLOW_MOCK", "true")
     valid_b64 = create_tiny_png_base64()
 
     # 1. Success 200 conforms to AnalysisResponse

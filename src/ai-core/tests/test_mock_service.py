@@ -1,19 +1,25 @@
 """
 Unit test for the mock inference service and endpoints (Module M4 - SCRUM-62).
-Validates strict rejection of invalid base64, non-image payloads, OCT modality, and unsupported modes.
+Explicitly enables mock regression mode (`AURA_AI_ENGINE=mock`, `AURA_ALLOW_MOCK=true`)
+as required by SCRUM-329 so default Sprint 3 runtime remains real Frangi (`is_mock=false`).
 """
 import base64
-import sys
-import os
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.schemas.common import EyeSide, AnalysisMode, RiskLevel, AnalysisStatus
 from app.schemas.analysis import AnalysisRequest
-from app.services.mock_service import process_mock_analysis, SAMPLE_VALID_PNG_BASE64
+from app.schemas.common import AnalysisMode, AnalysisStatus, EyeSide, RiskLevel
+from app.services.mock_service import SAMPLE_VALID_PNG_BASE64, process_mock_analysis
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def enable_explicit_mock_mode(monkeypatch):
+    monkeypatch.setenv("AURA_AI_ENGINE", "mock")
+    monkeypatch.setenv("AURA_ALLOW_MOCK", "true")
 
 
 def test_mock_analysis_generation():
@@ -48,6 +54,7 @@ def test_mock_analysis_generation():
     assert resp.metrics.branching_points > 0
 
     # Risk checks
+    assert resp.risk_available is True
     assert resp.risk_assessment.risk_level in [RiskLevel.LOW, RiskLevel.MODERATE, RiskLevel.HIGH]
     assert 0.0 <= resp.risk_assessment.risk_score <= 1.0
     assert len(resp.risk_assessment.disclaimer) > 10
@@ -177,8 +184,9 @@ def test_truncated_image_returns_400():
 
 def test_oversized_pixel_resolution_returns_400():
     # Image with dimensions exceeding 16 MP limit (5000x5000 = 25 MP)
-    from PIL import Image
     import io
+    from PIL import Image
+
     big_img = Image.new("L", (5000, 5000), color=0)
     buf = io.BytesIO()
     big_img.save(buf, format="PNG")
@@ -193,8 +201,9 @@ def test_oversized_pixel_resolution_returns_400():
 
 
 def test_mask_and_overlay_are_valid_decodable_pngs():
-    from PIL import Image
     import io
+    from PIL import Image
+
     payload = {
         "request_id": "req_api_seg_check",
         "image_base64": SAMPLE_VALID_PNG_BASE64,

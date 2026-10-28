@@ -8,6 +8,16 @@ from PIL import Image
 from app.main import app
 
 
+@pytest.fixture(autouse=True)
+def enable_explicit_mock_mode(monkeypatch):
+    """
+    Explicitly flag mock engine for unit/scenario regression tests per SCRUM-329.
+    Default Sprint 3 runtime is real Frangi (allowMock=false).
+    """
+    monkeypatch.setenv("AURA_AI_ENGINE", "mock")
+    monkeypatch.setenv("AURA_ALLOW_MOCK", "true")
+
+
 @pytest.fixture
 def client():
     with TestClient(app) as test_client:
@@ -92,7 +102,7 @@ def test_runtime_openapi_documents_warnings(client):
     response = client.get("/openapi.json")
     assert response.status_code == 200
     schema = response.json()
-    assert schema["info"]["version"] == "1.1.0"
+    assert schema["info"]["version"] == "1.2.0"
     schemas = schema["components"]["schemas"]
     response_properties = schemas["AnalysisResponse"]["properties"]
     assert "warnings" in response_properties
@@ -125,7 +135,7 @@ def test_enabled_mock_error_scenarios(
     assert response.status_code == expected_status, response.text
     result = response.json()
     assert result["error_code"] == expected_code
-    assert result["timestamp"]
+    assert result["timestamp"].endswith("Z")
     assert "metrics" not in result
     assert "segmentation" not in result
     if scenario == "LOW_QUALITY":

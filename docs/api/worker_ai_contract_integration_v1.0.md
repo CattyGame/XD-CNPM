@@ -1,137 +1,102 @@
-# Hợp đồng tích hợp Worker–AI Core — Sprint 2
+# Hợp đồng tích hợp Worker–AI Core — Sprint 3 (AI Contract v1.2.0)
 
-> Dự án AURA · SCRUM-310 (W2-M4-03)
-> Biên soạn ban đầu: Đào Duy Quân (M4); phối hợp: Võ Hữu Duy (M2).
-> Bản rà soát 1.0.1 · 2026-10-24 · Git baseline 87af21d cùng local closeout patches.
+> Dự án AURA · SCRUM-329 (`W3-M4-01`), SCRUM-330 (`W3-M4-02`), SCRUM-331 (`W3-M4-03`)
+> Biên soạn: Đào Duy Quân (M4); phối hợp: Võ Hữu Duy (M2), Nguyễn Trương Hậu (M1), Thành viên M6.
+> Phiên bản tài liệu: 1.2.0 · 2026-10-28 · Tương thích `aura-sprint3-1.0.0`.
 
-## 1. Phạm vi và bằng chứng
+## 1. Phạm vi và bằng chứng Sprint 3
 
-Đây là đặc tả bàn giao cho Worker. M4 cung cấp endpoint mock và module
-preprocessing riêng; endpoint hiện gọi `process_mock_analysis`, chưa gọi
-`preprocess_fundus_image`. Không suy diễn đặc tả Worker, retry hoặc Billing
-trong tài liệu này là luồng đã chạy.
+Tài liệu này quy định hợp đồng giao tiếp nội bộ giữa Analysis Worker (M2) và AI Core (M4) trong Sprint 3 theo bộ chuẩn `aura-sprint3-1.0.0`:
+- **Runtime mặc định (`AURA_AI_ENGINE=frangi`, `allowMock=false`)**: Thực thi thuật toán phân vùng mạch máu võng mạc **Frangi v0.2 thật** theo cấu hình cố định trong `src/ai-core/config/ai-frangi.yaml`, giữ nguyên kích thước ảnh gốc `(width, height)` mà không crop/resize 512.
+- **Xác thực dịch vụ fail-closed**: Yêu cầu RS256 Service JWT (`iss=aura-identity-s3-v1`, `aud=aura-ai`, `scope=ai:analyze`, `client_id=analysis-worker`).
+- **Kiểm tra chất lượng ảnh trước phân vùng**: Tính toán trực tiếp trên vùng đáy mắt nội vùng ước lượng (`estimatedRegion`) theo công thức trong `config/ai-frangi.yaml`; từ chối bằng HTTP `422 LOW_QUALITY_IMAGE` khi không đạt ngưỡng.
+- **Không giả lập đánh giá rủi ro lâm sàng**: Trả về `is_mock: false`, `risk_available: false`, `risk_assessment: null`, `status: "WARNING"` kèm cảnh báo `RISK_UNAVAILABLE`.
+- **Phiên bản**:
+  - `API_VERSION`: `1.2.0` (`contracts/ai-openapi-1.2.yaml`, `contracts/ai_service_openapi.yaml` / `.json`)
+  - `model_version`: `frangi-v0.2`
+  - `config_version`: `s3-frangi-1.0.0`
+  - `threshold_version`: `frangi-threshold-0.02-v1`
+- **Bằng chứng kiểm thử tại `src/ai-core`**:
+  - `102 passed` trong bộ test `pytest src/ai-core/tests` (gồm test xác thực JWT RS256 `401/403/503`, test biên ngưỡng chất lượng `422`, test phân vùng thực tế trên >= 3 ảnh `CHASE_DB1` `999×960` đối chiếu trực tiếp với `ai-request-1.2.schema.json`, `ai-response-1.2.schema.json`, `ai-error.schema.json`, test smoke-training không chạm tập `test`, và hồi quy mock được gắn cờ riêng).
+  - Đây là bằng chứng kiểm thử cấp component AI Core (`TestClient` và benchmark local); việc nối toàn luồng Worker → RabbitMQ → Blob → Billing/Notification được nghiệm thu tích hợp cùng M1/M2/M3/M5/M6.
 
-Nguồn đối chiếu: `src/ai-core/app/main.py`, `app/schemas/analysis.py`,
-`app/schemas/common.py`, `app/services/mock_service.py`,
-`contracts/ai_service_openapi.yaml` / `.json` và `contracts/analysis-openapi.yaml`.
-AI API version là `1.1.0`; service version `0.1.0`; model mock `mock-v0.1`.
-Ba version này có ý nghĩa khác nhau.
+## 2. Endpoints, Readiness và Xác thực Dịch vụ (RS256 JWT)
 
-Người thực hiện xác nhận 7A: 58/58 preprocessing tests PASS; 7B: toàn bộ AI
-suite, OpenAPI sync `--check` và `git diff --check` PASS. Log 7B gửi lại chỉ
-chứa kết quả tổng hợp, không ghi số test; không tự điền số lượng.
-Đây là kiểm thử source/TestClient, chưa phải kiểm chứng Worker hoặc image
-AI đang chạy. Checklist 43/43 trong bản cũ là ghi nhận lịch sử, đã được thay
-bằng phạm vi bằng chứng ở đây.
+- **Liveness**: `GET http://ai-core:8000/health` → HTTP `200` (`status: "ok"`, `model_loaded: false`).
+- **Readiness**: `GET http://ai-core:8000/ready` → Chỉ trả HTTP `200` (`ReadyResponse`) khi cấu hình `config/ai-frangi.yaml` hợp lệ, đang ở chế độ `engine=frangi` (`allowMock=false`), và khóa công khai SPKI RSA (>= 2048-bit) đã nạp thành công. Trả HTTP `503 SERVICE_NOT_READY` nếu thiếu khóa, cấu hình lỗi hoặc đang ở chế độ mock.
+- **Inference**: `POST http://ai-core:8000/api/v1/analyze`
+  - Header bắt buộc: `Authorization: Bearer <RS256 Service JWT>`
+  - Yêu cầu JWT:
+    - Header: `alg = "RS256"`, `kid = "aura-local-<16hex>"` khớp SHA-256 của khóa công khai SPKI.
+    - Claims: `iss = "aura-identity-s3-v1"`, `aud = "aura-ai"`, `scope` chứa `"ai:analyze"`, `client_id = "analysis-worker"`, `sub` là UUID hợp lệ khác 0, `exp`/`nbf`/`iat` hợp lệ (TTL tối đa 300s, clock skew 30s).
+    - Mã lỗi xác thực/phân quyền:
+      - `503 SERVICE_NOT_READY`: Chưa cấu hình khóa công khai SPKI hợp lệ hoặc cấu hình Frangi lỗi.
+      - `401 UNAUTHORIZED_SERVICE_TOKEN` / `MISSING_BEARER_TOKEN`: Thiếu token, sai chữ ký, sai `kid`, sai `iss`, hoặc hết hạn.
+      - `403 FORBIDDEN_SERVICE_AUDIENCE` / `FORBIDDEN_SERVICE_SCOPE` / `FORBIDDEN_SERVICE_CLIENT`: Sai `aud`, thiếu `ai:analyze`, hoặc `client_id` không nằm trong allowlist.
 
-## 2. Request và quyền truy cập
-
-- Endpoint nội bộ: `POST http://ai-core:8000/api/v1/analyze`.
-- Mạng dependency đã xác minh tại máy kiểm tra: `aura_aura_network`.
-  Đây là tên Docker network thực tế; không nhầm với key mạng trong Compose.
-- Không thêm route Gateway công khai tới endpoint AI. Cổng host loopback dùng
-  phát triển không phải bằng chứng endpoint có service authentication.
-- Worker phải tự xác minh quyền ở Analysis/Profile trước khi lấy ảnh.
-  AI không dùng `patient_id` để cấp quyền. Gửi `patient_id: null` giảm thông
-  tin định danh trong payload; riêng thao tác này không chứng minh ảnh đã
-  được khử định danh hoặc đáp ứng một tiêu chuẩn y tế/pháp lý.
-- Không log Base64, ảnh, bearer token, SAS hoặc connection string.
-
-Headers dự kiến của Worker: `Content-Type: application/json`,
-`X-Correlation-Id: <UUID>` và User-Agent có version của Worker thực tế.
-`main.py` hiện chưa đọc/echo/persist `X-Correlation-Id`; truyền header không
-chứng minh correlation đã được nối xuyên luồng. Worker phải kiểm tra
-`response.request_id` trùng request, không dùng trường này thay kiểm soát tenant.
+## 3. Request Schema (`contracts/ai-request-1.2.schema.json`)
 
 ```json
 {
-  "request_id": "d0000000-0000-4000-8000-000000000001",
+  "request_id": "58685092-7782-5bb6-b147-1b73c6047edd",
   "patient_id": null,
+  "eye_side": "left",
   "mode": "retina_vessels",
   "modality": "FUNDUS",
-  "eye_side": "left",
-  "image_base64": "<Base64 PNG/JPEG lấy từ private storage>",
+  "image_base64": "<Base64 trần của ảnh PNG hoặc JPEG>",
   "include_mask": true,
   "include_overlay": true
 }
 ```
 
-Đây là template: thay placeholder bằng bytes ảnh tổng hợp khi kiểm thử;
-không dùng placeholder làm ảnh hợp lệ hoặc đưa SAS vào `image_base64`.
-
-| Trường | AI schema hiện tại | Quy ước Worker |
+| Trường | Ràng buộc Schema 1.2 | Quy ước xử lý |
 |---|---|---|
-| `request_id` | String bắt buộc; schema không ép UUID | Dùng analysisId UUID; giữ nguyên qua retry. AI echo ID, không cung cấp durable idempotency/cache theo ID. |
-| `image_base64` | String bắt buộc; decoder kiểm tra ảnh | Lấy bytes qua quyền private storage; không log. |
-| `patient_id` | Optional, mặc định null | Gửi null; lưu binding bệnh nhân ở Analysis. |
-| `mode` | Optional, mặc định `retina_vessels` | Gửi rõ `retina_vessels`; mode khác bị từ chối. |
-| `modality` | Optional string, mặc định FUNDUS | Gửi rõ FUNDUS; OCT bị từ chối ở endpoint. |
-| `eye_side` | Optional, mặc định unknown | left / right / unknown theo binding đã xác minh. |
-| `include_mask`, `include_overlay` | Optional bool, mặc định true | Chỉ yêu cầu artifact cần lưu; không tự tạo FileRef cho null. |
+| `request_id` | UUID string bắt buộc | Worker truyền `analysisId` (UUID canonical). |
+| `patient_id` | `null` bắt buộc | Không truyền định danh bệnh nhân sang AI Core (`422` nếu khác `null`). |
+| `eye_side` | `"left" \| "right" \| "unknown"` | Giữ nguyên từ binding đã xác minh. |
+| `mode` | `"retina_vessels"` | Mode khác trả `422 UNSUPPORTED_MODE`. |
+| `modality` | `"FUNDUS"` | `"OCT"` trả `422 UNSUPPORTED_MODALITY`; giá trị khác trả `422 INVALID_MODALITY`. |
+| `image_base64` | Base64 trần (4 .. 13.981.016 ký tự) | Chỉ chấp nhận ảnh `PNG` hoặc `JPEG` (không nhận `data:` URL, không tự mở rộng `WEBP`), tối đa `10 MiB` (`10.485.760` bytes) và `16.000.000` pixel. Vi phạm trả `400 INVALID_IMAGE_PAYLOAD`. |
+| `include_mask`, `include_overlay` | `true` bắt buộc | Cả hai phải là `true` trong Sprint 3 (`422` nếu `false`). |
 
-## 3. Response và ánh xạ sang Analysis
+## 4. Response Schema (`contracts/ai-response-1.2.schema.json`) và Ánh xạ sang Analysis (0.7.0)
 
-Các đường dẫn public dưới đây nằm trong `AnalysisResult`; trạng thái xử lý
-nằm trên `Analysis.processingStatus`. Đây là quy ước triển khai Worker,
-không khẳng định mapper/persistence đã được kiểm thử runtime ở 7B.
-
-| AI wire field | Analysis public field | Quy tắc |
+| AI wire field (snake_case) | Giá trị Frangi Sprint 3 | Ánh xạ sang Analysis Result (camelCase) |
 |---|---|---|
-| `request_id` | `Analysis.analysisId` | Đối chiếu binding hiện hữu; không lấy ID tùy ý từ response để tạo quyền. |
-| `status` = SUCCESS hoặc WARNING | `Analysis.processingStatus` = COMPLETED | Chỉ commit khi response/artifact hợp lệ; WARNING không tự thành LOW_QUALITY. |
-| `is_mock` | `isMock` | Giữ true với mock hiện tại. |
-| `model_version`, `threshold_version`, `config_version` | `modelVersion`, `thresholdVersion`, `configVersion` | Giữ nguyên giá trị; không suy ra từ API version. |
-| `processing_time_ms` | `processingTimeMs` | Thời gian component; không phải latency toàn luồng. |
-| `metrics.vessel_density` | `metrics.vesselDensity` | AI dùng `metrics`, không có object `vessel_metrics`. Giá trị hiện là mock. |
-| `metrics.tortuosity_index` | `metrics.tortuosityIndex` | Giữ nhãn mock. |
-| `metrics.av_ratio` | `metrics.avRatio` | Không coi là phép đo AVR đã xác thực. |
-| `metrics.fractal_dimension` | `metrics.fractalDimension` | Không suy ra độ chính xác từ schema parse thành công. |
-| `metrics.branching_points` | `metrics.branchingPoints` | Giữ dữ liệu và provenance. |
-| `risk_assessment.risk_score` | `riskScore` | Public field phẳng, không phải `riskAssessment.riskScore`. |
-| `risk_assessment.risk_level` | `riskLevel` | LOW / MODERATE / HIGH. |
-| `risk_assessment.confidence_score` | `confidenceScore` | Mock, chưa hiệu chuẩn. |
-| `risk_assessment.indicators`, `.disclaimer` | `indicators`, `disclaimer` | Giữ đầy đủ disclaimer, không biến dữ liệu mock thành kết quả thật. |
-| `warnings`, `limitations` | `warnings`, `limitations` | Lưu nguyên cảnh báo/giới hạn cùng kết quả hợp lệ. |
-| `segmentation.mask_base64` | `annotations[]` với `kind: mask` và `fileId` | Decode PNG, kiểm tra hình học, lưu private `aura-annotations`, tạo FileRef. |
-| `segmentation.overlay_base64` | `annotations[]` với `kind: overlay` và `fileId` | Cùng quy tắc; public schema không có top-level `maskFileId`/`overlayFileId`. |
-| Không có AI field tương ứng | `version` | Version kết quả do Analysis quản lý, không dùng API/model/config version thay thế. |
+| `request_id` | UUID trùng request | Đối chiếu `analysisId` của job/lease hiện hành. |
+| `patient_id` | `null` | Giữ `patientId` từ DB của Analysis. |
+| `timestamp` | Chuỗi UTC RFC3339 kết thúc bằng `Z` | Ghi nhận thời điểm hoàn tất suy luận. |
+| `status` | `"WARNING"` | `Analysis.processingStatus = "COMPLETED"` (vì có kết quả phân vùng hợp lệ). |
+| `warnings` | `[{"code": "RISK_UNAVAILABLE", "message": "..."}]` | Lưu nguyên danh sách cảnh báo vào result. |
+| `is_mock` | `false` | `isMock = false` (Billing HOLD nếu gặp `isMock = true` trong namespace thật). |
+| `model_version` | `"frangi-v0.2"` | `modelVersion = "frangi-v0.2"` |
+| `config_version` | `"s3-frangi-1.0.0"` | `configVersion = "s3-frangi-1.0.0"` |
+| `threshold_version` | `"frangi-threshold-0.02-v1"` | `thresholdVersion = "frangi-threshold-0.02-v1"` |
+| `limitations` | `"Segmentation research baseline; no clinical risk assessment."` | `limitations` |
+| `processing_time_ms` | Số thực `>= 0` | `processingTimeMs` (thời gian xử lý nội bộ AI Core). |
+| `image_info` | `{width, height, channels: 3, eye_side, modality: "FUNDUS"}` | Kiểm tra khớp kích thước ảnh gốc. |
+| `metrics.vessel_density` | `foreground_pixels / (width * height)` (`0..1`) | `metrics.vesselDensity` |
+| `metrics.tortuosity_index`, `av_ratio`, `fractal_dimension`, `branching_points` | `null` | Giữ `null` (chưa có thuật toán kiểm chứng). |
+| `risk_available` | `false` | `riskAvailable = false` (và trong event `analysis.completed` v0.7). |
+| `risk_assessment` | `null` | Public result đặt `riskLevel = null`, `riskScore = null`, `confidenceScore = null`, `indicators = []`. Không tự gán `LOW` hay `0`. |
+| `segmentation.mask_base64` | PNG mode `L`, giá trị pixel `{0, 255}`, đúng `(width, height)` gốc | Giải mã, kiểm tra hình học và tập giá trị `{0, 255}`, lưu vào `aura-annotations`, tạo `FileRef` (`kind: mask`). |
+| `segmentation.overlay_base64` | PNG mode `RGB`, đúng `(width, height)` gốc | Giải mã, kiểm tra hình học, lưu vào `aura-annotations`, tạo `FileRef` (`kind: overlay`). |
 
-Mask và overlay mock có kích thước ảnh đầu vào. Module preprocessing riêng có
-thể crop/resize; khi nối inference thật phải lưu phép biến đổi và đưa annotation
-về hệ tọa độ ảnh gốc theo public contract. Chưa chứng minh đường biến đổi này.
-Không trả object key hoặc Base64 như public FileRef; cấp quyền tải qua Analysis.
+## 5. Phân loại lỗi (`contracts/ai-error.schema.json`) và Quy tắc Retry cho Worker
 
-## 4. Error, retry và Billing — yêu cầu tích hợp chưa được chứng nhận
+Mọi phản hồi lỗi từ AI Core có cấu trúc `{error_code, message, timestamp, details}` với `timestamp` kết thúc bằng `Z`:
 
-| AI outcome | Hành vi Worker dự kiến |
-|---|---|
-| 200 SUCCESS / WARNING có kết quả hợp lệ | Commit kết quả và terminal state; WARNING vẫn có thể COMPLETED. |
-| 400 INVALID_IMAGE_PAYLOAD | Terminal validation failure, không retry payload hỏng. |
-| 422 LOW_QUALITY_IMAGE | Terminal LOW_QUALITY, không có kết quả risk hợp lệ. Mock scenario có `quality_assessment_performed: false`. |
-| 422 UNSUPPORTED_MODALITY / INVALID_MODALITY / UNSUPPORTED_MODE / SCHEMA_VALIDATION_ERROR | Terminal input/config error; kiểm tra nguyên nhân, không retry nguyên payload vô hạn. |
-| Network timeout / 500, hoặc 503 từ dependency | Có thể transient; kiểm tra retry budget. 503 không phải nhánh response đang được endpoint mock khai báo. |
+| HTTP Status | `error_code` | Bản chất & Xử lý tại Worker (M2) |
+|---|---|---|
+| `400` | `INVALID_IMAGE_PAYLOAD` | Lỗi dữ liệu ảnh hỏng/sai định dạng/vượt kích thước; **không retry**, chuyển trạng thái lỗi đầu vào kết thúc. |
+| `401` | `UNAUTHORIZED_SERVICE_TOKEN` | Lỗi token dịch vụ thiếu/sai chữ ký/hết hạn; không che giấu bằng retry vô hạn. |
+| `403` | `FORBIDDEN_SERVICE_AUDIENCE` / `FORBIDDEN_SERVICE_SCOPE` / `FORBIDDEN_SERVICE_CLIENT` | Lỗi cấu hình quyền dịch vụ; dừng và báo lỗi cấu hình. |
+| `422` | `LOW_QUALITY_IMAGE` | Ảnh không đạt ngưỡng chất lượng kỹ thuật trước phân vùng; **terminal `LOW_QUALITY`** (không có result, Billing release với lý do `LOW_QUALITY`). |
+| `422` | `UNSUPPORTED_MODALITY` / `INVALID_MODALITY` / `UNSUPPORTED_MODE` / `SCHEMA_VALIDATION_ERROR` | Lỗi contract đầu vào; **không retry**. |
+| `500` | `INFERENCE_RUNTIME_ERROR` | Lỗi xử lý nội bộ; có thể retry trong ngân sách tối đa 3 logical attempts (`5s`, `15s`). |
+| `503` | `SERVICE_NOT_READY` | AI Core chưa sẵn sàng; có thể retry trong ngân sách tối đa 3 logical attempts (`5s`, `15s`). |
 
-Chính sách bàn giao từ bản v1.0: tối đa 3 lần gọi, chờ 5s rồi 15s; giữ cùng
-analysisId và hold trong retry. Đây là lịch retry hữu hạn, chưa có bằng chứng
-Worker đã áp dụng cấu hình này. Không tuyên bố AI tự dedupe request lặp.
-Sau hết retry, việc FAILED/DEAD_LETTER và phát event cần transaction/outbox,
-dedupe và recovery theo contract Analysis. Không xóa ảnh gốc theo lỗi AI.
-
-Billing chỉ được chuyển hold sau outcome có thẩm quyền, theo
-`billing_analysis_integration_contract_v0.1.md`. Không dùng bảng lỗi AI như
-bằng chứng release đã thành công; chưa chốt event/reconcile toàn luồng.
-Không tự chọn chuỗi reason mới, mở scope capture cho analysis-api hoặc gọi
-đồng thời direct release và event release mà không thiết kế idempotency.
-Giữ nguyên reservation 5J trong đợt closeout này.
-
-## 5. Điều kiện kiểm chứng tiếp
-
-- Đối chiếu response đầy đủ với schema, ID, version và range; validate lỗi và
-  PNG trước khi commit. Không chỉ kiểm tra JSON có các key mong muốn.
-- Kiểm thử mapper thực, transaction/result version, annotation coordinates,
-  retry/crash recovery, correlation và consumer Billing bằng fixture cô lập.
-- Không dùng số test source, enum mapping hoặc YAML/JSON sync để suy ra
-  Worker/event/financial end-to-end đã hoàn thành.
-
-Kế hoạch chi tiết: [M4 evaluation plan](../testing/m4_evaluation_plan.md).
-Trạng thái bàn giao: [M4 integration status](../integration/M4_Sprint2_integration_status.md).
+Tham chiếu:
+- Kế hoạch đánh giá & kết quả kiểm thử: [m4_evaluation_plan.md](file:///c:/UTH/XD-Phần%20mềm%20hướng%20đối%20tượng/docs/testing/m4_evaluation_plan.md)
+- Báo cáo bàn giao tích hợp Sprint 3: [M4_Sprint3_integration_status.md](file:///c:/UTH/XD-Phần%20mềm%20hướng%20đối%20tượng/docs/integration/M4_Sprint3_integration_status.md)
+- Dataset card: [dataset_card.md](file:///c:/UTH/XD-Phần%20mềm%20hướng%20đối%20tượng/docs/data_cards/dataset_card.md)

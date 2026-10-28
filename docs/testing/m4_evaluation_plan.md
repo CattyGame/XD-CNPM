@@ -1,78 +1,39 @@
-# M4 — Kế hoạch đánh giá và bàn giao Sprint 2
+# M4 — Kế hoạch đánh giá và báo cáo bàn giao Sprint 3
 
-Ngày 2026-10-24 · SCRUM-308/309/310 · source baseline 87af21d + closeout patches.
+> Ngày cập nhật: 2026-10-28 · Mã Jira: `SCRUM-329` (`W3-M4-01`), `SCRUM-330` (`W3-M4-02`), `SCRUM-331` (`W3-M4-03`) · Tương thích `aura-sprint3-1.0.0`.
 
-## 1. Bằng chứng đã nhận
+## 1. Tổng hợp bằng chứng kiểm thử & tái lập Sprint 3
 
-| Bước | Kết quả người chạy cung cấp | Phạm vi |
-|---|---|---|
-| 7A | 58 passed in 2.41s | 14 tests preprocessing cũ + 44 regression cấu hình/empty FOV; ảnh tổng hợp. |
-| 7B | PASS: AI suite, OpenAPI synchronization and whitespace checks | Toàn bộ `src/ai-core/tests`, script sync với `--check`, `git diff --check`. Log tổng hợp không ghi số test. |
+| Hạng mục kiểm chứng | Lệnh thực thi | Kết quả thực tế | Tệp bằng chứng / Báo cáo |
+|---|---|---|---|
+| Kiểm định gói Contract Sprint 3 | `python scripts/validate_pack.py` | `PASS` (173 checks + SHA256 manifest) | `Sprint_3/AURA_Sprint3_Contract_Config_v1/docs/validation-report.json` |
+| Đồng bộ OpenAPI 1.2.0 YAML/JSON | `python src/ai-core/scripts/sync_openapi_contracts.py --check` | `OK: JSON and YAML contracts are 100% in sync (v1.2.0).` | `contracts/ai_service_openapi.yaml`, `contracts/ai_service_openapi.json`, `contracts/ai-openapi-1.2.yaml` |
+| Toàn bộ Test Suite `src/ai-core` | `pytest src/ai-core/tests -q` | `102 passed in 14.10s` | `src/ai-core/tests/test_frangi_sprint3.py` (+ các bộ test hiện hữu) |
+| Tái lập Benchmark Frangi v0.2 trên tập `test` | `python src/ai-core/scripts/evaluate_frangi_test.py` | `VERIFIED` (Dice `0.4201`, IoU `0.2662`, Sens `0.4198`, Spec `0.9565`; sai số `0.000000`) | `docs/benchmarks/frangi_test_v0.2.json`, `docs/benchmarks/frangi_test_v0.2_reproduced.json` |
+| Benchmark Runtime API `POST /api/v1/analyze` (6 ảnh `test`) | `python src/ai-core/scripts/benchmark_frangi_runtime_api.py` | `SPRINT3_RUNTIME_API_BENCHMARK_VERIFIED` (Dice `0.4201`, IoU `0.2662`, median `2516.41 ms`, p95 `2595.46 ms`) | `docs/benchmarks/frangi_runtime_api_v1.2.json` |
+| Smoke-Run Huấn luyện Phân vùng (`train`/`val`) | `python src/ai-core/scripts/run_training_smoke.py` | `SEGMENTATION_TRAINING_SMOKE_PASSED` (`test_split_touched: false`, `loss_decreased: true`) | `docs/benchmarks/segmentation_training_smoke_v0.1.json` |
 
-Không đổi bảng benchmark đã lưu hoặc tự điền latency, accuracy, số test 7B.
-TestClient chạy trong tiến trình; không chứng minh image/container hiện hữu
-đã có source mới, Worker đã gọi AI hoặc Billing consumer đã xử lý event.
+## 2. Chi tiết kiểm chứng theo từng Task Sprint 3
 
-## 2. Preprocessing và quality
+### 2.1. `SCRUM-329` (`W3-M4-01`) — Cung cấp inference Fundus thực tế cho Worker
+- **Runtime Frangi v0.2 thật**: `src/ai-core/app/services/frangi_service.py` đọc cấu hình `src/ai-core/config/ai-frangi.yaml`, chạy phân vùng mạch máu võng mạc trên kênh xanh lá đã làm mượt Gaussian (`sigma=1.0`), `sigmas=[1, 2, 3, 5, 8]`, `alpha=0.5`, `beta=0.5`, `gamma=None`, `black_ridges=True`, `mode='reflect'`, triệt ngoài vùng nội vùng ước lượng, chuẩn hóa theo giá trị cực đại từng ảnh (trả mask toàn `0` nếu phản hồi cực đại bằng `0`), và áp ngưỡng `0.02`.
+- **Bảo toàn hình học gốc**: Không resize hoặc crop 512×512; trả về PNG mask (`mode="L"`, giá trị pixel `{0, 255}`) và PNG overlay (`mode="RGB"`) giữ nguyên `(width, height)` của ảnh đầu vào (`999 × 960` trên `CHASE_DB1`).
+- **Xác thực RS256 Service JWT fail-closed (`src/ai-core/app/auth/service_jwt.py`)**:
+  - Kiểm tra khóa công khai SPKI RSA `>= 2048` bit; từ chối khóa private hoặc cấu hình nhập nhằng bằng HTTP `503 SERVICE_NOT_READY`.
+  - Xác minh chữ ký RS256, `kid` (`aura-local-<16hex>`), `iss="aura-identity-s3-v1"`, `exp`, `nbf`, `iat` (TTL tối đa `300s`, clock skew `30s`), `sub` UUID khác 0 (`401` khi vi phạm).
+  - Xác minh `aud="aura-ai"`, `scope="ai:analyze"`, `client_id="analysis-worker"` (`403` khi vi phạm).
+- **Readiness (`/ready`) và Liveness (`/health`)**:
+  - `/health` trả `200` cho liveness.
+  - `/ready` chỉ trả `200` khi engine là `frangi` (`allowMock=false`), cấu hình `ai-frangi.yaml` hợp lệ và khóa công khai JWT đã nạp sẵn sàng; trả `503` nếu ở chế độ mock hoặc thiếu khóa.
 
-Đầu vào module là PIL Image, bytes hoặc Base64 string; đầu ra `PreprocessResult`
-gồm kích thước gốc/đã xử lý, green/enhanced image, FOV mask, QualityMetrics,
-is_acceptable và rejection_reason. Kiểm tra cấu hình hợp lệ, NaN/Infinity,
-mutation, ảnh lỗi, empty FOV, crop/pad/resize và mask giữ nhãn rời rạc.
+### 2.2. `SCRUM-330` (`W3-M4-02`) — Hoàn thiện kiểm tra chất lượng và pipeline dữ liệu
+- **Công thức chất lượng trước phân vùng**: Thực hiện đúng công thức toán học trong `config/ai-frangi.yaml` (`grayscale = 0.299*R + 0.587*G + 0.114*B`, `luminance` trung bình, `contrast` độ lệch chuẩn quần thể `ddof=0`, `sharpness` phương sai quần thể `ddof=0` của Laplacian 4 lân cận với biên `reflect` trên vùng `estimatedRegion`).
+- **Kiểm thử biên ngưỡng (`test_quality_threshold_exact_equality_accepted_and_below_rejected`)**: Chứng minh trường hợp bằng đúng ngưỡng biên (`regionRatio == 0.15`, `luminance == 15.0` / `240.0`, `contrast == 8.0`, `sharpness == 3.5`) được chấp nhận, và thấp/cao hơn ngưỡng bị từ chối bằng HTTP `422 LOW_QUALITY_IMAGE` mà không tạo kết quả phân vùng giả.
+- **Tách biệt dữ liệu & Smoke-Training (`run_training_smoke.py`)**: Xác nhận 14 đối tượng chia theo `seed=42` (`train`: 16 ảnh / 8 đối tượng; `validation`: 6 ảnh / 3 đối tượng; `test`: 6 ảnh / 3 đối tượng) không rò rỉ đối tượng; pipeline huấn luyện khói chỉ chạy trên `train`/`validation` (`test_split_touched: false`) và không suy diễn nhãn rủi ro lâm sàng (`risk_labels_used: false`).
 
-Các ngưỡng chất lượng là heuristic cấu hình. Trước khi dùng để loại ảnh thật,
-cần ảnh có nhãn chất lượng, quy tắc gán nhãn và phân tích false accept/reject;
-ghi rõ nguồn ảnh, thiết bị/quần thể, số lượng và người đánh giá. Không xem
-58 tests synthetic là hiệu chuẩn ngưỡng hay clinical validation.
-Module vẫn có thể tạo ảnh output khi is_acceptable=false; caller phải đọc cờ.
-
-## 3. Segmentation offline và tính tái lập
-
-Giữ split theo đối tượng trong manifest CHASE_DB1 (train 16 / validation 6 /
-test 6 ảnh). Giữ hai mắt cùng split, mask `_1stHO.png` làm tham chiếu chính;
-không chọn threshold lại trên test hoặc sửa split để cải thiện kết quả.
-
-Baseline Frangi đã lưu trong dataset card dùng full-image metrics, không
-resize và threshold validation đã chốt 0.02. Quality module 512×512 không
-tự trở thành preprocessing của benchmark đó. Bất kỳ pipeline thay đổi nào
-phải có config/version và báo cáo mới riêng, không ghi đè báo cáo gốc.
-
-Khi chạy lại cần lưu: source/config hash, manifest/file hashes, Python/deps,
-seed, ảnh/đối tượng/split, nhãn, FOV/full-image rule, Dice/IoU/sensitivity/
-specificity và thời gian có phạm vi đo rõ. Ghi số mẫu và độ bất định khi báo
-cáo; 6 ảnh test từ 3 đối tượng chưa chứng minh khả năng tổng quát.
-Chưa yêu cầu chạy lại dữ liệu/benchmark trong patch tài liệu 7C.
-
-## 4. Contract, example và runtime
-
-Các testcase source cần bao phủ request_id, optional/default fields,
-version/provenance, warnings, lỗi schema, ảnh hỏng, OCT/mode không hỗ trợ,
-PNG mask/overlay và mock scenario enablement. OpenAPI YAML/JSON sync không
-đồng nghĩa mọi khác biệt với runtime schema đã được kiểm tra đầy đủ.
-
-| Test tích hợp tiếp theo | Điều kiện đạt | Trạng thái trong closeout này |
-|---|---|---|
-| Worker mapper thực | `metrics` vào metrics camelCase, risk fields phẳng, version do Analysis quản lý, annotations FileRef | Chưa chứng nhận bằng 7B. |
-| Request ID / version | Không nhận response sai ID; không trộn API/model/config/result version; retry giữ binding | Cần integration evidence. |
-| WARNING | COMPLETED khi kết quả hợp lệ; lưu warnings/limitations/isMock/disclaimer | Source mock có tests; Worker path chưa chứng nhận. |
-| LOW_QUALITY | Không có valid risk result; terminal transition/reason theo contract được chốt | Mock 422 có tests; không chứng minh quality module đã được gọi. |
-| Artifact hình học | PNG hợp lệ, đúng tọa độ gốc; private storage và FileRef được cấp quyền | Mock giữ kích thước gốc; inverse transform của inference thật chưa chứng nhận. |
-| Retry / crash recovery | Budget hữu hạn; không nhân result/ledger; hold được giữ qua retry | Cần fixture cô lập, không dùng hold 5J để thử terminal action. |
-| Correlation / Billing | Source of truth terminal state, outbox/dedupe/reconcile và event correlation | Chưa chứng nhận; không tự bật consumer. |
-
-Ví dụ request có placeholder chỉ là template. Các response/error/scenario ví dụ
-chuẩn hiện có trong `contracts/ai_service_openapi.yaml` / `.json` và AI tests;
-không đổi schema/wire trong 7C. Request_id là string theo AI schema, còn Worker
-chọn UUID analysisId theo domain contract.
-
-## 5. Risk / OCT và quyết định bàn giao
-
-Risk cần target/cohort/nhãn/method/metric được chốt trước khi huấn luyện hoặc
-đổi is_mock. OCT cần dataset/decoder/model/format/resource benchmark riêng;
-giữ rejection hiện hữu. Không dùng metric Frangi làm risk accuracy hoặc tự
-chọn giới hạn GPU, cỡ mẫu hay ngưỡng lâm sàng.
-
-M4 source tests và tài liệu có thể được review theo phạm vi Sprint 2; triển
-khai inference thật, consumer Billing, Worker retry và NFR end-to-end là các
-đầu việc cần bằng chứng riêng. Người phụ trách/quyết định được ghi trong
-closeout plan; 7C không sửa lịch Sprint hoặc trạng thái Jira.
+### 2.3. `SCRUM-331` (`W3-M4-03`) — Kiểm thử AI contract và bàn giao benchmark
+- **Xác thực JSON Schema 2020-12 tự động**: Mọi request/response/error trong `test_frangi_sprint3.py` và `benchmark_frangi_runtime_api.py` đều được kiểm tra bằng `jsonschema.Draft202012Validator` với `FormatChecker()` đối chiếu trực tiếp với `contracts/ai-request-1.2.schema.json`, `contracts/ai-response-1.2.schema.json` và `contracts/ai-error.schema.json`.
+- **Báo cáo Benchmark Runtime API (`docs/benchmarks/frangi_runtime_api_v1.2.json`)**:
+  - Độ chính xác trên 6 ảnh `test` qua HTTP endpoint khớp tuyệt đối với baseline (`Mean Dice = 0.4201`, `Mean IoU = 0.2662`, `Mean Sensitivity = 0.4198`, `Mean Specificity = 0.9565`).
+  - Thời gian xử lý nội bộ AI Core (`processing_time_ms`): trung vị `2516.41 ms`, p95 `2595.46 ms`, max `2600.48 ms` (trên CPU Windows 11, Python 3.12.14, ảnh `999 × 960`).
+  - Phạm vi đo: bao gồm xác thực JWT, giải mã Base64, kiểm tra chất lượng, phân vùng Frangi v0.2 và mã hóa 2 ảnh PNG (`mask` + `overlay`); **không** bao gồm độ trễ mạng Docker, tải/ghi Blob Storage, hàng đợi RabbitMQ hoặc giao dịch cơ sở dữ liệu của Worker.
