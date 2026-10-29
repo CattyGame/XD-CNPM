@@ -152,7 +152,7 @@ public class OutboxPublisherTests
         Assert.Null(row.PublishedAt);
         Assert.Equal(1, s.Rows.Count);
         Assert.True(row.LastError!.StartsWith("PUBLISH_ATTEMPTS_EXHAUSTED"));
-        var backlog = await s.GetBacklogAsync(c.GetUtcNow(), default);
+        var backlog = await s.GetBacklogAsync(new OutboxClaim(c.GetUtcNow(),10,TimeSpan.FromSeconds(60),10,T0.AddDays(-1),Array.Empty<Guid>()), default);
         Assert.Equal(1, backlog.NeedsAttention); Assert.Equal(0, backlog.Pending);
     }
 
@@ -274,7 +274,7 @@ public class OutboxPublisherTests
         var s = new InMemoryOutboxStore(); var c = new FakeClock(T0);
         var a = EventRow(at: T0.AddMinutes(-3)); var b2 = EventRow(at: T0); b2.LockedUntil = T0.AddSeconds(30);
         var d = EventRow(at: T0); d.NextPublishAt = T0.AddMinutes(1); s.Rows.AddRange(new[] { a, b2, d });
-        var bl = await s.GetBacklogAsync(T0, default);
+        var bl = await s.GetBacklogAsync(new OutboxClaim(T0,10,TimeSpan.FromSeconds(60),10,T0.AddDays(-1),Array.Empty<Guid>()), default);
         Assert.Equal(3, bl.Pending); Assert.Equal(1, bl.Due); Assert.Equal(1, bl.InFlight); Assert.Equal(T0.AddMinutes(-3), bl.OldestPendingOccurredAt);
     }
 }

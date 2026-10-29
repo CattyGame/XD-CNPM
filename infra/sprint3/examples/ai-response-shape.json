@@ -1,0 +1,39 @@
+{
+  "request_id": "58685092-7782-5bb6-b147-1b73c6047edd",
+  "patient_id": null,
+  "timestamp": "2026-10-28T02:00:00Z",
+  "status": "WARNING",
+  "warnings": [
+    {
+      "code": "RISK_UNAVAILABLE",
+      "message": "Frangi provides vessel segmentation only."
+    }
+  ],
+  "is_mock": false,
+  "model_version": "frangi-v0.2",
+  "config_version": "s3-frangi-1.0.0",
+  "threshold_version": "frangi-threshold-0.02-v1",
+  "limitations": "Segmentation research baseline; no clinical risk assessment.",
+  "processing_time_ms": 100,
+  "image_info": {
+    "width": 1,
+    "height": 1,
+    "channels": 3,
+    "eye_side": "left",
+    "modality": "FUNDUS"
+  },
+  "metrics": {
+    "vessel_density": 0.0,
+    "tortuosity_index": null,
+    "av_ratio": null,
+    "fractal_dimension": null,
+    "branching_points": null
+  },
+  "risk_available": false,
+  "risk_assessment": null,
+  "segmentation": {
+    "mask_format": "png_base64",
+    "mask_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZfoAAAAASUVORK5CYII=",
+    "overlay_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZfoAAAAASUVORK5CYII="
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "issuer": "aura-identity-s3-v1",
+  "algorithm": "RS256",
+  "tokenLifetimeSeconds": 300,
+  "clients": [
+    {
+      "clientId": "analysis-api",
+      "principalId": "984d6f3b-8179-5f08-80b1-48288d70272c",
+      "allowedTargets": {
+        "aura-identity": [
+          "identity:context"
+        ],
+        "aura-profile": [
+          "profile:resolve"
+        ],
+        "aura-billing": [
+          "billing:reserve",
+          "billing:read",
+          "billing:release"
+        ]
+      }
+    },
+    {
+      "clientId": "identity-api",
+      "principalId": "47f731fb-570c-53c4-8a22-f151aa95158d",
+      "allowedTargets": {
+        "aura-profile": [
+          "profile:provision"
+        ]
+      }
+    },
+    {
+      "clientId": "billing-api",
+      "principalId": "b4f130f9-3b96-5aa0-bba4-83361eec38ca",
+      "allowedTargets": {
+        "aura-profile": [
+          "profile:resolve"
+        ],
+        "aura-analysis": [
+          "analysis:reconcile"
+        ]
+      }
+    },
+    {
+      "clientId": "profile-api",
+      "principalId": "a8b913b3-1455-568d-a2e0-b4f7271ae375",
+      "allowedTargets": {
+        "aura-identity": [
+          "identity:context"
+        ]
+      }
+    },
+    {
+      "clientId": "analysis-worker",
+      "principalId": "7ab5c4dc-147d-555f-ab6a-18d354c42439",
+      "allowedTargets": {
+        "aura-ai": [
+          "ai:analyze"
+        ],
+        "aura-profile": [
+          "profile:resolve"
+        ]
+      }
+    },
+    {
+      "clientId": "notification-api",
+      "principalId": "2f381746-ea81-5bf8-bbd3-4e8f58118a8f",
+      "allowedTargets": {
+        "aura-identity": [
+          "identity:context"
+        ],
+        "aura-analysis": [
+          "analysis:notify"
+        ]
+      }
+    },
+    {
+      "clientId": "nifi-camera",
+      "principalId": "6991e61d-15d2-5107-86c0-dd3966af169c",
+      "allowedTargets": {
+        "aura-analysis": [
+          "analysis:ingest"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "request_id": "58685092-7782-5bb6-b147-1b73c6047edd",
+  "patient_id": null,
+  "eye_side": "left",
+  "mode": "retina_vessels",
+  "modality": "FUNDUS",
+  "image_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZfoAAAAASUVORK5CYII=",
+  "include_mask": true,
+  "include_overlay": true
+}

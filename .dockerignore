@@ -5,3 +5,8 @@
 **/.vs
 .env
 .env.*
+.venv-handoff
+**/*.pem
+**/*.key
+**/*service-account*.json
+**/*firebase-adminsdk*.json

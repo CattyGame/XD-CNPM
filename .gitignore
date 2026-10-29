@@ -35,3 +35,6 @@ __pycache__/
 Thumbs.db
 
 /.venv-dataset/
+
+# Local handoff checks
+.venv-handoff/

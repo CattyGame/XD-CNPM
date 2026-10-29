@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "0.7",
+  "occurredAt": "2026-10-28T02:00:00Z",
+  "tenantId": "e8e2d32b-6fbb-504e-9f08-91b0d3efa6a3",
+  "correlationId": "s3-demo-001",
+  "analysisId": "58685092-7782-5bb6-b147-1b73c6047edd",
+  "eventId": "9daa3093-9750-5d40-8276-be502b5f9e77",
+  "eventType": "analysis.requested",
+  "data": {
+    "patientId": "b04af0cc-f6fa-5731-a609-d76368fee17b",
+    "batchId": "e919bf5b-3625-591d-8a23-8f61ef0c0a44"
+  }
+}

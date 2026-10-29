@@ -1,0 +1,13 @@
+{
+  "eventId": "f62fa04a-ca7f-5d0c-8e21-e12171fc6b51",
+  "analysisId": "58685092-7782-5bb6-b147-1b73c6047edd",
+  "tenantId": "e8e2d32b-6fbb-504e-9f08-91b0d3efa6a3",
+  "applicable": false,
+  "settlementAction": "NONE",
+  "reason": "STALE_EVENT",
+  "reservationId": null,
+  "generation": null,
+  "processingStatus": "PROCESSING",
+  "resultVersion": null,
+  "isMock": null
+}

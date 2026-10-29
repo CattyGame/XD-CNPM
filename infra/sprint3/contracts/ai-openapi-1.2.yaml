@@ -1,0 +1,81 @@
+openapi: 3.1.0
+info:
+  title: AURA AI Sprint3 target
+  version: 1.2.0
+  description: Target requiring real Frangi implementation and JWT validation. Current
+    develop remains mock-only.
+servers:
+- url: http://ai-core:8000
+paths:
+  /api/v1/analyze:
+    post:
+      operationId: analyzeRetina
+      security:
+      - serviceBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: ai-request-1.2.schema.json
+      responses:
+        '200':
+          description: Valid SUCCESS or WARNING
+          content:
+            application/json:
+              schema:
+                $ref: ai-response-1.2.schema.json
+        '400':
+          description: Invalid Base64/image payload
+          content:
+            application/json:
+              schema:
+                $ref: ai-error.schema.json
+        '401':
+          description: Invalid token
+          content:
+            application/json:
+              schema:
+                $ref: ai-error.schema.json
+        '403':
+          description: Wrong audience/scope
+          content:
+            application/json:
+              schema:
+                $ref: ai-error.schema.json
+        '422':
+          description: LOW_QUALITY_IMAGE or unsupported input
+          content:
+            application/json:
+              schema:
+                $ref: ai-error.schema.json
+        '500':
+          description: Processing failure
+          content:
+            application/json:
+              schema:
+                $ref: ai-error.schema.json
+        '503':
+          description: Not ready
+          content:
+            application/json:
+              schema:
+                $ref: ai-error.schema.json
+  /health:
+    get:
+      responses:
+        '200':
+          description: Liveness only
+  /ready:
+    get:
+      responses:
+        '200':
+          description: Real Frangi configuration and signing keys loaded
+        '503':
+          description: Not ready
+components:
+  securitySchemes:
+    serviceBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

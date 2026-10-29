@@ -2,7 +2,7 @@ namespace AURA.Analysis.Api.Outbox;
 
 public sealed record OutboxRecord(
     Guid Id, Guid TenantId, string EventType, string SchemaVersion,
-    string PayloadJson, DateTimeOffset OccurredAt, int DeliveryAttempts);
+    string PayloadJson, DateTimeOffset OccurredAt, int DeliveryAttempts, long ClaimGeneration = 0);
 
 public sealed record OutboxClaim(
     DateTimeOffset Now, int BatchSize, TimeSpan Lease, int MaxAttempts,
