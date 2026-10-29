@@ -149,6 +149,175 @@ paths:
               correlationId: a0000000-0000-4000-8000-000000000001
               retryable: false
 
+  /api/v1/clinics/{clinicId}/memberships:
+    get:
+      summary: L?y danh sách thành viên phòng khám
+      description: |
+        Truy v?n toàn b? danh sách thành viên trong phòng khám.
+        Ch? cho phép SYSTEM_ADMIN ho?c CLINIC_ADMIN dang ACTIVE trong chính Clinic dó.
+        Ngu?i ngoài Clinic s? nh?n 404 Not Found (ngan ng?a rò r? tenant).
+      operationId: getClinicMemberships
+      tags:
+        - Clinic Memberships
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: clinicId
+          in: path
+          required: true
+          description: Ð?nh danh phòng khám
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          description: L?c theo tr?ng thái thành viên (ACTIVE, REVOKED, ho?c ALL)
+          schema:
+            type: string
+            enum: [ACTIVE, REVOKED, ALL]
+            default: ALL
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      responses:
+        '200':
+          description: L?y danh sách thành viên thành công.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClinicMemberListResponse'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '403':
+          description: Không d? quy?n qu?n tr? phòng khám.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Không tìm th?y phòng khám ho?c không thu?c th?m quy?n.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/500InternalError'
+
+    post:
+      summary: Thêm m?i ho?c tái kích ho?t thành viên phòng khám
+      description: |
+        Thêm m?t thành viên m?i vào phòng khám v?i vai trò ch? d?nh (CLINIC_ADMIN, DOCTOR, STAFF).
+        N?u thành viên t?ng b? g? (REVOKED), h? th?ng s? tái kích ho?t l?i (status = ACTIVE).
+        N?u thành viên dang ACTIVE, tr? v? l?i 409 ERR_MEMBERSHIP_ALREADY_EXISTS.
+      operationId: addClinicMembership
+      tags:
+        - Clinic Memberships
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: clinicId
+          in: path
+          required: true
+          description: Ð?nh danh phòng khám
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddClinicMemberRequest'
+      responses:
+        '201':
+          description: Thêm ho?c tái kích ho?t thành viên thành công.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClinicMembershipDto'
+        '400':
+          description: L?i d? li?u d?u vào ho?c role không h?p l?.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '403':
+          description: Không d? quy?n qu?n tr? phòng khám.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Không tìm th?y phòng khám ho?c tài kho?n ngu?i dùng.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: Thành viên dã t?n t?i và dang ho?t d?ng.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/500InternalError'
+
+  /api/v1/clinics/{clinicId}/memberships/{accountId}:
+    delete:
+      summary: Thu h?i tu cách thành viên phòng khám (Soft Delete luu v?t audit)
+      description: |
+        G? b? m?t thành viên kh?i phòng khám.
+        Chuy?n tr?ng thái status = REVOKED, không xóa dòng d? li?u kh?i co s? d? li?u d? b?o toàn v?t audit.
+        Ngan ch?n t? thu h?i n?u ngu?i b? thu h?i là CLINIC_ADMIN duy nh?t còn l?i c?a phòng khám.
+      operationId: revokeClinicMembership
+      tags:
+        - Clinic Memberships
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: clinicId
+          in: path
+          required: true
+          description: Ð?nh danh phòng khám
+          schema:
+            type: string
+            format: uuid
+        - name: accountId
+          in: path
+          required: true
+          description: Ð?nh danh tài kho?n thành viên c?n thu h?i
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      responses:
+        '204':
+          description: Thu h?i thành viên thành công (No Content).
+        '400':
+          description: Không th? thu h?i admin duy nh?t c?a phòng khám.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '403':
+          description: Không d? quy?n qu?n tr? phòng khám.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Không tìm th?y phòng khám ho?c thành viên không ho?t d?ng trong phòng khám.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/500InternalError'
+
   /internal/v1/profile/provision:
     post:
       summary: Khá»Ÿi táº¡o há»“ sÆ¡ vÃ  Personal Tenant ná»™i bá»™ (Idempotent)
@@ -445,6 +614,82 @@ components:
           type: string
           format: uuid
           example: 668c4a32-5342-4d8b-b505-07d548732120
+
+    AddClinicMemberRequest:
+      type: object
+      required:
+        - accountId
+        - role
+      properties:
+        accountId:
+          type: string
+          format: uuid
+          description: Ð?nh danh tài kho?n ngu?i dùng du?c m?i/thêm vào phòng khám.
+          example: f0000000-0000-0000-0000-000000000001
+        role:
+          type: string
+          enum: [CLINIC_ADMIN, DOCTOR, STAFF]
+          description: Vai trò du?c c?p trong ph?m vi phòng khám.
+          example: DOCTOR
+
+    ClinicMembershipDto:
+      type: object
+      required:
+        - membershipId
+        - clinicId
+        - accountId
+        - displayName
+        - role
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        membershipId:
+          type: string
+          format: uuid
+          example: m1111111-0000-0000-0000-000000000002
+        clinicId:
+          type: string
+          format: uuid
+          example: 11111111-1111-1111-1111-111111111111
+        accountId:
+          type: string
+          format: uuid
+          example: a1111111-0000-0000-0000-000000000002
+        displayName:
+          type: string
+          example: BS. Nhãn khoa Alpha
+        role:
+          type: string
+          enum: [CLINIC_ADMIN, DOCTOR, STAFF]
+          example: DOCTOR
+        status:
+          type: string
+          enum: [ACTIVE, REVOKED]
+          example: ACTIVE
+        createdAt:
+          type: string
+          format: date-time
+          example: "2026-10-29T10:00:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2026-10-29T10:00:00Z"
+
+    ClinicMemberListResponse:
+      type: object
+      required:
+        - clinicId
+        - items
+      properties:
+        clinicId:
+          type: string
+          format: uuid
+          example: 11111111-1111-1111-1111-111111111111
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClinicMembershipDto'
 
     ErrorEnvelope:
       type: object
