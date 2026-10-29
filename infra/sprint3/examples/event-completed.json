@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "0.7",
+  "occurredAt": "2026-10-28T02:00:00Z",
+  "tenantId": "e8e2d32b-6fbb-504e-9f08-91b0d3efa6a3",
+  "correlationId": "s3-demo-001",
+  "analysisId": "58685092-7782-5bb6-b147-1b73c6047edd",
+  "eventId": "6644be7d-2eaa-546c-ac03-7e1b3942a19f",
+  "eventType": "analysis.completed",
+  "data": {
+    "patientId": "b04af0cc-f6fa-5731-a609-d76368fee17b",
+    "riskAvailable": false,
+    "riskLevel": null,
+    "modelVersion": "frangi-v0.2",
+    "isMock": false,
+    "configVersion": "s3-frangi-1.0.0",
+    "thresholdVersion": "frangi-threshold-0.02-v1",
+    "resultVersion": 1
+  }
+}

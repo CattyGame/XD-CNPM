@@ -81,6 +81,7 @@ public static class OutboxMessageMapper
             else if (!root.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object)
                 return Fail(OutboxErrors.InvalidMessage);
 
+            if (!OutboxContractValidator.IsValid(root, isJob)) return Fail(OutboxErrors.InvalidMessage);
             var exchange = isJob ? o.JobsExchange : o.EventsExchange;
             return new MapResult(new BrokerMessage(exchange, type, id.ToString(), type, corr, body), null);
         }

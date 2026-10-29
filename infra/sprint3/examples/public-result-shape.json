@@ -1,0 +1,38 @@
+{
+  "riskAvailable": false,
+  "riskLevel": null,
+  "riskScore": null,
+  "confidenceScore": null,
+  "isMock": false,
+  "modelVersion": "frangi-v0.2",
+  "configVersion": "s3-frangi-1.0.0",
+  "thresholdVersion": "frangi-threshold-0.02-v1",
+  "disclaimer": "Kết quả phân vùng nghiên cứu, không phải chẩn đoán.",
+  "version": 1,
+  "metrics": {
+    "vesselDensity": 0.0,
+    "tortuosityIndex": null,
+    "avRatio": null,
+    "fractalDimension": null,
+    "branchingPoints": null
+  },
+  "indicators": [],
+  "annotations": [
+    {
+      "fileId": "031b1b11-37f5-548e-9da1-139df255a50d",
+      "kind": "mask"
+    },
+    {
+      "fileId": "a59bf720-bdca-5926-9506-a0590a815a6c",
+      "kind": "overlay"
+    }
+  ],
+  "warnings": [
+    {
+      "code": "RISK_UNAVAILABLE",
+      "message": "Chưa cung cấp đánh giá rủi ro."
+    }
+  ],
+  "processingTimeMs": 100,
+  "limitations": "Segmentation research baseline; no clinical risk assessment."
+}

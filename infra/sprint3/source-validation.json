@@ -1,0 +1,45 @@
+{
+  "validation": "sprint3-team-handoff-source",
+  "environment": "isolated Linux authoring checkout; not M1 retained Windows runtime",
+  "sdk": "10.0.401",
+  "analysisNative": {
+    "total": 318,
+    "executed": 318,
+    "passed": 318,
+    "failed": 0,
+    "skipped": 0,
+    "requiredOutbox": 30,
+    "trxSha256": "4df8e4b8067048d92f093e2685868de7a272dd19f14026afd04817f65392bf47",
+    "command": "dotnet test src/services/AURA.Analysis.Api.Tests/AURA.Analysis.Api.Tests.csproj --configuration Release",
+    "existingXunitStyleWarnings": true
+  },
+  "contractCheck": {
+    "schemas": 8,
+    "openApi": 5,
+    "examples": 9,
+    "negativeCases": 12,
+    "legacyFilesUnchanged": 30
+  },
+  "postgresConcurrencyTested": false,
+  "brokerIntegrationTested": false,
+  "composeRuntimeTested": false,
+  "a87ResultReceived": false,
+  "deploymentAllowed": false,
+  "userReportedWindowsValidation": {
+    "total": 318,
+    "passed": 318,
+    "failed": 0,
+    "skipped": 0,
+    "buildWarnings": 24,
+    "warningCodes": [
+      "xUnit2009",
+      "xUnit2013"
+    ],
+    "runtime": ".NET 10.0.12",
+    "testSeconds": 10.3,
+    "buildTotalSeconds": 21.2,
+    "source": "User-provided output from new manual handoff checkout",
+    "trxHashProvided": false,
+    "retainedA87ExecutedByThisTest": false
+  }
+}

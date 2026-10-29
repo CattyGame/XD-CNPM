@@ -1,0 +1,11 @@
+{
+  "eventId": "6644be7d-2eaa-546c-ac03-7e1b3942a19f",
+  "analysisId": "58685092-7782-5bb6-b147-1b73c6047edd",
+  "tenantId": "e8e2d32b-6fbb-504e-9f08-91b0d3efa6a3",
+  "applicable": true,
+  "recipientAccountIds": [
+    "67f72444-73de-5901-93c8-6610bc97ceb2"
+  ],
+  "processingStatus": "COMPLETED",
+  "resultVersion": 1
+}

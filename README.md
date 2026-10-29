@@ -12,6 +12,10 @@ Mã đề tài: SP26SE025. Repository: XD-PMHDT.
 
 ## Bắt đầu
 
+**Sprint 3:** dùng [bàn giao chung cho M1–M6](docs/integration/sprint3_team_handoff.md)
+và [cấu hình Sprint 3](infra/sprint3/README.md) để nhận đúng revision, contract và
+phạm vi kiểm thử. Publisher/Worker vẫn tắt; toàn luồng chưa được nghiệm thu.
+
 Thực hiện [hướng dẫn môi trường Sprint 2](docs/development/sprint2_local_setup.md)
 theo thứ tự: chuẩn bị `.env` và credentials, nạp cấu hình, chạy hạ tầng,
 migration, đặt runtime passwords và khởi tạo private storage. Hướng dẫn có

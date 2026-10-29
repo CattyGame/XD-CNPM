@@ -1,0 +1,12 @@
+{
+  "analysisId": "58685092-7782-5bb6-b147-1b73c6047edd",
+  "tenantId": "e8e2d32b-6fbb-504e-9f08-91b0d3efa6a3",
+  "actorAccountId": "67f72444-73de-5901-93c8-6610bc97ceb2",
+  "patientId": "b04af0cc-f6fa-5731-a609-d76368fee17b",
+  "billingOwner": {
+    "type": "ACCOUNT",
+    "id": "67f72444-73de-5901-93c8-6610bc97ceb2"
+  },
+  "units": 1,
+  "generation": 1
+}

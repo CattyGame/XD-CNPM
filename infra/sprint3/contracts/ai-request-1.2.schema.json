@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "request_id",
+    "patient_id",
+    "eye_side",
+    "mode",
+    "modality",
+    "image_base64",
+    "include_mask",
+    "include_overlay"
+  ],
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "patient_id": {
+      "type": "null"
+    },
+    "eye_side": {
+      "enum": [
+        "left",
+        "right",
+        "unknown"
+      ]
+    },
+    "mode": {
+      "const": "retina_vessels"
+    },
+    "modality": {
+      "const": "FUNDUS"
+    },
+    "image_base64": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 13981016,
+      "contentEncoding": "base64"
+    },
+    "include_mask": {
+      "const": true
+    },
+    "include_overlay": {
+      "const": true
+    }
+  }
+}

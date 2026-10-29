@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AURA analysis.job.run 0.6 retained shape",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "messageId",
+    "messageType",
+    "schemaVersion",
+    "occurredAt",
+    "tenantId",
+    "correlationId",
+    "jobId",
+    "analysisId",
+    "batchId",
+    "imageFileId",
+    "attempt"
+  ],
+  "properties": {
+    "messageId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "messageType": {
+      "const": "analysis.job.run"
+    },
+    "schemaVersion": {
+      "const": "0.6"
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "tenantId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "correlationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,64}$"
+    },
+    "jobId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "analysisId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "batchId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "imageFileId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Worker tự lấy ảnh từ private storage sau khi kiểm tra; không đính kèm ảnh"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "description": "Một Job = một attempt; attempt trong message ánh xạ Job.attempt_no và Job.attemptNo trong public REST. Retry tạo jobId/messageId mới, giữ analysisId. Worker kiểm tra tenant và quan hệ Job/Image trước khi lấy ảnh."
+}

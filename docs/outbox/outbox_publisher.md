@@ -1,16 +1,27 @@
 # Outbox publisher – SCRUM-323 (W3-M2-01)
 
+**Bản sửa scope/fencing/schema đang review:**
+[bàn giao Sprint 3](../integration/sprint3_team_handoff.md#4-bản-sửa-publisher-a8484v).
+Nội dung dưới đây là thiết kế ban đầu; các quy tắc cập nhật ở đây được ưu tiên:
+Sweep và Backlog dùng cùng scope với Claim; Claim tăng `claim_generation`; mọi
+Renew/Published/Retry/Attention/Release kiểm generation và lease còn hạn theo
+server clock; renew thất bại thì không publish. Release refund attempt giữ nguyên
+generation. Không reset generation khi replay. Validator kiểm exact supported
+event0.7/job0.6 branches; Publisher vẫn disabled mặc định. Migration003, PostgreSQL
+hai session và broker integration còn pending. API/adapters đã compile trong
+native84,32/32tests được84V xác minh; không suy broker/SQL runtime đã đạt.
+
 Phạm vi: đọc `analysis.outbox_events` chưa publish và phát lên RabbitMQ `/aura-s3` bằng publisher confirm. Đây là **at-least-once**, không phải exactly-once: consumer phải idempotent theo `messageId/eventId`.
 
 ## 1. Luồng một vòng (`OutboxPublisher.RunOnceAsync`)
-1. `SweepExhausted`: record đã đủ 10 lần thử và hết lease → `needs_attention_at` (không xóa).
-2. `Claim`: `FOR UPDATE SKIP LOCKED`, đặt `locked_until = now + lease`, tăng `delivery_attempts`. Chỉ lấy record chưa published, chưa NEEDS_ATTENTION, đến hạn `next_publish_at`, `occurred_at >= MinOccurredAtUtc`, tenant không bị loại.
-3. Mỗi record: kiểm payload theo contract (`OutboxMessageMapper`) → publish (persistent, mandatory) → chờ confirm ≤ 5s.
+1. `SweepExhausted`: chỉ record trong cùng cutoff/excluded-tenant scope, đã đủ10lần thử và hết lease → `needs_attention_at` (không xóa).
+2. `Claim`: `FOR UPDATE SKIP LOCKED`, đặt `locked_until = now + lease`, tăng `delivery_attempts` và `claim_generation`. Chỉ lấy record chưa published, chưa NEEDS_ATTENTION, đến hạn `next_publish_at`, `occurred_at >= MinOccurredAtUtc`, tenant không bị loại.
+3. Mỗi record: renew đúng generation/lease còn hạn; mất ownership thì bỏ qua broker. Kiểm exact supported payload theo contract (`OutboxMessageMapper`) → publish persistent/mandatory → chờ confirm≤5s.
 4. Cập nhật DB:
 
 | Kết quả broker | Ghi vào DB |
 |---|---|
-| Confirmed (ack, không bị return) | `published_at = now` (chỉ khi chưa published) |
+| Confirmed (ack, không bị return) | `published_at = now` chỉ khi đúng generation/lease và chưa published; affected rows=1 mới tính thành công |
 | Nack / Returned / ConfirmTimeout / BrokerUnavailable | `last_error_code`, `next_publish_at = now + backoff[attempts-1]` (5,15,30,60,120s, giữ 120s) |
 | Lần thử thứ 10 vẫn lỗi | `needs_attention_at`, `last_error_code = PUBLISH_ATTEMPTS_EXHAUSTED:<mã>` |
 | Payload sai contract | `needs_attention_at` ngay, **không** gọi broker |
@@ -43,15 +54,13 @@ SELECT id, event_type, correlation_id, last_error_code, needs_attention_at
 Log có `eventId`, `type`, `correlationId`, `attempt`; không log payload, token hay URL.
 
 ## 5. NEEDS_ATTENTION và phát lại thủ công
-Không tự xóa, không tự replay. Sau khi M1/M2 xử lý nguyên nhân (broker, topology, payload):
-```sql
-UPDATE analysis.outbox_events
-   SET needs_attention_at = NULL, delivery_attempts = 0, next_publish_at = now(), last_error_code = NULL
- WHERE id = '<eventId>' AND published_at IS NULL;
-```
-Giữ nguyên `id` nên consumer vẫn dedupe đúng. Ghi lại ai/lúc nào/vì sao vào Jira.
+Không tự xóa hoặc replay. Sau khi xử lý nguyên nhân, M1/M2 lập plan có audit cho
+đúng event/tenant trên fixture mới: kiểm không còn active lease, giữ nguyên eventId và
+claim_generation, xác định budget/needs_attention cần thay đổi và consumer dedup.
+Không reset generation hoặc dùng một UPDATE không scope/ownership trên outbox đang chạy.
+Không có lệnh replay tự động trong bản bàn giao này.
 
 ## 6. Giới hạn đã biết
 - Một broker outage kéo dài hơn khoảng 10 phút (10 lần thử với backoff trên) sẽ đưa record sang NEEDS_ATTENTION; record không mất.
-- `RabbitMqBrokerPublisher` và `NpgsqlOutboxStore` cần package Npgsql và RabbitMQ.Client; chưa biên dịch trong môi trường soạn thảo.
-- Chưa có test với broker thật (S3-03) và tải đồng thời nhiều instance trên PostgreSQL thật ngoài phép thử SKIP LOCKED một phiên.
+- API/adapters đã compile qua native84;84V xác nhận32tests pass. Fake tests không chứng nhận Npgsql/RabbitMQ I/O thực tế.
+- Bản sửa generation chưa chạy migration/concurrency hai session hoặc broker confirm/return/crash thật. A87 đang chờ kết quả; giữ Publisher tắt.

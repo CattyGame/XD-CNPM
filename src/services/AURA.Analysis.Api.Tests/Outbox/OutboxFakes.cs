@@ -15,55 +15,68 @@ public sealed class OutboxRow
     public Guid Id; public Guid TenantId; public string EventType = ""; public string SchemaVersion = "";
     public string Payload = ""; public DateTimeOffset OccurredAt;
     public DateTimeOffset? PublishedAt, NextPublishAt, LockedUntil, NeedsAttentionAt;
-    public int Attempts; public string? LastError;
+    public int Attempts; public long Generation; public string? LastError;
 }
 
 /// <summary>Mo phong dung ngu nghia claim/lease cua SQL trong OutboxSql (SQL that duoc test rieng bang psql).</summary>
 public sealed class InMemoryOutboxStore : IOutboxStore
 {
     public readonly List<OutboxRow> Rows = new();
-    public Func<Guid, bool>? FailMarkPublished; // gia lap crash/loi DB sau khi publish
+    public Func<Guid, bool>? FailMarkPublished;
+    public Func<OutboxRecord, bool>? RejectRenew;
     public int MarkPublishedCalls;
-
+    private static bool Scoped(OutboxRow r, OutboxClaim c) => r.OccurredAt >= c.MinOccurredAt && !c.ExcludedTenants.Contains(r.TenantId);
+    private OutboxRow? Owned(OutboxRecord claim, DateTimeOffset at) => Rows.SingleOrDefault(r => r.Id==claim.Id && claim.ClaimGeneration>0 && r.Generation==claim.ClaimGeneration && r.PublishedAt is null && r.NeedsAttentionAt is null && r.LockedUntil>at);
     public Task<IReadOnlyList<OutboxRecord>> ClaimAsync(OutboxClaim c, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         var due = Rows.Where(r => r.PublishedAt is null && r.NeedsAttentionAt is null && r.Attempts < c.MaxAttempts
                 && (r.NextPublishAt is null || r.NextPublishAt <= c.Now)
-                && (r.LockedUntil is null || r.LockedUntil <= c.Now)
-                && r.OccurredAt >= c.MinOccurredAt && !c.ExcludedTenants.Contains(r.TenantId))
+                && (r.LockedUntil is null || r.LockedUntil <= c.Now) && Scoped(r,c))
             .OrderBy(r => r.OccurredAt).ThenBy(r => r.Id).Take(c.BatchSize).ToList();
-        foreach (var r in due) { r.LockedUntil = c.Now + c.Lease; r.Attempts++; }
+        foreach (var r in due) { r.LockedUntil = c.Now + c.Lease; r.Attempts++; r.Generation=checked(r.Generation+1); }
         return Task.FromResult<IReadOnlyList<OutboxRecord>>(due.Select(r =>
-            new OutboxRecord(r.Id, r.TenantId, r.EventType, r.SchemaVersion, r.Payload, r.OccurredAt, r.Attempts)).ToList());
+            new OutboxRecord(r.Id,r.TenantId,r.EventType,r.SchemaVersion,r.Payload,r.OccurredAt,r.Attempts,r.Generation)).ToList());
     }
-    public Task<bool> MarkPublishedAsync(Guid id, DateTimeOffset at, CancellationToken ct)
+    public Task<bool> RenewLeaseAsync(OutboxRecord claim, DateTimeOffset at, TimeSpan lease, CancellationToken ct)
+    {
+        var r=Owned(claim,at); if(r is null || RejectRenew?.Invoke(claim)==true) return Task.FromResult(false);
+        var until=at+lease;if(r.LockedUntil<until)r.LockedUntil=until;return Task.FromResult(true);
+    }
+    public Task<bool> MarkPublishedAsync(OutboxRecord claim, DateTimeOffset at, CancellationToken ct)
     {
         MarkPublishedCalls++;
-        if (FailMarkPublished?.Invoke(id) == true) throw new InvalidOperationException("db down");
-        var r = Rows.Single(x => x.Id == id);
-        if (r.PublishedAt is not null) return Task.FromResult(false);
-        r.PublishedAt = at; r.LockedUntil = null; r.NextPublishAt = null; r.LastError = null;
-        return Task.FromResult(true);
+        if (FailMarkPublished?.Invoke(claim.Id)==true) throw new InvalidOperationException("db down");
+        var r=Owned(claim,at);if(r is null)return Task.FromResult(false);
+        r.PublishedAt=at;r.LockedUntil=null;r.NextPublishAt=null;r.LastError=null;return Task.FromResult(true);
     }
-    public Task MarkRetryAsync(Guid id, string code, DateTimeOffset at, DateTimeOffset next, CancellationToken ct)
-    { var r = Rows.Single(x => x.Id == id); if (r.PublishedAt is null) { r.LastError = code; r.NextPublishAt = next; r.LockedUntil = null; } return Task.CompletedTask; }
-    public Task MarkNeedsAttentionAsync(Guid id, string code, DateTimeOffset at, CancellationToken ct)
-    { var r = Rows.Single(x => x.Id == id); if (r.PublishedAt is null) { r.NeedsAttentionAt = at; r.LastError = code; r.LockedUntil = null; } return Task.CompletedTask; }
-    public Task ReleaseUnattemptedAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
-    { foreach (var r in Rows.Where(x => ids.Contains(x.Id) && x.PublishedAt is null)) { r.Attempts = Math.Max(0, r.Attempts - 1); r.LockedUntil = null; } return Task.CompletedTask; }
-    public Task<int> SweepExhaustedAsync(DateTimeOffset now, int max, CancellationToken ct)
+    public Task<bool> MarkRetryAsync(OutboxRecord claim, string code, DateTimeOffset at, DateTimeOffset next, CancellationToken ct)
     {
-        var x = Rows.Where(r => r.PublishedAt is null && r.NeedsAttentionAt is null && r.Attempts >= max && (r.LockedUntil is null || r.LockedUntil <= now)).ToList();
-        foreach (var r in x) { r.NeedsAttentionAt = now; r.LastError = OutboxErrors.AttemptsExhausted; }
-        return Task.FromResult(x.Count);
+        var r=Owned(claim,at);if(r is null)return Task.FromResult(false);
+        r.LastError=code;r.NextPublishAt=next;r.LockedUntil=null;return Task.FromResult(true);
     }
-    public Task<OutboxBacklog> GetBacklogAsync(DateTimeOffset now, CancellationToken ct)
+    public Task<bool> MarkNeedsAttentionAsync(OutboxRecord claim, string code, DateTimeOffset at, CancellationToken ct)
     {
-        var p = Rows.Where(r => r.PublishedAt is null && r.NeedsAttentionAt is null).ToList();
+        var r=Owned(claim,at);if(r is null)return Task.FromResult(false);
+        r.NeedsAttentionAt=at;r.LastError=code;r.LockedUntil=null;return Task.FromResult(true);
+    }
+    public Task<int> ReleaseUnattemptedAsync(IReadOnlyCollection<OutboxRecord> records, DateTimeOffset at, CancellationToken ct)
+    {
+        int changed=0;foreach(var claim in records){var r=Owned(claim,at);if(r is null)continue;r.Attempts=Math.Max(r.Attempts-1,0);r.LockedUntil=null;changed++;}
+        return Task.FromResult(changed);
+    }
+    public Task<int> SweepExhaustedAsync(OutboxClaim c, CancellationToken ct)
+    {
+        var rows=Rows.Where(r=>Scoped(r,c) && r.PublishedAt is null && r.NeedsAttentionAt is null && r.Attempts>=c.MaxAttempts && (r.LockedUntil is null || r.LockedUntil<=c.Now)).ToList();
+        foreach(var r in rows){r.NeedsAttentionAt=c.Now;r.LastError=OutboxErrors.AttemptsExhausted;}return Task.FromResult(rows.Count);
+    }
+    public Task<OutboxBacklog> GetBacklogAsync(OutboxClaim c, CancellationToken ct)
+    {
+        var rows=Rows.Where(r=>Scoped(r,c)).ToList();var p=rows.Where(r=>r.PublishedAt is null && r.NeedsAttentionAt is null).ToList();
         return Task.FromResult(new OutboxBacklog(p.Count,
-            p.Count(r => (r.NextPublishAt is null || r.NextPublishAt <= now) && (r.LockedUntil is null || r.LockedUntil <= now)),
-            p.Count(r => r.LockedUntil > now), Rows.Count(r => r.PublishedAt is null && r.NeedsAttentionAt is not null),
-            p.Count == 0 ? null : p.Min(r => r.OccurredAt)));
+            p.Count(r=>(r.NextPublishAt is null || r.NextPublishAt<=c.Now) && (r.LockedUntil is null || r.LockedUntil<=c.Now)),
+            p.Count(r=>r.LockedUntil>c.Now),rows.Count(r=>r.PublishedAt is null && r.NeedsAttentionAt is not null),
+            p.Count==0?null:p.Min(r=>r.OccurredAt)));
     }
 }
 
