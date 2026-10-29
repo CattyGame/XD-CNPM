@@ -61,19 +61,24 @@ public class UploadServiceTests
         Assert.True(!key.Contains("nguyen"));
     }
 
-    [Fact]
-    public async Task Payload_outbox_dung_dinh_dang_event_va_job_message_0_6()
+       [Fact]
+    public async Task Payload_outbox_dung_dinh_dang_event_0_7_va_job_message_0_6()
     {
         var rig = new Rig();
         await rig.Service.CreateAsync(Cmd(new[] { Img("a.jpg") }, correlation: "corr-123"), default);
         var plan = rig.Repo.Commits[0];
 
-        using var ev = JsonDocument.Parse(plan.Outbox.Single(o => o.EventType == "analysis.requested").PayloadJson);
-        Assert.Equal("0.6", ev.RootElement.GetProperty("schemaVersion").GetString());
+        var requested = plan.Outbox.Single(o => o.EventType == "analysis.requested");
+        Assert.Equal("0.7", requested.SchemaVersion);                  // cột schema_version của event
+        using var ev = JsonDocument.Parse(requested.PayloadJson);
+        Assert.Equal("0.7", ev.RootElement.GetProperty("schemaVersion").GetString());
         Assert.Equal("corr-123", ev.RootElement.GetProperty("correlationId").GetString());
         Assert.Equal(Patient.ToString(), ev.RootElement.GetProperty("data").GetProperty("patientId").GetString());
 
-        using var job = JsonDocument.Parse(plan.Outbox.Single(o => o.EventType == "analysis.job.run").PayloadJson);
+        var jobItem = plan.Outbox.Single(o => o.EventType == "analysis.job.run");
+        Assert.Equal("0.6", jobItem.SchemaVersion);                    // cột schema_version của job
+        using var job = JsonDocument.Parse(jobItem.PayloadJson);
+        Assert.Equal("0.6", job.RootElement.GetProperty("schemaVersion").GetString());
         Assert.Equal(1, job.RootElement.GetProperty("attempt").GetInt32());
         Assert.Equal(plan.Images[0].FileId.ToString(), job.RootElement.GetProperty("imageFileId").GetString());
         Assert.False(job.RootElement.TryGetProperty("object_key", out _) || job.RootElement.TryGetProperty("objectKey", out _));

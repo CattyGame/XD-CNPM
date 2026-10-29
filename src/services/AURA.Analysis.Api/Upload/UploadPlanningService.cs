@@ -7,7 +7,8 @@ internal sealed record PreparedUpload(IUploadSession Session, AccessDecision Dec
 
 public sealed partial class UploadPlanningService(UploadOptions options,IPatientAccessResolver access,IUploadRepository repository,TimeProvider clock)
 {
-    private const string SchemaVersion="0.6";
+    private const string EventSchemaVersion = "0.7";
+    private const string JobSchemaVersion = "0.6";
     private static readonly string[] EyeSides={"left","right","unknown"};
     private readonly UploadOptions _options=options;
     private readonly IPatientAccessResolver _access=access;
@@ -147,24 +148,24 @@ public sealed partial class UploadPlanningService(UploadOptions options,IPatient
 
             string occurred = now.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'");
             var requestedEventId = DeterministicIds.Create("event-requested", analysisId.ToString());
-            outbox.Add(new OutboxPlan(requestedEventId, analysisId, "analysis.requested", SchemaVersion,
+            outbox.Add(new OutboxPlan(requestedEventId, analysisId, "analysis.requested", EventSchemaVersion,
                 JsonSerializer.Serialize(new
                 {
                     eventId = requestedEventId,
                     eventType = "analysis.requested",
-                    schemaVersion = SchemaVersion,
+                    schemaVersion = EventSchemaVersion,
                     occurredAt = occurred,
                     tenantId = d.TenantId,
                     correlationId,
                     analysisId,
                     data = new { patientId, batchId }
                 }, UploadJson.Options), now));
-            outbox.Add(new OutboxPlan(messageId, analysisId, "analysis.job.run", SchemaVersion,
+            outbox.Add(new OutboxPlan(messageId, analysisId, "analysis.job.run", JobSchemaVersion,
                 JsonSerializer.Serialize(new
                 {
                     messageId,
                     messageType = "analysis.job.run",
-                    schemaVersion = SchemaVersion,
+                    schemaVersion = JobSchemaVersion,
                     occurredAt = occurred,
                     tenantId = d.TenantId,
                     correlationId,
