@@ -8,7 +8,7 @@ using Microsoft.Extensions.Configuration;
 namespace AURA.Profile.Api;
 
 public sealed record UserIdentityResolution(
-    bool Succeeded, Guid AccountId, int StatusCode, string Code, string Message, bool Retryable);
+    bool Succeeded, Guid AccountId, int StatusCode, string Code, string Message, bool Retryable, IReadOnlyList<string> Roles);
 
 /// <summary>
 /// Identity is the authority for Firebase verification and UID-to-account mapping.
@@ -91,7 +91,7 @@ public sealed class UserIdentityResolver(IHttpClientFactory clients, IConfigurat
             {
                 return Failure(403, "ERR_ACCOUNT_DISABLED", "Tài khoản không ở trạng thái hoạt động.", false);
             }
-            return new(true, resolved.AccountId, 200, string.Empty, string.Empty, false);
+            return new(true, resolved.AccountId, 200, string.Empty, string.Empty, false, resolved.Roles ?? Array.Empty<string>());
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -115,7 +115,7 @@ public sealed class UserIdentityResolver(IHttpClientFactory clients, IConfigurat
     }
 
     private static UserIdentityResolution Failure(int status, string code, string message, bool retryable) =>
-        new(false, Guid.Empty, status, code, message, retryable);
+        new(false, Guid.Empty, status, code, message, retryable, Array.Empty<string>());
 
     private static UserIdentityResolution Unauthorized() =>
         Failure(401, "ERR_UNAUTHORIZED", "Cần Firebase ID token hợp lệ để truy cập hồ sơ.", false);
@@ -124,5 +124,5 @@ public sealed class UserIdentityResolver(IHttpClientFactory clients, IConfigurat
         Failure(503, "ERR_IDENTITY_DEPENDENCY_UNAVAILABLE", "Chưa thể xác minh danh tính qua Identity.", true);
 
     private sealed record IssuedServiceToken(string? AccessToken, string? TokenType);
-    private sealed record IdentityContext(Guid AccountId, string? AccountStatus);
+    private sealed record IdentityContext(Guid AccountId, string? AccountStatus, IReadOnlyList<string>? Roles);
 }

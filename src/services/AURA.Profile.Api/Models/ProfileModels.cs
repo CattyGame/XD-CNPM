@@ -58,3 +58,44 @@ public sealed record AccessResolveResponse(
     [property: JsonPropertyName("billingOwner")] BillingOwnerDto? BillingOwner,
     [property: JsonPropertyName("permissionVersion")] int PermissionVersion
 );
+
+// --- Models cho Clinic Memberships (Sprint 3 - Task W3-M6-01) ---
+
+public static class ClinicMemberRoles
+{
+    public const string ClinicAdmin = "CLINIC_ADMIN";
+    public const string Doctor = "DOCTOR";
+    public const string Staff = "STAFF";
+
+    public static readonly HashSet<string> AllowedRoles = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ClinicAdmin, Doctor, Staff
+    };
+}
+
+public static class MembershipStatuses
+{
+    public const string Active = "ACTIVE";
+    public const string Revoked = "REVOKED";
+}
+
+public sealed record AddClinicMemberRequest(
+    [property: JsonPropertyName("accountId")] Guid AccountId,
+    [property: JsonPropertyName("role")] string Role
+);
+
+public sealed record ClinicMembershipDto(
+    [property: JsonPropertyName("membershipId")] Guid MembershipId,
+    [property: JsonPropertyName("clinicId")] Guid ClinicId,
+    [property: JsonPropertyName("accountId")] Guid AccountId,
+    [property: JsonPropertyName("displayName")] string DisplayName,
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt
+);
+
+public sealed record ClinicMemberListResponse(
+    [property: JsonPropertyName("clinicId")] Guid ClinicId,
+    [property: JsonPropertyName("items")] IReadOnlyList<ClinicMembershipDto> Items
+);
