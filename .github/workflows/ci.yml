@@ -55,6 +55,11 @@ jobs:
           dotnet run --project tests/AURA.Profile.IdentityChecks/AURA.Profile.IdentityChecks.csproj
           --configuration Release --no-launch-profile
 
+      - name: Check Profile clinic membership logic
+        run: >-
+          dotnet run --project tests/AURA.Profile.ClinicMembershipChecks/AURA.Profile.ClinicMembershipChecks.csproj
+          --configuration Release --no-launch-profile
+
       - name: Check development configuration scripts
         shell: pwsh
         run: ./tests/AURA.DevEnvironment.Checks/Run-Checks.ps1
