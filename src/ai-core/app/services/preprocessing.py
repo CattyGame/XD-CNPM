@@ -1,12 +1,12 @@
 """
-AURA Retina Fundus Preprocessing Module.
-Standardized preprocessing pipeline for Fundus photography:
-- FOV (Field of View) detection & segmentation
-- Centering, cropping, and square-aspect padding
-- Green-channel extraction (highest hemoglobin contrast)
-- Local contrast enhancement (Adaptive Contrast Stretching & Sharpness Enhancement)
-- Resolution standardization (e.g. 512x512 with high-fidelity Lanczos resampling)
-- Comprehensive image quality assessment (luminance, contrast, sharpness, FOV ratio)
+AURA AI Preprocessing Module (Sprint 2 Exploration).
+
+LƯU Ý KIẾN TRÚC:
+- Module này chứa các hàm tiền xử lý nâng cao (CLAHE, resize 512x512, FOV mask) phục vụ
+  nghiên cứu và huấn luyện mô hình Deep Learning trong tương lai.
+- Trong Sprint 3, endpoint phân vùng Frangi v0.2 bắt buộc giữ nguyên gradient ảnh gốc
+  và kích thước ban đầu (không áp dụng CLAHE hay resize để đảm bảo đúng ngưỡng baseline 0.02).
+  Các kiểm tra chất lượng phục vụ Frangi được thực thi trực tiếp tại frangi_service.py.
 """
 
 from __future__ import annotations

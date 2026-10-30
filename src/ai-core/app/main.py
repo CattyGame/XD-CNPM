@@ -85,6 +85,18 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    """
+    Echo hoặc tự sinh correlation ID để phục vụ distributed tracing xuyên suốt
+    Web -> Gateway -> Analysis API -> Worker -> AI Core.
+    """
+    correlation_id = request.headers.get("X-Correlation-Id") or str(uuid.uuid4())
+    response = await call_next(request)
+    response.headers["X-Correlation-Id"] = correlation_id
+    return response
+
+
 def is_explicit_mock_mode() -> bool:
     """
     Return True when engine is explicitly set to mock, or by default when
