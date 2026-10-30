@@ -1,0 +1,73 @@
+engine: frangi
+allowMock: false
+modelVersion: frangi-v0.2
+configVersion: s45-frangi-1.3.0
+thresholdVersion: frangi-threshold-0.02-v1
+riskAvailable: true
+input:
+  modality: FUNDUS
+  color: RGB
+  maxBytes: 10485760
+  maxPixels: 16000000
+  resize: false
+  crop: false
+algorithm:
+  channel: green
+  scale: 255
+  gaussianSigma: 1.0
+  estimatedRegion:
+    maxRgbGreaterThan: 20
+    fillHoles: true
+    erosionKernel:
+    - 3
+    - 3
+    erosionIterations: 12
+  frangi:
+    sigmas:
+    - 1
+    - 2
+    - 3
+    - 5
+    - 8
+    alpha: 0.5
+    beta: 0.5
+    gamma: null
+    blackRidges: true
+    mode: reflect
+    optimization: separable-1d-hessian-vectorized-v1.3
+  outsideRegion: 0
+  normalize: per-image maximum; all-zero response gives zero mask
+  threshold: 0.02
+  heuristicRisk:
+    tortuosityMinSegmentLength: 10
+    tortuosityMinChordLength: 3.0
+    weights:
+      tortuosity: 0.60
+      vesselDensityDeviation: 0.40
+    levels:
+      lowBelow: 0.35
+      moderateBelow: 0.70
+output:
+  mask: PNG L binary 0 or 255; original geometry
+  overlay: PNG RGB; original geometry
+  vesselDensity: foreground_pixels/(original_width*original_height)
+  tortuosityIndex: length_weighted_8_connected_euclidean_arc_to_chord_ratio
+  branchingPoints: skeleton_8_neighborhood_junction_count
+  riskAssessment: heuristic_screening_only_with_medical_disclaimer
+quality:
+  minLuminance: 15
+  maxLuminance: 240
+  minContrast: 8
+  minSharpness: 3.5
+  minEstimatedRegionRatio: 0.15
+  definitions:
+    grayscale: float64 0.299*R + 0.587*G + 0.114*B on RGB 0..255
+    luminance: mean grayscale over estimatedRegion after fill and erosion
+    contrast: population standard deviation grayscale over estimatedRegion
+    sharpness: population variance of grayscale Laplacian, kernel [[0,1,0],[1,-4,1],[0,1,0]],
+      reflect boundary, sampled over estimatedRegion
+    regionRatio: estimatedRegionPixels/(width*height)
+    rejectIf: region empty OR regionRatio<0.15 OR luminance<15 OR luminance>240 OR
+      contrast<8 OR sharpness<3.5
+    boundary: equality to each threshold is accepted; abort with HTTP 422 LOW_QUALITY_IMAGE
+      without computing segmentation or risk when rejected
