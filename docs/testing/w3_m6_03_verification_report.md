@@ -100,9 +100,9 @@ dotnet run --project tests/AURA.Profile.MultiTenantChecks/AURA.Profile.MultiTena
 **Kết quả ghi nhận:**
 
 ```text
-====================================================================
+--------------------------------------------------------------------
 AURA Task W3-M6-03: Multi-Tenant Authorization & Security Checks
-====================================================================
+--------------------------------------------------------------------
 
 --- [AC1] Multi-Tenant Boundary & Device Delegation Checks ---
 PASS: TC-AC1.1: Camera gửi grant hợp lệ cho Patient A dưới Personal Tenant A -> ALLOW
@@ -131,9 +131,9 @@ PASS: TC-AC3.2: Service gọi internal API với sai Audience (aura-identity tha
 PASS: TC-AC3.3: Service gọi internal API với thiếu Scope (cần profile:resolve) -> 403 Forbidden
 PASS: TC-AC3.4: Bác sĩ chỉ xem được phân công của chính mình (chặn xem trộm phân công bác sĩ khác -> 403 Forbidden)
 PASS: TC-AC3.5: Tính toàn vẹn dữ liệu: NiFi và Analysis không sửa trực tiếp dữ liệu Identity/Profile
-====================================================================
+--------------------------------------------------------------------
 KẾT QUẢ: 22/22 CHECKS PASS HOÀN TOÀN! (100% AC1, AC2, AC3)
-====================================================================
+--------------------------------------------------------------------
 ```
 
 ---
