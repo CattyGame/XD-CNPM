@@ -1,10 +1,10 @@
 # Báo cáo Kiểm định CI & Bàn giao Vận hành Sprint 3
 
-> **Dự án**: AURA (SP26SE025) · Retinal Vascular Health Screening  
-> **Mã công việc Jira**: **SCRUM-319** (`[W3]M1] Chốt kiểm tra CI và bàn giao vận hành Sprint 3`)  
-> **Người thực hiện (M1)**: Nguyễn Trương Hậu (Lead Architecture / Platform / DevOps)  
-> **Phạm vi kiểm định**: Toàn bộ hệ thống Backend, ServiceAuth, Profile, DevEnvironment và CI Workflow  
-> **Trạng thái kiểm định**: **PASS (456/456 automated checks passed · 0 failures · 0 skipped)**  
+> **Dự án**: AURA (SP26SE025) · Retinal Vascular Health Screening
+> **Mã công việc Jira**: **SCRUM-319** (`[W3]M1] Chốt kiểm tra CI và bàn giao vận hành Sprint 3`)
+> **Người thực hiện (M1)**: Nguyễn Trương Hậu (Lead Architecture / Platform / DevOps)
+> **Phạm vi kiểm định**: Toàn bộ hệ thống Backend, ServiceAuth, Profile, DevEnvironment và CI Workflow
+> **Trạng thái kiểm định**: **PASS (456/456 automated checks passed · 0 failures · 0 skipped)**
 > **Ngày phê duyệt**: 30/10/2026
 
 ---

@@ -1,11 +1,11 @@
 # Thông số Kỹ thuật & Bàn giao Kết nối Broker / Database cho M2 (Outbox & Worker)
 
-> **Người gửi**: Nguyễn Trương Hậu (M1 — Lead Architect / DevOps)  
-> **Người nhận**: Võ Hữu Duy (M2 — Outbox Publisher & Analysis Worker)  
-> **Dự án**: AURA (`SP26SE025`) · Retinal Vascular Health Screening  
-> **Mã công việc Jira**: `SCRUM-323`, `SCRUM-324`, `SCRUM-325`  
-> **Ngày lập**: 30/10/2026  
-> **Trạng thái xác thực**: **PASS (Đã kiểm chứng trực tiếp trên container và vault bảo mật)**  
+> **Người gửi**: Nguyễn Trương Hậu (M1 — Lead Architect / DevOps)
+> **Người nhận**: Võ Hữu Duy (M2 — Outbox Publisher & Analysis Worker)
+> **Dự án**: AURA (`SP26SE025`) · Retinal Vascular Health Screening
+> **Mã công việc Jira**: `SCRUM-323`, `SCRUM-324`, `SCRUM-325`
+> **Ngày lập**: 30/10/2026
+> **Trạng thái xác thực**: **PASS (Đã kiểm chứng trực tiếp trên container và vault bảo mật)**
 
 ---
 
@@ -29,13 +29,13 @@
     * Khi cấu hình qua `appsettings.json`: đặt `"VirtualHost": "/aura-s3"`.
     * Nếu dùng AMQP Connection URI: URL-encode dấu `/` thành `%2F` $\rightarrow$ `amqp://s3-publisher:<password>@<host>:5672/%2Faura-s3`.
 * **Thông số kết nối:**
-  * **Chạy trong Docker Network (`aura_aura_network` / `aura-s3-backend`):**  
-    * Host: `aura-s3-rabbitmq-1` (hoặc alias `rabbitmq`)  
-    * Port AMQP: `5672`  
-  * **Chạy Native .NET trực tiếp ngoài máy host Windows:**  
-    * Host: `127.0.0.1`  
-    * Port AMQP: `5672` (Đã forward từ container trong `compose.yaml`)  
-    * RabbitMQ Management UI: `http://127.0.0.1:15372`  
+  * **Chạy trong Docker Network (`aura_aura_network` / `aura-s3-backend`):**
+    * Host: `aura-s3-rabbitmq-1` (hoặc alias `rabbitmq`)
+    * Port AMQP: `5672`
+  * **Chạy Native .NET trực tiếp ngoài máy host Windows:**
+    * Host: `127.0.0.1`
+    * Port AMQP: `5672` (Đã forward từ container trong `compose.yaml`)
+    * RabbitMQ Management UI: `http://127.0.0.1:15372`
 
 ---
 
@@ -44,14 +44,14 @@ Toàn bộ tài khoản broker đã được khởi tạo theo nguyên tắc đ�
 
 * **Tài khoản Publisher (`s3-publisher`):**
   * **Username:** `s3-publisher`
-  * **Password:** 
+  * **Password:**
     ```text
     r7zLyO13dkEahz7RraFZzWjTNNx_UO0_pQ_2J4OjB9cNWC4p
     ```
   * **Quyền hạn:** Chỉ có quyền Write (Publish) vào các exchange `^aura\.s3\.(jobs|events)$` trên vhost `/aura-s3`.
 * **Tài khoản Worker (`s3-worker` — cấp sẵn cho M2):**
   * **Username:** `s3-worker`
-  * **Password:** 
+  * **Password:**
     ```text
     x0T3mVQKKfCk5BWGWEiUfl0dc7poaRpjY1Xo-1Zl33Rw1KPQ
     ```
@@ -64,7 +64,7 @@ Toàn bộ tài khoản broker đã được khởi tạo theo nguyên tắc đ�
   ```json
   "MinOccurredAtUtc": "2026-10-28T00:00:00Z"
   ```
-* **Ý nghĩa kiến trúc:** 
+* **Ý nghĩa kiến trúc:**
   * Đây là mốc thời gian bắt đầu triển khai Sprint 3.
   * Tham số này bắt buộc phải có để truy vấn Claim outbox thêm điều kiện `WHERE occurred_at >= MinOccurredAtUtc`, ngăn chặn hoàn toàn việc Publisher quét lại các bản ghi outbox mồ côi cũ thuộc về **fixture 08** (đã đóng băng từ các Sprint trước).
   * Trong mã nguồn `OutboxOptions.cs`, nếu `Enabled = true` mà `MinOccurredAtUtc is null`, hệ thống sẽ ném `InvalidOperationException` để dừng ứng dụng ngay lúc khởi động (Fail-closed design).
@@ -142,7 +142,7 @@ M2 có thể dùng trực tiếp mẫu cấu hình dưới đây để nạp và
    ```
 3. **Theo dõi tình trạng hàng đợi Outbox trên Database:**
    ```sql
-   SELECT state, count(*), min(occurred_at) AS oldest 
-   FROM analysis.v_outbox_status 
+   SELECT state, count(*), min(occurred_at) AS oldest
+   FROM analysis.v_outbox_status
    GROUP BY state;
    ```

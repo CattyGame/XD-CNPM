@@ -1,5 +1,5 @@
 using AURA.Analysis.Api.Http;
-using AURA.Analysis.Api.Outbox.Adapters; 
+using AURA.Analysis.Api.Outbox.Adapters;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddProblemDetails();

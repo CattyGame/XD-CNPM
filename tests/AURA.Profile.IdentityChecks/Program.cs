@@ -157,6 +157,3 @@ sealed class FakeIdentityHandler(Guid accountId) : HttpMessageHandler
         Content = new StringContent(body, Encoding.UTF8, "application/json")
     };
 }
-
-
-

@@ -1,10 +1,10 @@
 # Hướng dẫn Cài đặt và Vận hành Hệ thống AURA (Installation & Operations Manual)
 
-> **Đồ án môn học**: Xây dựng Phần mềm Hướng đối tượng (XD-PMHDT)  
-> **Dự án**: AURA — Hệ thống sàng lọc sức khỏe mạch máu võng mạc qua ảnh chụp đáy mắt (Fundus)  
-> **Gói công việc**: **Task Package 5 (Required Documents)** & **SCRUM-319 (M1 DevOps Handover)**  
-> **Tác giả (M1)**: Nguyễn Trương Hậu (Lead Architecture / Platform / DevOps)  
-> **Phiên bản tài liệu**: v1.0.0 · Tháng 10/2026  
+> **Đồ án môn học**: Xây dựng Phần mềm Hướng đối tượng (XD-PMHDT)
+> **Dự án**: AURA — Hệ thống sàng lọc sức khỏe mạch máu võng mạc qua ảnh chụp đáy mắt (Fundus)
+> **Gói công việc**: **Task Package 5 (Required Documents)** & **SCRUM-319 (M1 DevOps Handover)**
+> **Tác giả (M1)**: Nguyễn Trương Hậu (Lead Architecture / Platform / DevOps)
+> **Phiên bản tài liệu**: v1.0.0 · Tháng 10/2026
 > **Đối tượng sử dụng**: Hội đồng phản biện (Viva Committee), Giảng viên hướng dẫn, Kỹ sư triển khai và Vận hành (DevOps / SRE)
 
 ---

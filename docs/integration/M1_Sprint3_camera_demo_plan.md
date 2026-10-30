@@ -1,9 +1,9 @@
 # Kế hoạch Diễn tập Demo Toàn luồng: Camera -> NiFi -> Worker -> AI -> Web UI
 
-> **Dự án**: AURA (SP26SE025) · Retinal Vascular Health Screening  
-> **Mã công việc Jira**: **SCRUM-322** (`[W3]M1] Demo Camera qua NiFi đến kết quả trên giao diện`)  
-> **Người chủ trì (M1)**: Nguyễn Trương Hậu (Lead Architecture / Platform / DevOps)  
-> **Phối hợp thực hiện**: Võ Hữu Duy (M2 - Worker/Publisher), Phạm Vũ Minh (M3 - Billing), Trần Quốc Việt (M4 - AI Core), Lâm Trần Nguyễn Hoàng (M5 - Web UI), Dung Hoang (M6 - Profile/Identity)  
+> **Dự án**: AURA (SP26SE025) · Retinal Vascular Health Screening
+> **Mã công việc Jira**: **SCRUM-322** (`[W3]M1] Demo Camera qua NiFi đến kết quả trên giao diện`)
+> **Người chủ trì (M1)**: Nguyễn Trương Hậu (Lead Architecture / Platform / DevOps)
+> **Phối hợp thực hiện**: Võ Hữu Duy (M2 - Worker/Publisher), Phạm Vũ Minh (M3 - Billing), Trần Quốc Việt (M4 - AI Core), Lâm Trần Nguyễn Hoàng (M5 - Web UI), Dung Hoang (M6 - Profile/Identity)
 > **Mục tiêu**: Chuẩn bị kịch bản demo sống động, ổn định phục vụ buổi bảo vệ đồ án trước Hội đồng phản biện (Viva Committee).
 
 ---
