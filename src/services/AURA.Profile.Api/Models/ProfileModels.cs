@@ -99,3 +99,56 @@ public sealed record ClinicMemberListResponse(
     [property: JsonPropertyName("clinicId")] Guid ClinicId,
     [property: JsonPropertyName("items")] IReadOnlyList<ClinicMembershipDto> Items
 );
+
+// --- Models cho Camera Delegation & Doctor Assignments (Sprint 3 - Task W3-M6-02) ---
+
+public static class DoctorAssignmentStatuses
+{
+    public const string Active = "ACTIVE";
+    public const string Revoked = "REVOKED";
+    public const string Expired = "EXPIRED";
+}
+
+public sealed record CameraDelegationResolveRequest(
+    [property: JsonPropertyName("actorAccountId")] Guid ActorAccountId,
+    [property: JsonPropertyName("patientId")] Guid PatientId,
+    [property: JsonPropertyName("servicePrincipalId")] Guid ServicePrincipalId,
+    [property: JsonPropertyName("clientId")] string ClientId,
+    [property: JsonPropertyName("deviceId")] string DeviceId,
+    [property: JsonPropertyName("expectedTenantId")] Guid ExpectedTenantId,
+    [property: JsonPropertyName("action")] string Action
+);
+
+public sealed record CameraDelegationResolveResponse(
+    [property: JsonPropertyName("allowed")] bool Allowed,
+    [property: JsonPropertyName("patientId")] Guid? PatientId,
+    [property: JsonPropertyName("tenantId")] Guid? TenantId,
+    [property: JsonPropertyName("tenantKind")] string? TenantKind,
+    [property: JsonPropertyName("ownerPrincipalId")] Guid? OwnerPrincipalId,
+    [property: JsonPropertyName("billingOwner")] BillingOwnerDto? BillingOwner,
+    [property: JsonPropertyName("grantId")] Guid? GrantId,
+    [property: JsonPropertyName("reason")] string? Reason
+);
+
+public sealed record CreateDoctorAssignmentRequest(
+    [property: JsonPropertyName("doctorId")] Guid DoctorId,
+    [property: JsonPropertyName("patientId")] Guid PatientId
+);
+
+public sealed record DoctorAssignmentDto(
+    [property: JsonPropertyName("assignmentId")] Guid AssignmentId,
+    [property: JsonPropertyName("clinicId")] Guid ClinicId,
+    [property: JsonPropertyName("doctorId")] Guid DoctorId,
+    [property: JsonPropertyName("doctorName")] string DoctorName,
+    [property: JsonPropertyName("patientId")] Guid PatientId,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("assignedAt")] DateTimeOffset AssignedAt,
+    [property: JsonPropertyName("revokedAt")] DateTimeOffset? RevokedAt,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt
+);
+
+public sealed record DoctorAssignmentListResponse(
+    [property: JsonPropertyName("clinicId")] Guid ClinicId,
+    [property: JsonPropertyName("items")] IReadOnlyList<DoctorAssignmentDto> Items
+);
