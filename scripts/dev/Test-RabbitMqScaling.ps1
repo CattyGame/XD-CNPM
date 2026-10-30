@@ -48,7 +48,7 @@ try {
 
         $pubUri = "http://$RabbitMqHost`:$ManagementPort/api/exchanges/$encodedVhost/aura.s3.jobs/publish"
         $pubRes = Invoke-RestMethod -Uri $pubUri -Headers @{ Authorization = "Basic $baseAuth" } -Method Post -Body $payload -ContentType "application/json"
-        
+
         if (-not $pubRes.routed) {
             throw "Job $i không được định tuyến vào hàng đợi."
         }

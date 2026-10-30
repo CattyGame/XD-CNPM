@@ -77,10 +77,10 @@ foreach ($line in ($statsRaw -split "`n")) {
         $memUsage = $parts[2]
         $memPercStr = $parts[3].Replace("%", "").Trim()
         $netIo = $parts[4]
-        
+
         $memPerc = 0.0
         [double]::TryParse($memPercStr, [System.Globalization.NumberStyles]::Any, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$memPerc) | Out-Null
-        
+
         if ($memPerc -gt $maxObservedMemPercent) {
             $maxObservedMemPercent = $memPerc
         }

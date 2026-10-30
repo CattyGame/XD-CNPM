@@ -23,17 +23,17 @@ flowchart TD
     Workers --> AiCore["AI Core API (Port 8000)<br/>Frangi v1.3 Algorithm"]
 
     Workers -.-> DLQ["Dead-Letter Queue (aura.s3.dead.jobs)"]
-    
+
     AnalysisApi --> PostgresCore["PostgreSQL Core DB (Port 5432)"]
     BillingApi --> PostgresCore
-    
+
     Prometheus["Prometheus Server (Port 9090)"] -.->|Scrape /metrics 5s| Gateway
     Prometheus -.->|Scrape /metrics 5s| AnalysisApi
     Prometheus -.->|Scrape /metrics 5s| BillingApi
     Prometheus -.->|Scrape /metrics 5s| AiCore
     Prometheus -.->|Scrape port 15692| RabbitMQ
     Prometheus --> Alertmanager["Alertmanager (Port 9093)"]
-    
+
     Grafana["Grafana (Port 3000)"] -->|Query OpenMetrics| Prometheus
 ```
 

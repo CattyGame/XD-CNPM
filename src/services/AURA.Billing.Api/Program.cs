@@ -1,4 +1,4 @@
-using AURA.Billing.Api;
+using AURA.Billing.Api;
 using System.Text.RegularExpressions;
 using AURA.Billing.Api.Auth;
 using AURA.Billing.Api.Data;
@@ -123,8 +123,6 @@ app.Use(async (context, next) =>
 app.UseSwagger();
 app.UseSwaggerUI();
 
-app.UseAuraPrometheusMetrics();
-
 static IResult BillingError(
     HttpContext context,
     int statusCode,
@@ -157,7 +155,6 @@ await app.Services.GetRequiredService<CreditReservationRepository>()
     .VerifyDatabaseAsync(CancellationToken.None);
 
 app.MapHealthChecks("/health");
-app.MapAuraMetrics();
 
 // Public package catalog remains anonymous and continues to read the legacy PoC catalog.
 app.MapGet("/api/v1/billing/packages", async (
@@ -444,5 +441,7 @@ app.MapPost("/internal/v1/billing/reservations/{reservationId:guid}/release", as
 .Produces(StatusCodes.Status404NotFound)
 .Produces(StatusCodes.Status409Conflict)
 .Produces(StatusCodes.Status503ServiceUnavailable);
+
+app.UseAuraPrometheusMetrics();
 
 app.Run();
