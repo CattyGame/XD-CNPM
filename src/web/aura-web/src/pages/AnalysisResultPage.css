@@ -1,0 +1,24 @@
+.analysis-result-page { max-width: 1100px; margin: 0 auto; padding: 28px 20px 64px; color: #20324a; }
+.analysis-result-page > nav { margin-bottom: 18px; display: flex; gap: 12px; }
+.analysis-result-page a { color: #146a83; }
+.analysis-result-page h1 { font-size: clamp(1.5rem, 3vw, 2rem); margin: 0 0 8px; }
+.analysis-result-page h2 { font-size: 1.2rem; margin: 18px 0 10px; }
+.analysis-result-page code { overflow-wrap: anywhere; font-size: 0.85rem; }
+.analysis-result-panel { background: #fff; border: 1px solid #dce7ed; border-radius: 16px; padding: 20px; margin-top: 16px; }
+.analysis-result-panel p { line-height: 1.6; }
+.analysis-result-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+.analysis-result-toolbar p { margin: 0; }
+.analysis-result-page button { border: 0; background: #146a83; color: #fff; padding: 10px 16px; border-radius: 9px; cursor: pointer; font: inherit; }
+.analysis-result-page button:focus-visible { outline: 3px solid #feb849; outline-offset: 2px; }
+.analysis-result-page [role='alert'] { color: #9b2424; }
+.analysis-result-metadata { display: grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 8px; margin: 18px 0; }
+.analysis-result-metadata p { margin: 0; padding: 12px; border: 1px solid #e0e8ee; border-radius: 9px; }
+.analysis-result-warning { color: #664d03; border-left: 4px solid #daa520; padding: 10px 14px; background: #fff6dc; }
+.analysis-result-disclaimer { border-top: 1px solid #e2e8ec; padding-top: 12px; font-style: italic; }
+.analysis-files-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(280px,100%),1fr)); gap: 18px; margin-top: 14px; }
+.analysis-file-preview { min-width: 0; margin: 0; border: 1px solid #dce7ed; padding: 14px; border-radius: 12px; background: #f8fcfd; }
+.analysis-file-preview figcaption { display: grid; gap: 5px; margin-bottom: 12px; }
+.analysis-file-preview img { display: block; width: 100%; height: auto; max-height: 380px; object-fit: contain; border-radius: 8px; background: #e7edf0; }
+.analysis-result-page dl > div { display: flex; gap: 20px; padding: 6px; border-bottom: 1px solid #e2e8ec; }
+.analysis-result-page dt { flex: 1; }
+.analysis-result-page dd { margin: 0; font-weight: 600; }

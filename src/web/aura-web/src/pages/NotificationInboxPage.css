@@ -1,0 +1,29 @@
+.inbox-page { max-width: 1050px; margin: 0 auto; padding: 28px 20px 64px; color: #20324a; }
+.inbox-page nav { margin-bottom: 20px; }
+.inbox-page a { color: #146a83; }
+.inbox-page h1 { font-size: clamp(1.5rem, 3vw, 2rem); margin: 0 0 8px; }
+.inbox-page h2 { font-size: 1.2rem; margin: 0 0 8px; }
+.inbox-page p { line-height: 1.55; }
+.inbox-page code { overflow-wrap: anywhere; font-size: 0.85em; }
+.inbox-page button { border: 1px solid #146a83; border-radius: 9px; padding: 9px 14px; background: #146a83; color: white; cursor: pointer; font: inherit; }
+.inbox-page button:disabled { cursor: not-allowed; opacity: .55; }
+.inbox-page button:focus-visible, .inbox-page a:focus-visible { outline: 3px solid #e1a943; outline-offset: 3px; }
+.inbox-page [role='alert'] { color: #9b2424; }
+.inbox-panel { margin-top: 18px; padding: 20px; background: white; border: 1px solid #dce7ed; border-radius: 16px; }
+.inbox-toolbar { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 14px; }
+.inbox-toolbar p { margin: 4px 0 0; }
+.inbox-filter { display: flex; align-items: center; gap: 8px; margin: 18px 0; cursor: pointer; }
+.inbox-filter input { width: 17px; height: 17px; accent-color: #146a83; }
+.inbox-list { display: grid; gap: 12px; margin: 0 0 20px; padding: 0; list-style: none; }
+.inbox-item { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 20px; min-width: 0; padding: 16px; border: 1px solid #dde7ee; border-radius: 12px; }
+.inbox-item-unread { border-left: 4px solid #146a83; background: #f4fafc; }
+.inbox-item-read { background: #f9fbfc; }
+.inbox-item-body { flex: 1 1 300px; min-width: 0; }
+.inbox-item-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.inbox-unread-label { padding: 3px 9px; border-radius: 12px; background: #d9eef5; color: #165065; font-size: .8rem; font-weight: 600; }
+.inbox-item p { margin: 5px 0; }
+.inbox-item-id { overflow-wrap: anywhere; }
+.inbox-item-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.inbox-item-actions a { font-weight: 600; }
+.inbox-disclaimer { border-top: 1px solid #e4eaee; padding-top: 14px; margin-top: 22px; font-size: .9rem; }
+@media (max-width: 600px) { .inbox-page { padding: 20px 12px 40px; } .inbox-panel { padding: 14px; } .inbox-item { gap: 12px; } .inbox-item-actions { width: 100%; } }
