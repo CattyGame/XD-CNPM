@@ -102,26 +102,23 @@ app.MapPost("/internal/v1/profile/provision", async (
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var displayName = !string.IsNullOrWhiteSpace(body.DisplayName) ? body.DisplayName : "Người dùng AURA";
-        var profile = await repository.ProvisionProfileAsync(body.AccountId, displayName, ct);
-
+        var profile = await repository.ProvisionProfileAsync(body.AccountId, body.DisplayName, ct);
         return Results.Ok(profile);
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Lỗi khi provision profile cho account {AccountId}", body.AccountId);
+        logger.LogError(ex, "[{CorrelationId}] Lỗi khi khởi tạo hồ sơ", correlationId);
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_INTERNAL_DB", "Lỗi xử lý cơ sở dữ liệu khi khởi tạo hồ sơ.", correlationId, false)),
+            new ErrorEnvelope(new ErrorDetails("ERR_INTERNAL", "Lỗi xử lý nội bộ khi khởi tạo hồ sơ.", correlationId, true)),
             statusCode: StatusCodes.Status500InternalServerError);
     }
 })
 .WithName("ProvisionProfile")
 .WithTags("Internal");
 
-// 2. GET /api/v1/profiles/me (Xem thông tin hồ sơ của chính mình)
+// 2. GET /api/v1/profiles/me (Bảo vệ bằng User Bearer Token qua Identity Context)
 app.MapGet("/api/v1/profiles/me", async (
     HttpRequest request,
-    HttpResponse response,
     ProfileRepository repository,
     UserIdentityResolver identityResolver,
     CancellationToken ct) =>
@@ -134,38 +131,24 @@ app.MapGet("/api/v1/profiles/me", async (
             new ErrorEnvelope(new ErrorDetails(identity.Code, identity.Message, correlationId, identity.Retryable)),
             statusCode: identity.StatusCode);
     }
-    var accountId = identity.AccountId;
 
-    try
-    {
-        var profile = await repository.GetProfileByAccountIdAsync(accountId, ct);
-        if (profile == null)
-        {
-            // Theo chuẩn Sprint 2: Hồ sơ chưa provision xong trả 409 ERR_PROFILE_NOT_READY, retryable=true
-            return Results.Json(
-                new ErrorEnvelope(new ErrorDetails("ERR_PROFILE_NOT_READY", "Hồ sơ chưa được khởi tạo. Hãy gọi bootstrap trước.", correlationId, true)),
-                statusCode: StatusCodes.Status409Conflict);
-        }
-
-        // Thiết lập ETag theo phiên bản hồ sơ: "<profileVersion>"
-        response.Headers.ETag = $"\"{profile.ProfileVersion}\"";
-
-        return Results.Ok(profile);
-    }
-    catch (Exception)
+    var profile = await repository.GetProfileByAccountIdAsync(identity.AccountId, ct);
+    if (profile == null)
     {
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_INTERNAL_DB", "Lỗi xử lý cơ sở dữ liệu khi truy vấn hồ sơ.", correlationId, false)),
-            statusCode: StatusCodes.Status500InternalServerError);
+            new ErrorEnvelope(new ErrorDetails("ERR_PROFILE_NOT_READY", "Tài khoản chưa hoàn tất bootstrap hồ sơ.", correlationId, true)),
+            statusCode: StatusCodes.Status409Conflict);
     }
+
+    request.HttpContext.Response.Headers.ETag = $"\"{profile.ProfileVersion}\"";
+    return Results.Ok(profile);
 })
 .WithName("GetMyProfile")
 .WithTags("Profiles");
 
-// 3. PATCH /api/v1/profiles/me (Cập nhật displayName, phone - Bắt buộc If-Match, Chống sửa Role)
+// 3. PATCH /api/v1/profiles/me (Cập nhật DisplayName, Phone kèm If-Match ETag)
 app.MapPatch("/api/v1/profiles/me", async (
     HttpRequest request,
-    HttpResponse response,
     UpdateProfileRequest body,
     ProfileRepository repository,
     UserIdentityResolver identityResolver,
@@ -179,82 +162,49 @@ app.MapPatch("/api/v1/profiles/me", async (
             new ErrorEnvelope(new ErrorDetails(identity.Code, identity.Message, correlationId, identity.Retryable)),
             statusCode: identity.StatusCode);
     }
-    var accountId = identity.AccountId;
 
-    // 3.1. Kiểm tra Header If-Match bắt buộc
-    var ifMatchHeader = request.Headers.IfMatch.FirstOrDefault();
-    if (string.IsNullOrWhiteSpace(ifMatchHeader))
+    var ifMatch = request.Headers.IfMatch.FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(ifMatch))
     {
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "Thiếu header If-Match bắt buộc để cập nhật hồ sơ.", correlationId, false)),
+            new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "Bắt buộc cung cấp Header If-Match chứa ETag hiện tại.", correlationId, false)),
             statusCode: StatusCodes.Status400BadRequest);
     }
 
-    // Tách chuỗi ETag (loại bỏ dấu ngoặc kép nếu có)
-    var rawVersion = ifMatchHeader.Trim('\"', ' ');
-    if (!int.TryParse(rawVersion, out var expectedVersion) || expectedVersion <= 0)
+    var cleanIfMatch = ifMatch.Trim('\"', ' ');
+    if (!int.TryParse(cleanIfMatch, out var expectedVersion))
     {
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "Header If-Match không hợp lệ.", correlationId, false)),
+            new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "Header If-Match không đúng định dạng số phiên bản.", correlationId, false)),
             statusCode: StatusCodes.Status400BadRequest);
     }
 
-    try
-    {
-        // 3.2. Validate dữ liệu đầu vào:
-        var currentProfile = await repository.GetProfileByAccountIdAsync(accountId, ct);
-        if (currentProfile == null)
-        {
-            return Results.Json(
-                new ErrorEnvelope(new ErrorDetails("ERR_NOT_FOUND", "Không tìm thấy hồ sơ để cập nhật.", correlationId, false)),
-                statusCode: StatusCodes.Status404NotFound);
-        }
-
-        var targetDisplayName = body.DisplayName != null ? body.DisplayName.Trim() : currentProfile.DisplayName;
-        if (string.IsNullOrWhiteSpace(targetDisplayName) || targetDisplayName.Length > 100)
-        {
-            return Results.Json(
-                new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "Tên hiển thị (displayName) phải từ 1 đến 100 ký tự.", correlationId, false)),
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        var targetPhone = body.Phone != null ? body.Phone.Trim() : currentProfile.Phone;
-        if (targetPhone != null && targetPhone.Length > 30)
-        {
-            return Results.Json(
-                new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "Số điện thoại (phone) tối đa 30 ký tự.", correlationId, false)),
-                statusCode: StatusCodes.Status400BadRequest);
-        }
-
-        // 3.3. Thực thi cập nhật kèm kiểm tra phiên bản (Optimistic Concurrency)
-        var (success, updatedProfile, conflict) = await repository.UpdateProfileAsync(
-            accountId, targetDisplayName, targetPhone, expectedVersion, ct);
-
-        if (conflict)
-        {
-            return Results.Json(
-                new ErrorEnvelope(new ErrorDetails("ERR_PROFILE_VERSION_CONFLICT", "Phiên bản hồ sơ không khớp (xung đột dữ liệu). Hãy tải lại hồ sơ mới nhất.", correlationId, false)),
-                statusCode: StatusCodes.Status409Conflict);
-        }
-
-        if (!success || updatedProfile == null)
-        {
-            return Results.Json(
-                new ErrorEnvelope(new ErrorDetails("ERR_NOT_FOUND", "Không tìm thấy hồ sơ người dùng.", correlationId, false)),
-                statusCode: StatusCodes.Status404NotFound);
-        }
-
-        // Trả về ETag phiên bản mới
-        response.Headers.ETag = $"\"{updatedProfile.ProfileVersion}\"";
-
-        return Results.Ok(updatedProfile);
-    }
-    catch (Exception)
+    if (string.IsNullOrWhiteSpace(body.DisplayName))
     {
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_INTERNAL_DB", "Lỗi xử lý cơ sở dữ liệu khi cập nhật hồ sơ.", correlationId, false)),
-            statusCode: StatusCodes.Status500InternalServerError);
+            new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "DisplayName không được để trống.", correlationId, false)),
+            statusCode: StatusCodes.Status400BadRequest);
     }
+
+    var (success, updated, conflict) = await repository.UpdateProfileAsync(
+        identity.AccountId, body.DisplayName.Trim(), body.Phone?.Trim(), expectedVersion, ct);
+
+    if (conflict)
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_PROFILE_VERSION_CONFLICT", "Hồ sơ đã bị thay đổi bởi một phiên khác. Vui lòng làm mới.", correlationId, false)),
+            statusCode: StatusCodes.Status409Conflict);
+    }
+
+    if (!success || updated == null)
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_PROFILE_NOT_FOUND", "Không tìm thấy hồ sơ cá nhân tương ứng.", correlationId, false)),
+            statusCode: StatusCodes.Status404NotFound);
+    }
+
+    request.HttpContext.Response.Headers.ETag = $"\"{updated.ProfileVersion}\"";
+    return Results.Ok(updated);
 })
 .WithName("UpdateMyProfile")
 .WithTags("Profiles");
@@ -269,7 +219,6 @@ app.MapPost("/internal/v1/profile/access/resolve", async (
 {
     var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
 
-    // 4.1. Xác thực Service JWT
     var authHeader = request.Headers.Authorization.FirstOrDefault();
     if (string.IsNullOrWhiteSpace(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
     {
@@ -296,8 +245,41 @@ app.MapPost("/internal/v1/profile/access/resolve", async (
 .WithName("ResolveAccess")
 .WithTags("Internal");
 
+// 5. POST /internal/v1/profile/camera-delegation/resolve (Bảo vệ bằng Service JWT: scope profile:resolve)
+app.MapPost("/internal/v1/profile/camera-delegation/resolve", async (
+    HttpRequest request,
+    CameraDelegationResolveRequest body,
+    ProfileRepository repository,
+    ServiceTokenValidator tokenValidator,
+    CancellationToken ct) =>
+{
+    var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
 
-// 5. GET /api/v1/clinics/{clinicId:guid}/memberships
+    var authHeader = request.Headers.Authorization.FirstOrDefault();
+    if (string.IsNullOrWhiteSpace(authHeader) || !authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_UNAUTHORIZED", "Thiếu service token xác thực.", correlationId, false)),
+            statusCode: StatusCodes.Status401Unauthorized);
+    }
+
+    var token = authHeader["Bearer ".Length..].Trim();
+    var (valid, _, errCode, errMsg) = await tokenValidator.ValidateTokenAsync(token, "aura-profile", "profile:resolve");
+    if (!valid)
+    {
+        var statusCode = errCode == "ERR_FORBIDDEN" ? StatusCodes.Status403Forbidden : StatusCodes.Status401Unauthorized;
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(errCode ?? "ERR_UNAUTHORIZED", errMsg ?? "Service token không hợp lệ.", correlationId, false)),
+            statusCode: statusCode);
+    }
+
+    var response = await repository.ResolveCameraDelegationAsync(body, ct);
+    return Results.Ok(response);
+})
+.WithName("ResolveCameraDelegation")
+.WithTags("Internal");
+
+// 6. GET /api/v1/clinics/{clinicId:guid}/memberships
 app.MapGet("/api/v1/clinics/{clinicId:guid}/memberships", async (
     Guid clinicId,
     HttpRequest request,
@@ -323,12 +305,12 @@ app.MapGet("/api/v1/clinics/{clinicId:guid}/memberships", async (
         if (failureReason == "CLINIC_NOT_FOUND" || failureReason == "NOT_A_MEMBER")
         {
             return Results.Json(
-                new ErrorEnvelope(new ErrorDetails("ERR_CLINIC_NOT_FOUND", "Kh�ng t�m th?y ph�ng kh�m.", correlationId, false)),
+                new ErrorEnvelope(new ErrorDetails("ERR_CLINIC_NOT_FOUND", "Không tìm thấy phòng khám.", correlationId, false)),
                 statusCode: StatusCodes.Status404NotFound);
         }
 
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_FORBIDDEN", "B?n kh�ng c� quy?n qu?n l� th�nh vi�n ph�ng kh�m n�y.", correlationId, false)),
+            new ErrorEnvelope(new ErrorDetails("ERR_FORBIDDEN", "Bạn không có quyền quản lý thành viên phòng khám này.", correlationId, false)),
             statusCode: StatusCodes.Status403Forbidden);
     }
 
@@ -338,7 +320,7 @@ app.MapGet("/api/v1/clinics/{clinicId:guid}/memberships", async (
 .WithName("GetClinicMemberships")
 .WithTags("Clinics");
 
-// 6. POST /api/v1/clinics/{clinicId:guid}/memberships
+// 7. POST /api/v1/clinics/{clinicId:guid}/memberships
 app.MapPost("/api/v1/clinics/{clinicId:guid}/memberships", async (
     Guid clinicId,
     AddClinicMemberRequest body,
@@ -364,26 +346,26 @@ app.MapPost("/api/v1/clinics/{clinicId:guid}/memberships", async (
         if (failureReason == "CLINIC_NOT_FOUND" || failureReason == "NOT_A_MEMBER")
         {
             return Results.Json(
-                new ErrorEnvelope(new ErrorDetails("ERR_CLINIC_NOT_FOUND", "Kh�ng t�m th?y ph�ng kh�m.", correlationId, false)),
+                new ErrorEnvelope(new ErrorDetails("ERR_CLINIC_NOT_FOUND", "Không tìm thấy phòng khám.", correlationId, false)),
                 statusCode: StatusCodes.Status404NotFound);
         }
 
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_FORBIDDEN", "B?n kh�ng c� quy?n qu?n l� th�nh vi�n ph�ng kh�m n�y.", correlationId, false)),
+            new ErrorEnvelope(new ErrorDetails("ERR_FORBIDDEN", "Bạn không có quyền quản lý thành viên phòng khám này.", correlationId, false)),
             statusCode: StatusCodes.Status403Forbidden);
     }
 
     if (body.AccountId == Guid.Empty)
     {
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "Thi?u accountId h?p l?.", correlationId, false)),
+            new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "Thiếu accountId hợp lệ.", correlationId, false)),
             statusCode: StatusCodes.Status400BadRequest);
     }
 
     if (string.IsNullOrWhiteSpace(body.Role) || !ClinicMemberRoles.AllowedRoles.Contains(body.Role.Trim()))
     {
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_INVALID_ROLE", "Vai tr� th�nh vi�n kh�ng h?p l?. Ch? ch?p nh?n CLINIC_ADMIN, DOCTOR, STAFF.", correlationId, false)),
+            new ErrorEnvelope(new ErrorDetails("ERR_INVALID_ROLE", "Vai trò thành viên không hợp lệ. Chỉ chấp nhận CLINIC_ADMIN, DOCTOR, STAFF.", correlationId, false)),
             statusCode: StatusCodes.Status400BadRequest);
     }
 
@@ -401,7 +383,7 @@ app.MapPost("/api/v1/clinics/{clinicId:guid}/memberships", async (
         };
 
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails(errCode ?? "ERR_INTERNAL_DB", errMsg ?? "Kh�ng th? th�m th�nh vi�n.", correlationId, false)),
+            new ErrorEnvelope(new ErrorDetails(errCode ?? "ERR_INTERNAL_DB", errMsg ?? "Không thể thêm thành viên.", correlationId, false)),
             statusCode: statusCode);
     }
 
@@ -410,7 +392,7 @@ app.MapPost("/api/v1/clinics/{clinicId:guid}/memberships", async (
 .WithName("AddClinicMembership")
 .WithTags("Clinics");
 
-// 7. DELETE /api/v1/clinics/{clinicId:guid}/memberships/{accountId:guid}
+// 8. DELETE /api/v1/clinics/{clinicId:guid}/memberships/{accountId:guid}
 app.MapDelete("/api/v1/clinics/{clinicId:guid}/memberships/{accountId:guid}", async (
     Guid clinicId,
     Guid accountId,
@@ -436,12 +418,12 @@ app.MapDelete("/api/v1/clinics/{clinicId:guid}/memberships/{accountId:guid}", as
         if (failureReason == "CLINIC_NOT_FOUND" || failureReason == "NOT_A_MEMBER")
         {
             return Results.Json(
-                new ErrorEnvelope(new ErrorDetails("ERR_CLINIC_NOT_FOUND", "Kh�ng t�m th?y ph�ng kh�m.", correlationId, false)),
+                new ErrorEnvelope(new ErrorDetails("ERR_CLINIC_NOT_FOUND", "Không tìm thấy phòng khám.", correlationId, false)),
                 statusCode: StatusCodes.Status404NotFound);
         }
 
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_FORBIDDEN", "B?n kh�ng c� quy?n qu?n l� th�nh vi�n ph�ng kh�m n�y.", correlationId, false)),
+            new ErrorEnvelope(new ErrorDetails("ERR_FORBIDDEN", "Bạn không có quyền quản lý thành viên phòng khám này.", correlationId, false)),
             statusCode: StatusCodes.Status403Forbidden);
     }
 
@@ -456,7 +438,7 @@ app.MapDelete("/api/v1/clinics/{clinicId:guid}/memberships/{accountId:guid}", as
         };
 
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails(errCode ?? "ERR_INTERNAL_DB", errMsg ?? "Kh�ng th? thu h?i th�nh vi�n.", correlationId, false)),
+            new ErrorEnvelope(new ErrorDetails(errCode ?? "ERR_INTERNAL_DB", errMsg ?? "Không thể thu hồi thành viên.", correlationId, false)),
             statusCode: statusCode);
     }
 
@@ -464,5 +446,168 @@ app.MapDelete("/api/v1/clinics/{clinicId:guid}/memberships/{accountId:guid}", as
 })
 .WithName("RevokeClinicMembership")
 .WithTags("Clinics");
+
+// 9. POST /api/v1/clinics/{clinicId:guid}/assignments (Phân công Bác sĩ phụ trách bệnh nhân)
+app.MapPost("/api/v1/clinics/{clinicId:guid}/assignments", async (
+    Guid clinicId,
+    CreateDoctorAssignmentRequest body,
+    HttpRequest request,
+    ProfileRepository repository,
+    UserIdentityResolver identityResolver,
+    CancellationToken ct) =>
+{
+    var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
+    var identity = await identityResolver.ResolveAsync(request, ct);
+    if (!identity.Succeeded)
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(identity.Code, identity.Message, correlationId, identity.Retryable)),
+            statusCode: identity.StatusCode);
+    }
+
+    var (allowed, failureReason) = await repository.CheckClinicManagementAuthorityAsync(
+        identity.AccountId, clinicId, identity.Roles, ct);
+
+    if (!allowed)
+    {
+        if (failureReason == "CLINIC_NOT_FOUND" || failureReason == "NOT_A_MEMBER")
+        {
+            return Results.Json(
+                new ErrorEnvelope(new ErrorDetails("ERR_CLINIC_NOT_FOUND", "Không tìm thấy phòng khám.", correlationId, false)),
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_FORBIDDEN", "Bạn không có quyền quản lý phân công phòng khám này.", correlationId, false)),
+            statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    if (body.DoctorId == Guid.Empty || body.PatientId == Guid.Empty)
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "Thiếu doctorId hoặc patientId hợp lệ.", correlationId, false)),
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var (success, dto, errCode, errMsg) = await repository.CreateOrReactivateDoctorAssignmentAsync(
+        clinicId, body.DoctorId, body.PatientId, ct);
+
+    if (!success)
+    {
+        var statusCode = errCode switch
+        {
+            "ERR_ASSIGNMENT_ALREADY_EXISTS" => StatusCodes.Status409Conflict,
+            "ERR_CLINIC_NOT_FOUND" => StatusCodes.Status404NotFound,
+            "ERR_PATIENT_NOT_IN_CLINIC" => StatusCodes.Status400BadRequest,
+            "ERR_INVALID_DOCTOR" => StatusCodes.Status400BadRequest,
+            _ => StatusCodes.Status500InternalServerError
+        };
+
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(errCode ?? "ERR_INTERNAL_DB", errMsg ?? "Không thể phân công bác sĩ.", correlationId, false)),
+            statusCode: statusCode);
+    }
+
+    return Results.Ok(dto);
+})
+.WithName("CreateDoctorAssignment")
+.WithTags("DoctorAssignments");
+
+// 10. GET /api/v1/clinics/{clinicId:guid}/assignments (Xem danh sách phân công bác sĩ)
+app.MapGet("/api/v1/clinics/{clinicId:guid}/assignments", async (
+    Guid clinicId,
+    HttpRequest request,
+    ProfileRepository repository,
+    UserIdentityResolver identityResolver,
+    CancellationToken ct,
+    Guid? doctorId = null,
+    Guid? patientId = null,
+    string? status = null) =>
+{
+    var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
+    var identity = await identityResolver.ResolveAsync(request, ct);
+    if (!identity.Succeeded)
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(identity.Code, identity.Message, correlationId, identity.Retryable)),
+            statusCode: identity.StatusCode);
+    }
+
+    var (success, items, errCode, errMsg) = await repository.GetDoctorAssignmentsAsync(
+        clinicId, identity.AccountId, identity.Roles, doctorId, patientId, status, ct);
+
+    if (!success)
+    {
+        var statusCode = errCode switch
+        {
+            "ERR_CLINIC_NOT_FOUND" => StatusCodes.Status404NotFound,
+            "ERR_FORBIDDEN_DOCTOR_ACCESS" => StatusCodes.Status403Forbidden,
+            _ => StatusCodes.Status500InternalServerError
+        };
+
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(errCode ?? "ERR_INTERNAL_DB", errMsg ?? "Không thể tải danh sách phân công.", correlationId, false)),
+            statusCode: statusCode);
+    }
+
+    return Results.Ok(new DoctorAssignmentListResponse(clinicId, items!));
+})
+.WithName("GetDoctorAssignments")
+.WithTags("DoctorAssignments");
+
+// 11. DELETE /api/v1/clinics/{clinicId:guid}/assignments/{assignmentId:guid} (Thu hồi phân công)
+app.MapDelete("/api/v1/clinics/{clinicId:guid}/assignments/{assignmentId:guid}", async (
+    Guid clinicId,
+    Guid assignmentId,
+    HttpRequest request,
+    ProfileRepository repository,
+    UserIdentityResolver identityResolver,
+    CancellationToken ct) =>
+{
+    var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
+    var identity = await identityResolver.ResolveAsync(request, ct);
+    if (!identity.Succeeded)
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(identity.Code, identity.Message, correlationId, identity.Retryable)),
+            statusCode: identity.StatusCode);
+    }
+
+    var (allowed, failureReason) = await repository.CheckClinicManagementAuthorityAsync(
+        identity.AccountId, clinicId, identity.Roles, ct);
+
+    if (!allowed)
+    {
+        if (failureReason == "CLINIC_NOT_FOUND" || failureReason == "NOT_A_MEMBER")
+        {
+            return Results.Json(
+                new ErrorEnvelope(new ErrorDetails("ERR_CLINIC_NOT_FOUND", "Không tìm thấy phòng khám.", correlationId, false)),
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_FORBIDDEN", "Bạn không có quyền quản lý phân công phòng khám này.", correlationId, false)),
+            statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var (success, errCode, errMsg) = await repository.RevokeDoctorAssignmentAsync(clinicId, assignmentId, ct);
+    if (!success)
+    {
+        var statusCode = errCode switch
+        {
+            "ERR_ASSIGNMENT_NOT_FOUND" => StatusCodes.Status404NotFound,
+            "ERR_ASSIGNMENT_NOT_ACTIVE" => StatusCodes.Status400BadRequest,
+            _ => StatusCodes.Status500InternalServerError
+        };
+
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(errCode ?? "ERR_INTERNAL_DB", errMsg ?? "Không thể thu hồi phân công.", correlationId, false)),
+            statusCode: statusCode);
+    }
+
+    return Results.NoContent();
+})
+.WithName("RevokeDoctorAssignment")
+.WithTags("DoctorAssignments");
 
 app.Run();
