@@ -27,12 +27,30 @@ public static class AnalysisEndpoints
             return Results.Json(await c.RequestServices.GetRequiredService<BatchStatusService>().GetAsync(user.AccountId,clinic,
                 ResourceId(batchId),c.RequestAborted,Correlation(c)),UploadJson.Options);
         }));
+        app.MapGet("/api/v1/analyses/{analysisId}",(HttpContext c,string analysisId)=>Handle(c,async()=>
+        {
+            var user=await User(c);var clinic=Clinic(c);
+            return Results.Json(await c.RequestServices.GetRequiredService<AnalysisQueryService>().GetAsync(user.AccountId,clinic,
+                ResourceId(analysisId),c.RequestAborted,Correlation(c)),UploadJson.Options);
+        }));
         app.MapGet("/api/v1/analyses/{analysisId}/files/{fileId}/access",(HttpContext c,string analysisId,string fileId)=>Handle(c,async()=>
         {
             c.Response.Headers.CacheControl="no-store";
             var user=await User(c);var clinic=Clinic(c);
             return Results.Json(await c.RequestServices.GetRequiredService<FileAccessService>().GetAsync(user.AccountId,clinic,
                 ResourceId(analysisId),ResourceId(fileId),c.RequestAborted),UploadJson.Options);
+        }));
+        app.MapPost("/internal/v1/analysis/settlements/resolve",(HttpContext c,InternalResolveRequest request)=>Handle(c,async()=>
+        {
+            ServiceAuthValidator.RequireServiceScope(c.Request,"analysis:reconcile");
+            return Results.Json(await c.RequestServices.GetRequiredService<InternalResolversService>().ResolveSettlementAsync(
+                request,c.RequestAborted),UploadJson.Options);
+        }));
+        app.MapPost("/internal/v1/analysis/notification-context/resolve",(HttpContext c,InternalResolveRequest request)=>Handle(c,async()=>
+        {
+            ServiceAuthValidator.RequireServiceScope(c.Request,"analysis:notify");
+            return Results.Json(await c.RequestServices.GetRequiredService<InternalResolversService>().ResolveNotificationContextAsync(
+                request,c.RequestAborted),UploadJson.Options);
         }));
     }
 

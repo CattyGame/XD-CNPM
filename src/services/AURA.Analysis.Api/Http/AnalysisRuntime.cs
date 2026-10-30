@@ -37,9 +37,12 @@ public static class AnalysisRuntime
         services.AddAnalysisServiceClients(configuration);services.AddAnalysisPrivateStorage(configuration,environment);
         services.AddTransient<IUploadRepository,PostgresUploadRepository>();services.AddTransient<IUploadRecoveryJournal,PostgresUploadRecoveryRepository>();
         services.AddTransient<IFileAccessRepository,PostgresFileAccessRepository>();services.AddTransient<IBatchStatusRepository,PostgresBatchStatusRepository>();
+        services.AddTransient<IAnalysisQueryRepository,PostgresAnalysisQueryRepository>();
+        services.AddTransient<IInternalResolversRepository,PostgresInternalResolversRepository>();
         services.AddTransient<UploadPlanningService>();services.AddTransient<IAnalysisUploadHandler,DurableUploadService>();
         services.AddTransient<IAnalysisReadinessChecks,AnalysisReadinessChecks>();
         services.AddTransient<BatchStatusService>();services.AddTransient<FileAccessService>();
+        services.AddTransient<AnalysisQueryService>();services.AddTransient<InternalResolversService>();
         return services;
     }
 }
