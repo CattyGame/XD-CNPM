@@ -151,11 +151,11 @@ paths:
 
   /api/v1/clinics/{clinicId}/memberships:
     get:
-      summary: L?y danh sách thành viên phòng khám
+      summary: L?y danh sï¿½ch thï¿½nh viï¿½n phï¿½ng khï¿½m
       description: |
-        Truy v?n toàn b? danh sách thành viên trong phòng khám.
-        Ch? cho phép SYSTEM_ADMIN ho?c CLINIC_ADMIN dang ACTIVE trong chính Clinic dó.
-        Ngu?i ngoài Clinic s? nh?n 404 Not Found (ngan ng?a rò r? tenant).
+        Truy v?n toï¿½n b? danh sï¿½ch thï¿½nh viï¿½n trong phï¿½ng khï¿½m.
+        Ch? cho phï¿½p SYSTEM_ADMIN ho?c CLINIC_ADMIN dang ACTIVE trong chï¿½nh Clinic dï¿½.
+        Ngu?i ngoï¿½i Clinic s? nh?n 404 Not Found (ngan ng?a rï¿½ r? tenant).
       operationId: getClinicMemberships
       tags:
         - Clinic Memberships
@@ -165,14 +165,14 @@ paths:
         - name: clinicId
           in: path
           required: true
-          description: Ğ?nh danh phòng khám
+          description: ï¿½?nh danh phï¿½ng khï¿½m
           schema:
             type: string
             format: uuid
         - name: status
           in: query
           required: false
-          description: L?c theo tr?ng thái thành viên (ACTIVE, REVOKED, ho?c ALL)
+          description: L?c theo tr?ng thï¿½i thï¿½nh viï¿½n (ACTIVE, REVOKED, ho?c ALL)
           schema:
             type: string
             enum: [ACTIVE, REVOKED, ALL]
@@ -180,7 +180,7 @@ paths:
         - $ref: '#/components/parameters/CorrelationIdHeader'
       responses:
         '200':
-          description: L?y danh sách thành viên thành công.
+          description: L?y danh sï¿½ch thï¿½nh viï¿½n thï¿½nh cï¿½ng.
           content:
             application/json:
               schema:
@@ -188,13 +188,13 @@ paths:
         '401':
           $ref: '#/components/responses/401Unauthorized'
         '403':
-          description: Không d? quy?n qu?n tr? phòng khám.
+          description: Khï¿½ng d? quy?n qu?n tr? phï¿½ng khï¿½m.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
         '404':
-          description: Không tìm th?y phòng khám ho?c không thu?c th?m quy?n.
+          description: Khï¿½ng tï¿½m th?y phï¿½ng khï¿½m ho?c khï¿½ng thu?c th?m quy?n.
           content:
             application/json:
               schema:
@@ -203,11 +203,11 @@ paths:
           $ref: '#/components/responses/500InternalError'
 
     post:
-      summary: Thêm m?i ho?c tái kích ho?t thành viên phòng khám
+      summary: Thï¿½m m?i ho?c tï¿½i kï¿½ch ho?t thï¿½nh viï¿½n phï¿½ng khï¿½m
       description: |
-        Thêm m?t thành viên m?i vào phòng khám v?i vai trò ch? d?nh (CLINIC_ADMIN, DOCTOR, STAFF).
-        N?u thành viên t?ng b? g? (REVOKED), h? th?ng s? tái kích ho?t l?i (status = ACTIVE).
-        N?u thành viên dang ACTIVE, tr? v? l?i 409 ERR_MEMBERSHIP_ALREADY_EXISTS.
+        Thï¿½m m?t thï¿½nh viï¿½n m?i vï¿½o phï¿½ng khï¿½m v?i vai trï¿½ ch? d?nh (CLINIC_ADMIN, DOCTOR, STAFF).
+        N?u thï¿½nh viï¿½n t?ng b? g? (REVOKED), h? th?ng s? tï¿½i kï¿½ch ho?t l?i (status = ACTIVE).
+        N?u thï¿½nh viï¿½n dang ACTIVE, tr? v? l?i 409 ERR_MEMBERSHIP_ALREADY_EXISTS.
       operationId: addClinicMembership
       tags:
         - Clinic Memberships
@@ -217,7 +217,7 @@ paths:
         - name: clinicId
           in: path
           required: true
-          description: Ğ?nh danh phòng khám
+          description: ï¿½?nh danh phï¿½ng khï¿½m
           schema:
             type: string
             format: uuid
@@ -230,13 +230,13 @@ paths:
               $ref: '#/components/schemas/AddClinicMemberRequest'
       responses:
         '201':
-          description: Thêm ho?c tái kích ho?t thành viên thành công.
+          description: Thï¿½m ho?c tï¿½i kï¿½ch ho?t thï¿½nh viï¿½n thï¿½nh cï¿½ng.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ClinicMembershipDto'
         '400':
-          description: L?i d? li?u d?u vào ho?c role không h?p l?.
+          description: L?i d? li?u d?u vï¿½o ho?c role khï¿½ng h?p l?.
           content:
             application/json:
               schema:
@@ -244,19 +244,19 @@ paths:
         '401':
           $ref: '#/components/responses/401Unauthorized'
         '403':
-          description: Không d? quy?n qu?n tr? phòng khám.
+          description: Khï¿½ng d? quy?n qu?n tr? phï¿½ng khï¿½m.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
         '404':
-          description: Không tìm th?y phòng khám ho?c tài kho?n ngu?i dùng.
+          description: Khï¿½ng tï¿½m th?y phï¿½ng khï¿½m ho?c tï¿½i kho?n ngu?i dï¿½ng.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
         '409':
-          description: Thành viên dã t?n t?i và dang ho?t d?ng.
+          description: Thï¿½nh viï¿½n dï¿½ t?n t?i vï¿½ dang ho?t d?ng.
           content:
             application/json:
               schema:
@@ -266,11 +266,11 @@ paths:
 
   /api/v1/clinics/{clinicId}/memberships/{accountId}:
     delete:
-      summary: Thu h?i tu cách thành viên phòng khám (Soft Delete luu v?t audit)
+      summary: Thu h?i tu cï¿½ch thï¿½nh viï¿½n phï¿½ng khï¿½m (Soft Delete luu v?t audit)
       description: |
-        G? b? m?t thành viên kh?i phòng khám.
-        Chuy?n tr?ng thái status = REVOKED, không xóa dòng d? li?u kh?i co s? d? li?u d? b?o toàn v?t audit.
-        Ngan ch?n t? thu h?i n?u ngu?i b? thu h?i là CLINIC_ADMIN duy nh?t còn l?i c?a phòng khám.
+        G? b? m?t thï¿½nh viï¿½n kh?i phï¿½ng khï¿½m.
+        Chuy?n tr?ng thï¿½i status = REVOKED, khï¿½ng xï¿½a dï¿½ng d? li?u kh?i co s? d? li?u d? b?o toï¿½n v?t audit.
+        Ngan ch?n t? thu h?i n?u ngu?i b? thu h?i lï¿½ CLINIC_ADMIN duy nh?t cï¿½n l?i c?a phï¿½ng khï¿½m.
       operationId: revokeClinicMembership
       tags:
         - Clinic Memberships
@@ -280,23 +280,23 @@ paths:
         - name: clinicId
           in: path
           required: true
-          description: Ğ?nh danh phòng khám
+          description: ï¿½?nh danh phï¿½ng khï¿½m
           schema:
             type: string
             format: uuid
         - name: accountId
           in: path
           required: true
-          description: Ğ?nh danh tài kho?n thành viên c?n thu h?i
+          description: ï¿½?nh danh tï¿½i kho?n thï¿½nh viï¿½n c?n thu h?i
           schema:
             type: string
             format: uuid
         - $ref: '#/components/parameters/CorrelationIdHeader'
       responses:
         '204':
-          description: Thu h?i thành viên thành công (No Content).
+          description: Thu h?i thï¿½nh viï¿½n thï¿½nh cï¿½ng (No Content).
         '400':
-          description: Không th? thu h?i admin duy nh?t c?a phòng khám.
+          description: Khï¿½ng th? thu h?i admin duy nh?t c?a phï¿½ng khï¿½m.
           content:
             application/json:
               schema:
@@ -304,13 +304,13 @@ paths:
         '401':
           $ref: '#/components/responses/401Unauthorized'
         '403':
-          description: Không d? quy?n qu?n tr? phòng khám.
+          description: Khï¿½ng d? quy?n qu?n tr? phï¿½ng khï¿½m.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorEnvelope'
         '404':
-          description: Không tìm th?y phòng khám ho?c thành viên không ho?t d?ng trong phòng khám.
+          description: Khï¿½ng tï¿½m th?y phï¿½ng khï¿½m ho?c thï¿½nh viï¿½n khï¿½ng ho?t d?ng trong phï¿½ng khï¿½m.
           content:
             application/json:
               schema:
@@ -387,6 +387,157 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessResolveResponse'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '403':
+          description: Service token khÃ´ng cÃ³ scope profile:resolve.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /api/v1/clinics/{clinicId}/assignments:
+    post:
+      summary: PhÃ¢n cÃ´ng bÃ¡c sÄ© phá»¥ trÃ¡ch bá»‡nh nhÃ¢n táº¡i phÃ²ng khÃ¡m
+      description: |
+        Chá»‰ cho phÃ©p CLINIC_ADMIN cá»§a phÃ²ng khÃ¡m hoáº·c SYSTEM_ADMIN thá»±c hiá»‡n.
+        BÃ¡c sÄ© pháº£i lÃ  thÃ nh viÃªn ACTIVE cÃ³ vai trÃ² DOCTOR táº¡i phÃ²ng khÃ¡m.
+        Bá»‡nh nhÃ¢n pháº£i thuá»™c pháº¡m vi quáº£n lÃ½ cá»§a phÃ²ng khÃ¡m.
+      operationId: createDoctorAssignment
+      tags:
+        - Doctor Assignments
+      security:
+        - UserBearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ClinicId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDoctorAssignmentRequest'
+      responses:
+        '200':
+          description: PhÃ¢n cÃ´ng thÃ nh cÃ´ng hoáº·c tÃ¡i kÃ­ch hoáº¡t thÃ nh cÃ´ng.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DoctorAssignmentDto'
+        '400':
+          $ref: '#/components/responses/400ValidationError'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '403':
+          $ref: '#/components/responses/403Forbidden'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+        '409':
+          description: PhÃ¢n cÃ´ng Ä‘Ã£ tá»“n táº¡i vÃ  Ä‘ang ACTIVE.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+    get:
+      summary: Láº¥y danh sÃ¡ch phÃ¢n cÃ´ng bÃ¡c sÄ© táº¡i phÃ²ng khÃ¡m
+      description: |
+        CLINIC_ADMIN vÃ  SYSTEM_ADMIN xem Ä‘Æ°á»£c toÃ n bá»™.
+        DOCTOR chá»‰ xem Ä‘Æ°á»£c danh sÃ¡ch phÃ¢n cÃ´ng cá»§a chÃ­nh mÃ¬nh.
+      operationId: getDoctorAssignments
+      tags:
+        - Doctor Assignments
+      security:
+        - UserBearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ClinicId'
+        - name: doctorId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: patientId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [ACTIVE, REVOKED, ALL]
+      responses:
+        '200':
+          description: Danh sÃ¡ch phÃ¢n cÃ´ng bÃ¡c sÄ©.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DoctorAssignmentListResponse'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '403':
+          $ref: '#/components/responses/403Forbidden'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /api/v1/clinics/{clinicId}/assignments/{assignmentId}:
+    delete:
+      summary: Thu há»“i phÃ¢n cÃ´ng bÃ¡c sÄ© táº¡i phÃ²ng khÃ¡m
+      description: |
+        Chuyá»ƒn tráº¡ng thÃ¡i phÃ¢n cÃ´ng thÃ nh REVOKED (báº£o toÃ n audit trail, khÃ´ng hard delete).
+        Chá»‰ cho phÃ©p CLINIC_ADMIN cá»§a phÃ²ng khÃ¡m hoáº·c SYSTEM_ADMIN thá»±c hiá»‡n.
+      operationId: revokeDoctorAssignment
+      tags:
+        - Doctor Assignments
+      security:
+        - UserBearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/ClinicId'
+        - name: assignmentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Thu há»“i phÃ¢n cÃ´ng thÃ nh cÃ´ng.
+        '400':
+          $ref: '#/components/responses/400ValidationError'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '403':
+          $ref: '#/components/responses/403Forbidden'
+        '404':
+          $ref: '#/components/responses/404NotFound'
+
+  /internal/v1/profile/camera-delegation/resolve:
+    post:
+      summary: PhÃ¢n giáº£i á»§y quyá»n thiáº¿t bá»‹ camera chá»¥p Ä‘Ã¡y máº¯t cho Analysis Service
+      description: |
+        ÄÆ°á»£c gá»i ná»™i bá»™ bá»Ÿi Analysis Service khi tiáº¿p nháº­n áº£nh tá»« NiFi Camera.
+        XÃ¡c minh tÃ­nh há»£p lá»‡ cá»§a grant, deviceId, clientId, servicePrincipalId, patientId, tenantId.
+        Sprint 3 chá»‰ cháº¥p nháº­n camera cho tenant PERSONAL.
+      operationId: resolveCameraDelegation
+      tags:
+        - Profile Internal
+      security:
+        - ServiceTokenAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CameraDelegationResolveRequest'
+      responses:
+        '200':
+          description: Káº¿t quáº£ xÃ¡c thá»±c á»§y quyá»n camera.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CameraDelegationResolveResponse'
         '401':
           $ref: '#/components/responses/401Unauthorized'
         '403':
@@ -624,12 +775,12 @@ components:
         accountId:
           type: string
           format: uuid
-          description: Ğ?nh danh tài kho?n ngu?i dùng du?c m?i/thêm vào phòng khám.
+          description: ï¿½?nh danh tï¿½i kho?n ngu?i dï¿½ng du?c m?i/thï¿½m vï¿½o phï¿½ng khï¿½m.
           example: f0000000-0000-0000-0000-000000000001
         role:
           type: string
           enum: [CLINIC_ADMIN, DOCTOR, STAFF]
-          description: Vai trò du?c c?p trong ph?m vi phòng khám.
+          description: Vai trï¿½ du?c c?p trong ph?m vi phï¿½ng khï¿½m.
           example: DOCTOR
 
     ClinicMembershipDto:
@@ -658,7 +809,7 @@ components:
           example: a1111111-0000-0000-0000-000000000002
         displayName:
           type: string
-          example: BS. Nhãn khoa Alpha
+          example: BS. Nhï¿½n khoa Alpha
         role:
           type: string
           enum: [CLINIC_ADMIN, DOCTOR, STAFF]
@@ -747,3 +898,137 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorEnvelope'
+
+    CreateDoctorAssignmentRequest:
+      type: object
+      required:
+        - doctorId
+        - patientId
+      properties:
+        doctorId:
+          type: string
+          format: uuid
+        patientId:
+          type: string
+          format: uuid
+
+    DoctorAssignmentDto:
+      type: object
+      required:
+        - assignmentId
+        - clinicId
+        - doctorId
+        - doctorName
+        - patientId
+        - status
+        - assignedAt
+        - createdAt
+        - updatedAt
+      properties:
+        assignmentId:
+          type: string
+          format: uuid
+        clinicId:
+          type: string
+          format: uuid
+        doctorId:
+          type: string
+          format: uuid
+        doctorName:
+          type: string
+        patientId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [ACTIVE, REVOKED, EXPIRED]
+        assignedAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    DoctorAssignmentListResponse:
+      type: object
+      required:
+        - clinicId
+        - items
+      properties:
+        clinicId:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DoctorAssignmentDto'
+
+    CameraDelegationResolveRequest:
+      type: object
+      required:
+        - actorAccountId
+        - patientId
+        - servicePrincipalId
+        - clientId
+        - deviceId
+        - expectedTenantId
+        - action
+      properties:
+        actorAccountId:
+          type: string
+          format: uuid
+        patientId:
+          type: string
+          format: uuid
+        servicePrincipalId:
+          type: string
+          format: uuid
+        clientId:
+          type: string
+        deviceId:
+          type: string
+        expectedTenantId:
+          type: string
+          format: uuid
+        action:
+          type: string
+          example: ANALYSIS_CREATE
+
+    CameraDelegationResolveResponse:
+      type: object
+      required:
+        - allowed
+      properties:
+        allowed:
+          type: boolean
+        patientId:
+          type: string
+          format: uuid
+          nullable: true
+        tenantId:
+          type: string
+          format: uuid
+          nullable: true
+        tenantKind:
+          type: string
+          nullable: true
+        ownerPrincipalId:
+          type: string
+          format: uuid
+          nullable: true
+        billingOwner:
+          $ref: '#/components/schemas/BillingOwnerDto'
+        grantId:
+          type: string
+          format: uuid
+          nullable: true
+        reason:
+          type: string
+          nullable: true

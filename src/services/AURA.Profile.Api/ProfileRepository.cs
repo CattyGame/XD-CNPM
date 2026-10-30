@@ -45,7 +45,6 @@ public class ProfileRepository
 
     public async Task<UserProfileResponse> ProvisionProfileAsync(Guid accountId, string displayName, CancellationToken cancellationToken = default)
     {
-        // Kiểm tra xem hồ sơ đã khởi tạo đầy đủ chưa
         var existing = await GetProfileByAccountIdAsync(accountId, cancellationToken);
         if (existing != null && existing.PersonalTenantId.HasValue && existing.PatientId.HasValue)
         {
@@ -57,7 +56,6 @@ public class ProfileRepository
 
         try
         {
-            // 1. Tìm hoặc tạo Personal Tenant (Đảm bảo Idempotent, không tạo thừa khi chạy đồng thời)
             Guid tenantId;
             const string findTenantSql = @"
                 SELECT tenant_id FROM profile.tenants
@@ -85,7 +83,6 @@ public class ProfileRepository
                     tenantCmd.Parameters.AddWithValue(accountId);
                     await tenantCmd.ExecuteNonQueryAsync(cancellationToken);
 
-                    // Re-query để phòng trường hợp một transaction khác vừa tạo đồng thời
                     await using var reFindCmd = new NpgsqlCommand(findTenantSql, connection, transaction);
                     reFindCmd.Parameters.AddWithValue(accountId);
                     var reObj = await reFindCmd.ExecuteScalarAsync(cancellationToken);
@@ -96,7 +93,6 @@ public class ProfileRepository
                 }
             }
 
-            // 2. Khởi tạo hoặc cập nhật hồ sơ cá nhân
             const string insertProfileSql = @"
                 INSERT INTO profile.profiles (account_id, display_name, personal_tenant_id, profile_version)
                 VALUES ($1, $2, $3, 1)
@@ -112,7 +108,6 @@ public class ProfileRepository
                 await profileCmd.ExecuteNonQueryAsync(cancellationToken);
             }
 
-            // 3. Tìm hoặc tạo Hồ sơ Bệnh nhân cá nhân mặc định
             const string findPatientSql = @"
                 SELECT patient_id FROM profile.patients
                 WHERE linked_account_id = $1 AND tenant_id = $2
@@ -178,7 +173,6 @@ public class ProfileRepository
             return (true, updated, false);
         }
 
-        // Kiểm tra xem hồ sơ có tồn tại hay do sai phiên bản (optimistic lock conflict)
         const string checkSql = "SELECT profile_version FROM profile.profiles WHERE account_id = $1;";
         await using var checkCmd = new NpgsqlCommand(checkSql, connection);
         checkCmd.Parameters.AddWithValue(accountId);
@@ -186,19 +180,15 @@ public class ProfileRepository
 
         if (currentVersionObj is int)
         {
-            // Hồ sơ có tồn tại nhưng phiên bản không khớp
             return (false, null, true);
         }
 
-        // Hồ sơ không tồn tại
         return (false, null, false);
     }
 
     public async Task<AccessResolveResponse> ResolveAccessAsync(
         Guid actorAccountId, Guid patientId, Guid? clinicContextId, string action, CancellationToken cancellationToken = default)
     {
-        // 1. Kiểm tra action hợp lệ theo quy chuẩn Sprint 2 Contract v1.0 Section 5.3:
-        // ANALYSIS_CREATE, ANALYSIS_READ, ANALYSIS_FILE_READ, DOCTOR_REVIEW
         var allowedActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "ANALYSIS_CREATE",
@@ -213,6 +203,18 @@ public class ProfileRepository
         }
 
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        // 1. Kiểm tra trạng thái tài khoản Actor trong identity.accounts (Fail-Closed nếu DISABLED)
+        const string accountCheckSql = "SELECT account_status FROM identity.accounts WHERE account_id = $1 LIMIT 1;";
+        await using (var accCmd = new NpgsqlCommand(accountCheckSql, connection))
+        {
+            accCmd.Parameters.AddWithValue(actorAccountId);
+            var accStatusObj = await accCmd.ExecuteScalarAsync(cancellationToken);
+            if (accStatusObj is string accStatus && !string.Equals(accStatus, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+            {
+                return new AccessResolveResponse(false, accStatus, patientId, null, null, null, null, 1);
+            }
+        }
 
         // 2. Tìm thông tin bệnh nhân
         const string patientSql = @"
@@ -231,7 +233,6 @@ public class ProfileRepository
             await using var reader = await pCmd.ExecuteReaderAsync(cancellationToken);
             if (!await reader.ReadAsync(cancellationToken))
             {
-                // Bệnh nhân không tồn tại -> fail-closed (allowed: false)
                 return new AccessResolveResponse(false, null, null, null, null, null, null, 1);
             }
 
@@ -249,7 +250,6 @@ public class ProfileRepository
         // 3. Ngữ cảnh cá nhân (clinicContextId is null)
         if (!clinicContextId.HasValue)
         {
-            // Bệnh nhân cá nhân không có quyền thực hiện đánh giá chuyên môn bác sĩ
             if (action.Equals("DOCTOR_REVIEW", StringComparison.OrdinalIgnoreCase))
             {
                 return new AccessResolveResponse(false, "ACTIVE", patientId, null, null, null, null, 1);
@@ -278,7 +278,6 @@ public class ProfileRepository
         // 4. Ngữ cảnh phòng khám (Clinic context)
         var clinicId = clinicContextId.Value;
 
-        // 4.1. Kiểm tra Clinic có tồn tại và ACTIVE
         const string clinicSql = "SELECT tenant_id FROM profile.clinics WHERE clinic_id = $1 AND status = 'ACTIVE';";
         Guid clinicTenantId;
         await using (var cCmd = new NpgsqlCommand(clinicSql, connection))
@@ -292,14 +291,12 @@ public class ProfileRepository
             clinicTenantId = cTId;
         }
 
-        // 4.2. Kiểm tra bệnh nhân PHẢI thuộc phạm vi của Clinic này
         var patientBelongsToClinic = (pTenantId == clinicTenantId || pOwnerPrincipalId == clinicId);
         if (!patientBelongsToClinic)
         {
             return new AccessResolveResponse(false, "ACTIVE", patientId, null, null, null, null, 1);
         }
 
-        // 4.3. Kiểm tra tư cách thành viên (Membership) của actor tại phòng khám
         const string memberSql = "SELECT role FROM profile.memberships WHERE clinic_id = $1 AND account_id = $2 AND status = 'ACTIVE';";
         string? memberRole = null;
         await using (var mCmd = new NpgsqlCommand(memberSql, connection))
@@ -315,9 +312,13 @@ public class ProfileRepository
             return new AccessResolveResponse(false, "ACTIVE", patientId, null, null, null, null, 1);
         }
 
-        // Quản trị viên phòng khám: Toàn quyền quản trị hành chính phòng khám
         if (memberRole == "CLINIC_ADMIN")
         {
+            if (action.Equals("DOCTOR_REVIEW", StringComparison.OrdinalIgnoreCase))
+            {
+                return new AccessResolveResponse(false, "ACTIVE", patientId, null, null, null, null, 1);
+            }
+
             return new AccessResolveResponse(
                 Allowed: true,
                 AccountStatus: "ACTIVE",
@@ -330,7 +331,6 @@ public class ProfileRepository
             );
         }
 
-        // Bác sĩ: Phải có phân công hoạt động (DoctorAssignment)
         if (memberRole == "DOCTOR")
         {
             const string assignSql = @"
@@ -359,6 +359,147 @@ public class ProfileRepository
         }
 
         return new AccessResolveResponse(false, "ACTIVE", patientId, null, null, null, null, 1);
+    }
+
+    // ====================================================================
+    // CAMERA DELEGATION RESOLUTION (Task W3-M6-02 / AC1)
+    // ====================================================================
+
+    public async Task<CameraDelegationResolveResponse> ResolveCameraDelegationAsync(
+        CameraDelegationResolveRequest request, CancellationToken cancellationToken = default)
+    {
+        if (!string.Equals(request.Action, "ANALYSIS_CREATE", StringComparison.OrdinalIgnoreCase))
+        {
+            return new CameraDelegationResolveResponse(false, null, null, null, null, null, null, "INVALID_ACTION");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.DeviceId) || string.IsNullOrWhiteSpace(request.ClientId)
+            || request.PatientId == Guid.Empty || request.ExpectedTenantId == Guid.Empty
+            || request.ActorAccountId == Guid.Empty || request.ServicePrincipalId == Guid.Empty)
+        {
+            return new CameraDelegationResolveResponse(false, null, null, null, null, null, null, "INVALID_REQUEST_PARAMETERS");
+        }
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        // 1. Kiểm tra bệnh nhân và tenant
+        const string patientSql = @"
+            SELECT p.patient_id, p.tenant_id, p.linked_account_id, p.owner_principal_id, p.status, t.tenant_kind
+            FROM profile.patients p
+            JOIN profile.tenants t ON t.tenant_id = p.tenant_id
+            WHERE p.patient_id = $1;";
+
+        Guid pTenantId;
+        Guid? pLinkedAccountId;
+        Guid pOwnerPrincipalId;
+        string pStatus;
+        string tenantKind;
+
+        await using (var pCmd = new NpgsqlCommand(patientSql, connection))
+        {
+            pCmd.Parameters.AddWithValue(request.PatientId);
+            await using var reader = await pCmd.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return new CameraDelegationResolveResponse(false, null, null, null, null, null, null, "PATIENT_NOT_FOUND");
+            }
+
+            pTenantId = reader.GetGuid(1);
+            pLinkedAccountId = reader.IsDBNull(2) ? (Guid?)null : reader.GetGuid(2);
+            pOwnerPrincipalId = reader.GetGuid(3);
+            pStatus = reader.GetString(4);
+            tenantKind = reader.GetString(5);
+        }
+
+        // Camera Sprint 3 chỉ áp dụng cho tenant PERSONAL
+        if (!string.Equals(tenantKind, "PERSONAL", StringComparison.OrdinalIgnoreCase))
+        {
+            return new CameraDelegationResolveResponse(false, request.PatientId, pTenantId, tenantKind, null, null, null, "CLINIC_CAMERA_UNSUPPORTED");
+        }
+
+        if (!string.Equals(pStatus, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+        {
+            return new CameraDelegationResolveResponse(false, request.PatientId, pTenantId, tenantKind, null, null, null, "PATIENT_DISABLED");
+        }
+
+        // Kiểm tra actorAccountId phải là chủ sở hữu hoặc tài khoản liên kết của bệnh nhân
+        var isOwn = (pLinkedAccountId.HasValue && pLinkedAccountId.Value == request.ActorAccountId)
+                    || pOwnerPrincipalId == request.ActorAccountId;
+        if (!isOwn)
+        {
+            return new CameraDelegationResolveResponse(false, request.PatientId, pTenantId, tenantKind, null, null, null, "ACTOR_PATIENT_MISMATCH");
+        }
+
+        // Kiểm tra expectedTenantId phải khớp với tenantId của bệnh nhân
+        if (request.ExpectedTenantId != pTenantId)
+        {
+            return new CameraDelegationResolveResponse(false, request.PatientId, pTenantId, tenantKind, null, null, null, "TENANT_MISMATCH");
+        }
+
+        // 2. Kiểm tra bản ghi ủy quyền Camera (profile.camera_grants)
+        const string grantSql = @"
+            SELECT grant_id, status, expires_at
+            FROM profile.camera_grants
+            WHERE device_id = $1 AND client_id = $2 AND service_principal_id = $3
+              AND patient_id = $4 AND tenant_id = $5
+            LIMIT 1;";
+
+        Guid grantId;
+        string grantStatus;
+        DateTimeOffset expiresAt;
+
+        await using (var gCmd = new NpgsqlCommand(grantSql, connection))
+        {
+            gCmd.Parameters.AddWithValue(request.DeviceId);
+            gCmd.Parameters.AddWithValue(request.ClientId);
+            gCmd.Parameters.AddWithValue(request.ServicePrincipalId);
+            gCmd.Parameters.AddWithValue(request.PatientId);
+            gCmd.Parameters.AddWithValue(pTenantId);
+
+            await using var reader = await gCmd.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return new CameraDelegationResolveResponse(false, request.PatientId, pTenantId, tenantKind, null, null, null, "GRANT_NOT_FOUND");
+            }
+
+            grantId = reader.GetGuid(0);
+            grantStatus = reader.GetString(1);
+            expiresAt = reader.GetFieldValue<DateTimeOffset>(2);
+        }
+
+        if (!string.Equals(grantStatus, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+        {
+            return new CameraDelegationResolveResponse(false, request.PatientId, pTenantId, tenantKind, null, null, grantId, "GRANT_REVOKED");
+        }
+
+        if (expiresAt <= DateTimeOffset.UtcNow)
+        {
+            return new CameraDelegationResolveResponse(false, request.PatientId, pTenantId, tenantKind, null, null, grantId, "GRANT_EXPIRED");
+        }
+
+        // 3. Kiểm tra trạng thái tài khoản Actor trong identity.accounts (Fail-Closed)
+        const string accSql = "SELECT account_status FROM identity.accounts WHERE account_id = $1 LIMIT 1;";
+        await using (var aCmd = new NpgsqlCommand(accSql, connection))
+        {
+            aCmd.Parameters.AddWithValue(request.ActorAccountId);
+            var aObj = await aCmd.ExecuteScalarAsync(cancellationToken);
+            if (aObj is not string accStatus || !string.Equals(accStatus, "ACTIVE", StringComparison.OrdinalIgnoreCase))
+            {
+                return new CameraDelegationResolveResponse(false, request.PatientId, pTenantId, tenantKind, null, null, grantId, "ACCOUNT_DISABLED");
+            }
+        }
+
+        // 4. Hợp lệ hoàn toàn
+        return new CameraDelegationResolveResponse(
+            Allowed: true,
+            PatientId: request.PatientId,
+            TenantId: pTenantId,
+            TenantKind: "PERSONAL",
+            OwnerPrincipalId: request.ActorAccountId,
+            BillingOwner: new BillingOwnerDto("ACCOUNT", request.ActorAccountId),
+            GrantId: grantId,
+            Reason: null
+        );
     }
 
     // ====================================================================
@@ -420,7 +561,7 @@ public class ProfileRepository
             : statusFilter.Trim().ToUpperInvariant();
 
         const string sql = @"
-            SELECT m.membership_id, m.clinic_id, m.account_id, COALESCE(p.display_name, 'Th�nh vi�n ph�ng kh�m'),
+            SELECT m.membership_id, m.clinic_id, m.account_id, COALESCE(p.display_name, 'Thành viên phòng khám'),
                    m.role, m.status, m.created_at, m.updated_at
             FROM profile.memberships m
             LEFT JOIN profile.profiles p ON p.account_id = m.account_id
@@ -457,7 +598,6 @@ public class ProfileRepository
     {
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
 
-        // 1. Ki?m tra t�i kho?n ngu?i d�ng c� t?n t?i trong profile.profiles
         const string checkProfileSql = "SELECT display_name FROM profile.profiles WHERE account_id = $1 LIMIT 1;";
         string displayName;
         await using (var profileCmd = new NpgsqlCommand(checkProfileSql, connection))
@@ -466,12 +606,11 @@ public class ProfileRepository
             var nameObj = await profileCmd.ExecuteScalarAsync(cancellationToken);
             if (nameObj is not string name)
             {
-                return (false, null, "ERR_ACCOUNT_NOT_FOUND", "Kh�ng t�m th?y h? so ngu?i d�ng tuong ?ng.");
+                return (false, null, "ERR_ACCOUNT_NOT_FOUND", "Không tìm thấy hồ sơ người dùng tương ứng.");
             }
             displayName = name;
         }
 
-        // 2. Ki?m tra b?n ghi membership hi?n t?i
         const string checkMembershipSql = @"
             SELECT membership_id, role, status
             FROM profile.memberships
@@ -495,12 +634,11 @@ public class ProfileRepository
 
         if (existingMembershipId.HasValue && string.Equals(existingStatus, MembershipStatuses.Active, StringComparison.OrdinalIgnoreCase))
         {
-            return (false, null, "ERR_MEMBERSHIP_ALREADY_EXISTS", "Th�nh vi�n d� t?n t?i v� dang ho?t d?ng trong ph�ng kh�m.");
+            return (false, null, "ERR_MEMBERSHIP_ALREADY_EXISTS", "Thành viên đã tồn tại và đang hoạt động trong phòng khám.");
         }
 
         if (existingMembershipId.HasValue)
         {
-            // T�i k�ch ho?t membership d� b? thu h?i tru?c d�
             const string reactivateSql = @"
                 UPDATE profile.memberships
                 SET role = $1, status = 'ACTIVE', updated_at = NOW()
@@ -525,7 +663,6 @@ public class ProfileRepository
         }
         else
         {
-            // T?o m?i membership
             var newMembershipId = Guid.NewGuid();
             const string insertSql = @"
                 INSERT INTO profile.memberships (membership_id, clinic_id, account_id, role, status, created_at, updated_at)
@@ -549,7 +686,7 @@ public class ProfileRepository
             }
         }
 
-        return (false, null, "ERR_INTERNAL_DB", "Kh�ng th? ghi nh?n th�nh vi�n ph�ng kh�m.");
+        return (false, null, "ERR_INTERNAL_DB", "Không thể ghi nhận thành viên phòng khám.");
     }
 
     public async Task<(bool Success, string? ErrorCode, string? ErrorMessage)> RevokeClinicMemberAsync(
@@ -557,7 +694,6 @@ public class ProfileRepository
     {
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
 
-        // 1. Ki?m tra th�nh vi�n c� t?n t?i v� dang ACTIVE
         const string checkSql = @"
             SELECT role FROM profile.memberships
             WHERE clinic_id = $1 AND account_id = $2 AND status = 'ACTIVE'
@@ -571,12 +707,11 @@ public class ProfileRepository
             var roleObj = await checkCmd.ExecuteScalarAsync(cancellationToken);
             if (roleObj is not string r)
             {
-                return (false, "ERR_MEMBERSHIP_NOT_FOUND", "Kh�ng t�m th?y th�nh vi�n ho?t d?ng trong ph�ng kh�m.");
+                return (false, "ERR_MEMBERSHIP_NOT_FOUND", "Không tìm thấy thành viên hoạt động trong phòng khám.");
             }
             role = r;
         }
 
-        // 2. Ch?n t? g? b? n?u l� CLINIC_ADMIN duy nh?t c�n l?i
         if (string.Equals(role, ClinicMemberRoles.ClinicAdmin, StringComparison.OrdinalIgnoreCase))
         {
             const string countAdminSql = @"
@@ -588,11 +723,10 @@ public class ProfileRepository
             var count = Convert.ToInt64(await countCmd.ExecuteScalarAsync(cancellationToken));
             if (count <= 1)
             {
-                return (false, "ERR_CANNOT_REVOKE_SOLE_ADMIN", "Kh�ng th? g? b? qu?n tr? vi�n duy nh?t c?a ph�ng kh�m.");
+                return (false, "ERR_CANNOT_REVOKE_SOLE_ADMIN", "Không thể gỡ bỏ quản trị viên duy nhất của phòng khám.");
             }
         }
 
-        // 3. Th?c hi?n chuy?n tr?ng th�i luu v?t audit: status = 'REVOKED'
         const string revokeSql = @"
             UPDATE profile.memberships
             SET status = 'REVOKED', updated_at = NOW()
@@ -609,6 +743,286 @@ public class ProfileRepository
             }
         }
 
-        return (false, "ERR_MEMBERSHIP_NOT_FOUND", "Kh�ng t�m th?y th�nh vi�n ho?t d?ng trong ph�ng kh�m.");
+        return (false, "ERR_MEMBERSHIP_NOT_FOUND", "Không tìm thấy thành viên hoạt động trong phòng khám.");
+    }
+
+    // ====================================================================
+    // DOCTOR ASSIGNMENT MANAGEMENT (Task W3-M6-02 / AC2)
+    // ====================================================================
+
+    public async Task<(bool Success, DoctorAssignmentDto? Assignment, string? ErrorCode, string? ErrorMessage)> CreateOrReactivateDoctorAssignmentAsync(
+        Guid clinicId, Guid doctorId, Guid patientId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        // 1. Kiểm tra Clinic tồn tại và ACTIVE
+        const string clinicSql = "SELECT tenant_id FROM profile.clinics WHERE clinic_id = $1 AND status = 'ACTIVE' LIMIT 1;";
+        Guid clinicTenantId;
+        await using (var clinicCmd = new NpgsqlCommand(clinicSql, connection))
+        {
+            clinicCmd.Parameters.AddWithValue(clinicId);
+            var ctObj = await clinicCmd.ExecuteScalarAsync(cancellationToken);
+            if (ctObj is not Guid cTId)
+            {
+                return (false, null, "ERR_CLINIC_NOT_FOUND", "Không tìm thấy phòng khám.");
+            }
+            clinicTenantId = cTId;
+        }
+
+        // 2. Kiểm tra Bác sĩ có membership DOCTOR và ACTIVE tại clinic
+        const string checkDoctorSql = @"
+            SELECT m.account_id, COALESCE(p.display_name, 'Bác sĩ')
+            FROM profile.memberships m
+            LEFT JOIN profile.profiles p ON p.account_id = m.account_id
+            WHERE m.clinic_id = $1 AND m.account_id = $2 AND m.role = 'DOCTOR' AND m.status = 'ACTIVE'
+            LIMIT 1;";
+
+        string doctorName;
+        await using (var docCmd = new NpgsqlCommand(checkDoctorSql, connection))
+        {
+            docCmd.Parameters.AddWithValue(clinicId);
+            docCmd.Parameters.AddWithValue(doctorId);
+            await using var reader = await docCmd.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return (false, null, "ERR_INVALID_DOCTOR", "Bác sĩ không hợp lệ hoặc không có tư cách hành nghề tại phòng khám.");
+            }
+            doctorName = reader.GetString(1);
+        }
+
+        // 3. Kiểm tra Bệnh nhân phải thuộc phạm vi phòng khám
+        const string checkPatientSql = @"
+            SELECT patient_id FROM profile.patients
+            WHERE patient_id = $1 AND (tenant_id = $2 OR owner_principal_id = $3) AND status = 'ACTIVE'
+            LIMIT 1;";
+
+        await using (var patientCmd = new NpgsqlCommand(checkPatientSql, connection))
+        {
+            patientCmd.Parameters.AddWithValue(patientId);
+            patientCmd.Parameters.AddWithValue(clinicTenantId);
+            patientCmd.Parameters.AddWithValue(clinicId);
+            var pObj = await patientCmd.ExecuteScalarAsync(cancellationToken);
+            if (pObj is not Guid)
+            {
+                return (false, null, "ERR_PATIENT_NOT_IN_CLINIC", "Bệnh nhân không thuộc phạm vi quản lý của phòng khám.");
+            }
+        }
+
+        // 4. Kiểm tra phân công đã tồn tại chưa
+        const string checkAssignSql = @"
+            SELECT assignment_id, status
+            FROM profile.doctor_assignments
+            WHERE clinic_id = $1 AND doctor_account_id = $2 AND patient_id = $3
+            LIMIT 1;";
+
+        Guid? existingAssignId = null;
+        string? existingStatus = null;
+
+        await using (var checkCmd = new NpgsqlCommand(checkAssignSql, connection))
+        {
+            checkCmd.Parameters.AddWithValue(clinicId);
+            checkCmd.Parameters.AddWithValue(doctorId);
+            checkCmd.Parameters.AddWithValue(patientId);
+            await using var reader = await checkCmd.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                existingAssignId = reader.GetGuid(0);
+                existingStatus = reader.GetString(1);
+            }
+        }
+
+        if (existingAssignId.HasValue && string.Equals(existingStatus, DoctorAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase))
+        {
+            return (false, null, "ERR_ASSIGNMENT_ALREADY_EXISTS", "Phân công bác sĩ cho bệnh nhân này đã tồn tại và đang hoạt động.");
+        }
+
+        if (existingAssignId.HasValue)
+        {
+            // Tái kích hoạt phân công đã bị thu hồi trước đó
+            const string reactivateSql = @"
+                UPDATE profile.doctor_assignments
+                SET status = 'ACTIVE', revoked_at = NULL, assigned_at = NOW(), updated_at = NOW()
+                WHERE assignment_id = $1
+                RETURNING assigned_at, created_at, updated_at;";
+
+            await using var reactivateCmd = new NpgsqlCommand(reactivateSql, connection);
+            reactivateCmd.Parameters.AddWithValue(existingAssignId.Value);
+
+            await using var reader = await reactivateCmd.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                var assignedAt = reader.GetFieldValue<DateTimeOffset>(0);
+                var createdAt = reader.GetFieldValue<DateTimeOffset>(1);
+                var updatedAt = reader.GetFieldValue<DateTimeOffset>(2);
+
+                return (true, new DoctorAssignmentDto(
+                    existingAssignId.Value, clinicId, doctorId, doctorName, patientId, DoctorAssignmentStatuses.Active, assignedAt, null, createdAt, updatedAt), null, null);
+            }
+        }
+        else
+        {
+            // Tạo mới phân công
+            var newAssignId = Guid.NewGuid();
+            const string insertSql = @"
+                INSERT INTO profile.doctor_assignments (assignment_id, clinic_id, doctor_account_id, patient_id, status, assigned_at, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, 'ACTIVE', NOW(), NOW(), NOW())
+                RETURNING assigned_at, created_at, updated_at;";
+
+            await using var insertCmd = new NpgsqlCommand(insertSql, connection);
+            insertCmd.Parameters.AddWithValue(newAssignId);
+            insertCmd.Parameters.AddWithValue(clinicId);
+            insertCmd.Parameters.AddWithValue(doctorId);
+            insertCmd.Parameters.AddWithValue(patientId);
+
+            await using var reader = await insertCmd.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                var assignedAt = reader.GetFieldValue<DateTimeOffset>(0);
+                var createdAt = reader.GetFieldValue<DateTimeOffset>(1);
+                var updatedAt = reader.GetFieldValue<DateTimeOffset>(2);
+
+                return (true, new DoctorAssignmentDto(
+                    newAssignId, clinicId, doctorId, doctorName, patientId, DoctorAssignmentStatuses.Active, assignedAt, null, createdAt, updatedAt), null, null);
+            }
+        }
+
+        return (false, null, "ERR_INTERNAL_DB", "Không thể ghi nhận phân công bác sĩ.");
+    }
+
+    public async Task<(bool Success, IReadOnlyList<DoctorAssignmentDto>? Items, string? ErrorCode, string? ErrorMessage)> GetDoctorAssignmentsAsync(
+        Guid clinicId, Guid actorAccountId, IReadOnlyList<string> actorRoles, Guid? doctorIdFilter, Guid? patientIdFilter, string? statusFilter, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        // 1. Kiểm tra Clinic tồn tại
+        const string clinicSql = "SELECT tenant_id FROM profile.clinics WHERE clinic_id = $1 AND status = 'ACTIVE' LIMIT 1;";
+        await using (var clinicCmd = new NpgsqlCommand(clinicSql, connection))
+        {
+            clinicCmd.Parameters.AddWithValue(clinicId);
+            var ctObj = await clinicCmd.ExecuteScalarAsync(cancellationToken);
+            if (ctObj is not Guid)
+            {
+                return (false, null, "ERR_CLINIC_NOT_FOUND", "Không tìm thấy phòng khám.");
+            }
+        }
+
+        // 2. Xác định vai trò của Actor tại phòng khám
+        var isSystemAdmin = actorRoles.Contains("SYSTEM_ADMIN", StringComparer.OrdinalIgnoreCase);
+        string? memberRole = null;
+
+        if (!isSystemAdmin)
+        {
+            const string memberSql = "SELECT role FROM profile.memberships WHERE clinic_id = $1 AND account_id = $2 AND status = 'ACTIVE' LIMIT 1;";
+            await using var memberCmd = new NpgsqlCommand(memberSql, connection);
+            memberCmd.Parameters.AddWithValue(clinicId);
+            memberCmd.Parameters.AddWithValue(actorAccountId);
+            var roleObj = await memberCmd.ExecuteScalarAsync(cancellationToken);
+            memberRole = roleObj as string;
+
+            if (string.IsNullOrEmpty(memberRole))
+            {
+                return (false, null, "ERR_CLINIC_NOT_FOUND", "Không tìm thấy phòng khám.");
+            }
+        }
+
+        // 3. Ràng buộc quyền xem:
+        // CLINIC_ADMIN hoặc SYSTEM_ADMIN: Xem được toàn bộ, tùy chọn lọc doctorId
+        // DOCTOR: Chỉ được xem của chính mình (nếu truyền doctorId khác mình -> 403)
+        Guid? effectiveDoctorId = doctorIdFilter;
+        if (!isSystemAdmin && string.Equals(memberRole, "DOCTOR", StringComparison.OrdinalIgnoreCase))
+        {
+            if (doctorIdFilter.HasValue && doctorIdFilter.Value != actorAccountId)
+            {
+                return (false, null, "ERR_FORBIDDEN_DOCTOR_ACCESS", "Bác sĩ chỉ có quyền xem danh sách phân công của chính mình.");
+            }
+            effectiveDoctorId = actorAccountId;
+        }
+
+        var queryStatus = string.IsNullOrWhiteSpace(statusFilter) || statusFilter.Equals("ALL", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : statusFilter.Trim().ToUpperInvariant();
+
+        const string sql = @"
+            SELECT a.assignment_id, a.clinic_id, a.doctor_account_id, COALESCE(p.display_name, 'Bác sĩ'),
+                   a.patient_id, a.status, a.assigned_at, a.revoked_at, a.created_at, a.updated_at
+            FROM profile.doctor_assignments a
+            LEFT JOIN profile.profiles p ON p.account_id = a.doctor_account_id
+            WHERE a.clinic_id = $1
+              AND ($2::uuid IS NULL OR a.doctor_account_id = $2)
+              AND ($3::uuid IS NULL OR a.patient_id = $3)
+              AND ($4::text IS NULL OR a.status = $4)
+            ORDER BY a.assigned_at DESC;";
+
+        await using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue(clinicId);
+        cmd.Parameters.AddWithValue((object?)effectiveDoctorId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue((object?)patientIdFilter ?? DBNull.Value);
+        cmd.Parameters.AddWithValue((object?)queryStatus ?? DBNull.Value);
+
+        var list = new List<DoctorAssignmentDto>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var assignmentId = reader.GetGuid(0);
+            var cId = reader.GetGuid(1);
+            var docId = reader.GetGuid(2);
+            var doctorName = reader.GetString(3);
+            var pId = reader.GetGuid(4);
+            var status = reader.GetString(5);
+            var assignedAt = reader.GetFieldValue<DateTimeOffset>(6);
+            var revokedAt = reader.IsDBNull(7) ? (DateTimeOffset?)null : reader.GetFieldValue<DateTimeOffset>(7);
+            var createdAt = reader.GetFieldValue<DateTimeOffset>(8);
+            var updatedAt = reader.GetFieldValue<DateTimeOffset>(9);
+
+            list.Add(new DoctorAssignmentDto(
+                assignmentId, cId, docId, doctorName, pId, status, assignedAt, revokedAt, createdAt, updatedAt));
+        }
+
+        return (true, list, null, null);
+    }
+
+    public async Task<(bool Success, string? ErrorCode, string? ErrorMessage)> RevokeDoctorAssignmentAsync(
+        Guid clinicId, Guid assignmentId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        const string checkSql = @"
+            SELECT status FROM profile.doctor_assignments
+            WHERE assignment_id = $1 AND clinic_id = $2
+            LIMIT 1;";
+
+        string status;
+        await using (var checkCmd = new NpgsqlCommand(checkSql, connection))
+        {
+            checkCmd.Parameters.AddWithValue(assignmentId);
+            checkCmd.Parameters.AddWithValue(clinicId);
+            var statusObj = await checkCmd.ExecuteScalarAsync(cancellationToken);
+            if (statusObj is not string s)
+            {
+                return (false, "ERR_ASSIGNMENT_NOT_FOUND", "Không tìm thấy phân công trong phòng khám.");
+            }
+            status = s;
+        }
+
+        if (!string.Equals(status, DoctorAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase))
+        {
+            return (false, "ERR_ASSIGNMENT_NOT_ACTIVE", "Phân công đã ở trạng thái thu hồi hoặc không còn hoạt động.");
+        }
+
+        const string revokeSql = @"
+            UPDATE profile.doctor_assignments
+            SET status = 'REVOKED', revoked_at = NOW(), updated_at = NOW()
+            WHERE assignment_id = $1 AND clinic_id = $2 AND status = 'ACTIVE';";
+
+        await using var revokeCmd = new NpgsqlCommand(revokeSql, connection);
+        revokeCmd.Parameters.AddWithValue(assignmentId);
+        revokeCmd.Parameters.AddWithValue(clinicId);
+        var rows = await revokeCmd.ExecuteNonQueryAsync(cancellationToken);
+        if (rows > 0)
+        {
+            return (true, null, null);
+        }
+
+        return (false, "ERR_ASSIGNMENT_NOT_FOUND", "Không tìm thấy phân công trong phòng khám.");
     }
 }
