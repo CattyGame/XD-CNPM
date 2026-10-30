@@ -60,6 +60,11 @@ jobs:
           dotnet run --project tests/AURA.Profile.ClinicMembershipChecks/AURA.Profile.ClinicMembershipChecks.csproj
           --configuration Release --no-launch-profile
 
+      - name: Check Profile patient doctor and camera authorization logic
+        run: >-
+          dotnet run --project tests/AURA.Profile.AuthorizationChecks/AURA.Profile.AuthorizationChecks.csproj
+          --configuration Release --no-launch-profile
+
       - name: Check development configuration scripts
         shell: pwsh
         run: ./tests/AURA.DevEnvironment.Checks/Run-Checks.ps1
