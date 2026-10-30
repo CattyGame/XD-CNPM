@@ -1,0 +1,114 @@
+contractSet: aura-sprint3-1.0.0
+namespace: aura-s3
+sourceBaseline:
+  repository: CattyGame/XD-PMHDT
+  ref: develop
+  commit: 68b8fc952d827e7a4affc77aa25de4973445b9db
+  cameraOverlay: validated Camera Backend03 and reporting receipt-jdbc-v1; port deliberately
+    to new branch only
+versions:
+  domainEvents: '0.7'
+  jobCommand: '0.6'
+  analysisRest: 0.7.0
+  aiApi: 1.2.0
+  billingRest: 0.1.0
+  reportingReceipt: receipt-v1
+isolation:
+  composeProject: aura-s3
+  backendNetwork: aura-s3-backend
+  edgeNetwork: aura-s3-edge
+  rabbitVhost: /aura-s3
+  redisPrefix: 'aura:s3:'
+  newVolumesOnly: true
+  reuseOldNifi: false
+  workspace: ~/.aura/sprint3/aura-s3-v1
+origins:
+  gateway: http://127.0.0.1:5300
+  web: http://127.0.0.1:5380
+  nifiUi: https://127.0.0.1:8543/nifi/
+  cameraTls: https://127.0.0.1:8545
+  rabbitManagement: http://127.0.0.1:15372
+  blobPublic: http://127.0.0.1:11000/devstoreaccount1
+dns:
+  identity: http://identity-api:8080
+  profile: http://profile-api:8080
+  analysis: http://analysis-api:8080
+  billing: http://billing-api:8080
+  notification: http://notification-api:8080
+  ai: http://ai-core:8000
+  rabbit: rabbitmq:5672
+  postgres: postgres:5432
+  reporting: reporting-postgres:5432
+  redis: redis:6379
+  blobInternal: http://azurite:10000/devstoreaccount1
+storage:
+  originals: aura-originals
+  annotations: aura-annotations
+  reports: aura-reports
+  originalKey: '{tenantId}/{batchId}/{analysisId}/{recoveryAttemptId}'
+  fileAccessTtlSeconds: 300
+  publicRead: false
+upload:
+  field: images
+  maxFiles: 1
+  maxImageBytes: 10485760
+  maxRequestBytes: 10502144
+  maxPixels: 16000000
+  modality: FUNDUS
+  timeoutSeconds: 120
+  allowedMimeTypes:
+  - image/png
+  - image/jpeg
+identity:
+  issuer: aura-identity-s3-v1
+  algorithm: RS256
+  tokenLifetimeSeconds: 300
+  maxClockSkewSeconds: 30
+  firebaseProject: REQUIRED_SHARED_DEDICATED_TEST_PROJECT
+  serviceSecrets: files outside repository; runtime adapters required
+worker:
+  maxAttempts: 3
+  retryDelaysSeconds:
+  - 5
+  - 15
+  concurrency: 1
+  prefetch: 1
+  leaseSeconds: 90
+  heartbeatSeconds: 15
+  aiTimeoutSeconds: 30
+  aiResponseMaxBytes: 67108864
+  durableCallIntent: true
+  outboxPollSeconds: 5
+  outboxMaxPublishAttempts: 10
+  staleReconcileAfterSeconds: 900
+messaging:
+  maxBodyBytes: 65536
+  transportMaxDeliveries: 3
+  transportRetryDelayMs: 5000
+  poisonRedeliveryLimit: 3
+  queueType: quorum
+  quorumMembers: 1
+  highAvailability: false
+  publisherConfirmTimeoutSeconds: 5
+  connectionTimeoutSeconds: 5
+frontend:
+  pollSeconds:
+  - 2
+  - 4
+  - 8
+  - 10
+  pollCapSeconds: 10
+  fileAccessRefreshBeforeExpirySeconds: 30
+  showRiskWhenAvailableOnly: true
+billing:
+  environment: TEST
+  isMock: false
+  unitsPerAcceptedNonDuplicateImage: 1
+  settler: billing event consumer only
+  autoReleaseOnTimeout: false
+  retryChangesGeneration: false
+gates:
+  workerEnabledByDefault: false
+  publishEnabledByDefault: false
+  nifiProcessorsDefault: DISABLED
+  newNamespaceReady: false

@@ -36,7 +36,16 @@ Thumbs.db
 
 /.venv-dataset/
 
+# Local handoff checks
+.venv-handoff/
+
 # Superpowers agent tooling, specs and plans
 .superpowers/
 **/superpowers/
 *superpower*
+
+# Shared sprint baseline / offline reference packs
+ConfigChung/
+**/ConfigChung/
+*configchung*
+*ConfigChung*

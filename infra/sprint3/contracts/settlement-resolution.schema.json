@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "analysisId",
+    "tenantId",
+    "applicable",
+    "settlementAction",
+    "reason",
+    "reservationId",
+    "generation",
+    "processingStatus",
+    "resultVersion",
+    "isMock"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "analysisId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "tenantId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "applicable": {
+      "type": "boolean"
+    },
+    "settlementAction": {
+      "enum": [
+        "CAPTURE",
+        "RELEASE",
+        "NONE"
+      ]
+    },
+    "reason": {
+      "enum": [
+        "VALID_RESULT",
+        "FINAL_FAILURE",
+        "LOW_QUALITY",
+        "STALE_EVENT",
+        "NOT_TERMINAL",
+        "NO_RESERVATION",
+        "RECONCILE_REQUIRED"
+      ]
+    },
+    "reservationId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "generation": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "processingStatus": {
+      "enum": [
+        "PENDING",
+        "QUEUED",
+        "PROCESSING",
+        "RETRY_READY",
+        "COMPLETED",
+        "FAILED",
+        "LOW_QUALITY",
+        "REJECTED"
+      ]
+    },
+    "resultVersion": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "isMock": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "settlementAction": {
+            "const": "CAPTURE"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "applicable": {
+            "const": true
+          },
+          "reason": {
+            "const": "VALID_RESULT"
+          },
+          "processingStatus": {
+            "const": "COMPLETED"
+          },
+          "reservationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "resultVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "isMock": {
+            "const": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "settlementAction": {
+            "const": "RELEASE"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "applicable": {
+            "const": true
+          },
+          "reason": {
+            "enum": [
+              "FINAL_FAILURE",
+              "LOW_QUALITY"
+            ]
+          },
+          "processingStatus": {
+            "enum": [
+              "FAILED",
+              "LOW_QUALITY",
+              "REJECTED"
+            ]
+          },
+          "reservationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "resultVersion": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "applicable": {
+            "const": false
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "settlementAction": {
+            "const": "NONE"
+          }
+        }
+      }
+    }
+  ]
+}

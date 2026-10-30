@@ -1,0 +1,127 @@
+openapi: 3.1.0
+info:
+  title: AURA Sprint3 Notification inbox target
+  version: 1.0.0
+servers:
+- url: http://127.0.0.1:5300
+security:
+- userBearer: []
+paths:
+  /api/v1/notifications/inbox:
+    get:
+      parameters:
+      - name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: cursor
+        in: query
+        schema:
+          type: string
+          maxLength: 2048
+      - name: unreadOnly
+        in: query
+        schema:
+          type: boolean
+          default: false
+      responses:
+        '200':
+          description: Current account only; newest first, stable cursor (createdAt,notificationId),
+            no accountId selector
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - items
+                - nextCursor
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                      - notificationId
+                      - eventId
+                      - analysisId
+                      - type
+                      - title
+                      - isRead
+                      - createdAt
+                      - readAt
+                      - targetPath
+                      properties:
+                        notificationId: &id001
+                          type: string
+                          format: uuid
+                        eventId: *id001
+                        analysisId: *id001
+                        type:
+                          enum:
+                          - ANALYSIS_COMPLETED
+                          - ANALYSIS_FAILED
+                        title:
+                          type: string
+                        isRead:
+                          type: boolean
+                        createdAt:
+                          type: string
+                          format: date-time
+                        readAt:
+                          type:
+                          - string
+                          - 'null'
+                          format: date-time
+                        targetPath:
+                          type: string
+                          pattern: ^/analyses/[0-9a-f-]{36}$
+                  nextCursor:
+                    type:
+                    - string
+                    - 'null'
+        '400':
+          description: Invalid cursor/limit
+        '401':
+          description: No valid user identity
+  /api/v1/notifications/inbox/unread-count:
+    get:
+      responses:
+        '200':
+          description: Current account unread count
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - unreadCount
+                properties:
+                  unreadCount:
+                    type: integer
+                    minimum: 0
+        '401':
+          description: Unauthenticated
+  /api/v1/notifications/inbox/{notificationId}/read:
+    post:
+      parameters:
+      - name: notificationId
+        in: path
+        required: true
+        schema: *id001
+      responses:
+        '204':
+          description: Read state persisted, idempotent
+        '401':
+          description: Unauthenticated
+        '404':
+          description: Missing or another account
+components:
+  securitySchemes:
+    userBearer:
+      type: http
+      scheme: bearer

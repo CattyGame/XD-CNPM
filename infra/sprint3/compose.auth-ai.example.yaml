@@ -1,0 +1,90 @@
+# Review candidate for a NEW environment only. Never combine with the retained Axx runtime.
+# Explicit profile, no published ports, no database/broker/Worker/Publisher is started.
+name: ${AURA_S3_PROJECT:?Set a unique AURA_S3_PROJECT}
+services:
+  identity-api:
+    profiles: [auth-ai-review]
+    build:
+      context: ../..
+      dockerfile: infra/sprint3/docker/identity.Dockerfile
+    platform: linux/amd64
+    user: "1654:1654"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 0.5
+    pids_limit: 128
+    restart: "no"
+    tmpfs: [/tmp:rw,noexec,nosuid,size=67108864,mode=1777]
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: "8080"
+      ServiceAuth__Issuer: aura-identity-s3-v1
+      ServiceAuth__TokenLifetimeSeconds: "300"
+      ServiceAuth__RegistryPath: /run/aura-service-auth/issuer/identity-clients.json
+      ServiceAuth__PrivateKeyPath: /run/aura-service-auth/issuer/signing-key.pem
+      # Issuance-only composition: business services intentionally have no target.
+      ConnectionStrings__Postgres: Host=127.0.0.1;Port=1;Database=disabled_issuance_probe;Username=disabled;Timeout=1;Command Timeout=1
+      Services__Profile__BaseUrl: http://127.0.0.1:1
+      DOTNET_EnableDiagnostics: "0"
+    volumes:
+      - type: bind
+        source: ${AURA_S3_AUTH_HOME:?Provision external auth material}/issuer/identity-clients.json
+        target: /run/aura-service-auth/issuer/identity-clients.json
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${AURA_S3_AUTH_HOME:?Provision external auth material}/issuer/signing-key.pem
+        target: /run/aura-service-auth/issuer/signing-key.pem
+        read_only: true
+        bind: {create_host_path: false}
+    networks: [backend]
+    logging:
+      driver: local
+      options: {max-size: 5m, max-file: "2"}
+  ai-core:
+    profiles: [auth-ai-review]
+    build:
+      context: ../../src/ai-core
+      dockerfile: ../../infra/sprint3/docker/ai-core.Dockerfile
+    platform: linux/amd64
+    user: "1001:1001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpus: 1.0
+    pids_limit: 128
+    restart: "no"
+    tmpfs: [/tmp:rw,noexec,nosuid,size=67108864,mode=1777]
+    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000", --no-access-log]
+    environment:
+      AURA_AI_ENGINE: frangi
+      AURA_FRANGI_CONFIG_PATH: /app/config/ai-frangi.yaml
+      AURA_SERVICE_AUTH_ISSUER: aura-identity-s3-v1
+      AURA_SERVICE_AUTH_AUDIENCE: aura-ai
+      AURA_SERVICE_AUTH_SCOPE: ai:analyze
+      AURA_SERVICE_AUTH_ALLOWED_CLIENTS: analysis-worker
+      AURA_SERVICE_AUTH_PUBLIC_KEY_PATH: /run/aura-service-auth/public/signing-public.pem
+    volumes:
+      - type: bind
+        source: ${AURA_S3_AUTH_HOME:?Provision external auth material}/public/signing-public.pem
+        target: /run/aura-service-auth/public/signing-public.pem
+        read_only: true
+        bind: {create_host_path: false}
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, http://127.0.0.1:8000/ready]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks: [backend]
+    logging:
+      driver: local
+      options: {max-size: 5m, max-file: "2"}
+networks:
+  backend:
+    internal: true

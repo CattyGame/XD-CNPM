@@ -1,0 +1,361 @@
+openapi: 3.0.3
+info:
+  title: AURA Billing API
+  version: 0.1.0
+  description: >-
+    Sprint 2 Billing contract. Internal endpoints are service-to-service only and
+    must not be routed through the public Gateway. The package catalog remains a
+    compatibility view of the legacy demo catalog until official price versions
+    are published.
+servers:
+  - url: http://127.0.0.1:5002
+    description: Local Development Billing API
+paths:
+  /api/v1/billing/packages:
+    get:
+      operationId: getPackageCatalog
+      summary: Get the legacy package catalog
+      description: Anonymous endpoint. Returned prices are demo data, not approved business prices.
+      responses:
+        '200':
+          description: Catalog returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, source, cacheHit, ttlSeconds, databaseReadCount]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Package'
+                  source:
+                    type: string
+                  cacheHit:
+                    type: boolean
+                  ttlSeconds:
+                    type: integer
+                  databaseReadCount:
+                    type: integer
+  /api/v1/billing/packages/{id}:
+    put:
+      operationId: updateLegacyPackage
+      summary: Update the legacy PoC package
+      description: Requires a valid Firebase user token whose current Identity roles include SYSTEM_ADMIN. Still updates the legacy PoC catalog only.
+      security:
+        - FirebaseBearer: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePackageRequest'
+      responses:
+        '200':
+          description: Package updated and cache invalidation attempted.
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+  /internal/v1/billing/reservations:
+    post:
+      operationId: reserveAnalysisCredit
+      summary: Reserve one credit for a new FUNDUS analysis
+      description: Caller must be analysis-api with billing:reserve. Billing environment and mock mode are server configuration, not request fields. Billing re-resolves access with Profile and verifies that tenant, patient and billing owner match the request before changing credit.
+      security:
+        - ServiceBearer: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReserveCreditRequest'
+      responses:
+        '201':
+          description: New reservation created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reservation'
+        '200':
+          description: Idempotent replay of the same request.
+          headers:
+            Idempotent-Replayed:
+              schema:
+                type: string
+                enum: ['true']
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reservation'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '402':
+          $ref: '#/components/responses/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ErrorResponse'
+        '409':
+          $ref: '#/components/responses/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+  /internal/v1/billing/reservations/{reservationId}:
+    get:
+      operationId: getBillingReservation
+      summary: Read a reservation state
+      security:
+        - ServiceBearer: []
+      parameters:
+        - name: reservationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Reservation state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reservation'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+  /internal/v1/billing/reservations/{reservationId}/capture:
+    post:
+      operationId: captureBillingReservation
+      summary: Capture a reservation after a valid completed result
+      description: Requires the billing:capture scope. In the current contract, the event consumer should call the domain service in-process; this HTTP route is retained for the internal interface and is not authorized for analysis-api by the current registry.
+      security:
+        - ServiceBearer: []
+      parameters:
+        - name: reservationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              maxProperties: 0
+      responses:
+        '200':
+          description: Captured or idempotently replayed result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reservation'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '409':
+          $ref: '#/components/responses/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+  /internal/v1/billing/reservations/{reservationId}/release:
+    post:
+      operationId: releaseBillingReservation
+      summary: Release a reservation after a confirmed abort/final failure
+      security:
+        - ServiceBearer: []
+      parameters:
+        - name: reservationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReleaseCreditRequest'
+      responses:
+        '200':
+          description: Released or idempotently replayed result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Reservation'
+        '400':
+          $ref: '#/components/responses/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/ErrorResponse'
+        '403':
+          $ref: '#/components/responses/ErrorResponse'
+        '404':
+          $ref: '#/components/responses/ErrorResponse'
+        '409':
+          $ref: '#/components/responses/ErrorResponse'
+        '503':
+          $ref: '#/components/responses/ErrorResponse'
+components:
+  securitySchemes:
+    FirebaseBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: Firebase ID token
+    ServiceBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: Service JWT RS256
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema:
+        type: string
+        maxLength: 64
+  schemas:
+    Package:
+      type: object
+      required: [id, name, price, credits]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        price:
+          type: number
+        credits:
+          type: integer
+    UpdatePackageRequest:
+      type: object
+      required: [name, price, credits]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        price:
+          type: number
+          minimum: 0
+        credits:
+          type: integer
+          minimum: 1
+    ReserveCreditRequest:
+      type: object
+      required: [analysisId, tenantId, actorAccountId, patientId, billingOwner, units, generation]
+      properties:
+        analysisId:
+          type: string
+          format: uuid
+        tenantId:
+          type: string
+          format: uuid
+        actorAccountId:
+          type: string
+          format: uuid
+        patientId:
+          type: string
+          format: uuid
+        billingOwner:
+          type: object
+          required: [type, id]
+          properties:
+            type:
+              type: string
+              enum: [ACCOUNT, CLINIC]
+            id:
+              type: string
+              format: uuid
+        units:
+          type: integer
+          enum: [1]
+        generation:
+          type: integer
+          minimum: 1
+    ReleaseCreditRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          enum: [VALIDATION_ABORT, STORAGE_ABORT, ANALYSIS_ABORT, FINAL_FAILURE, LOW_QUALITY]
+    Reservation:
+      type: object
+      required: [reservationId, analysisId, generation, units, state, createdAt]
+      properties:
+        reservationId:
+          type: string
+          format: uuid
+        analysisId:
+          type: string
+          format: uuid
+        generation:
+          type: integer
+        units:
+          type: integer
+        state:
+          type: string
+          enum: [RESERVED, CAPTURED, RELEASED]
+        createdAt:
+          type: string
+          format: date-time
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, correlationId, retryable]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            correlationId:
+              type: string
+            retryable:
+              type: boolean
+  responses:
+    ErrorResponse:
+      description: Standard AURA error envelope.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'

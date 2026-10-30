@@ -1,4 +1,5 @@
 using AURA.Analysis.Api.Http;
+using AURA.Analysis.Api.Outbox.Adapters; 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddProblemDetails();
@@ -8,6 +9,8 @@ builder.Services.AddSwaggerGen();
 
 var analysisHttpEnabled = builder.Configuration.GetValue<bool>("Analysis:EnableHttpEndpoints");
 if (analysisHttpEnabled) builder.Services.AddAnalysisRuntime(builder.Configuration,builder.Environment);
+
+builder.Services.AddOutboxPublisher(builder.Configuration);
 
 var app = builder.Build();
 

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "0.7",
+  "occurredAt": "2026-10-28T02:00:00Z",
+  "tenantId": "e8e2d32b-6fbb-504e-9f08-91b0d3efa6a3",
+  "correlationId": "s3-demo-001",
+  "analysisId": "58685092-7782-5bb6-b147-1b73c6047edd",
+  "eventId": "f62fa04a-ca7f-5d0c-8e21-e12171fc6b51",
+  "eventType": "analysis.failed",
+  "data": {
+    "patientId": "b04af0cc-f6fa-5731-a609-d76368fee17b",
+    "errorCode": "ERR_TIMEOUT",
+    "retryable": false,
+    "terminalStatus": "FAILED"
+  }
+}

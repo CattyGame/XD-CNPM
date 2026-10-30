@@ -730,3 +730,19 @@ def test_segmentation_smoke_training_pipeline_does_not_touch_test_split():
     assert report["dataset"]["test_split_touched"] is False
     assert report["dataset"]["subject_leakage_detected"] is False
     assert report["loss_decreased"] is True
+
+def test_correlation_id_middleware_echoes_or_generates_id(client):
+    # 1. Echo incoming correlation ID
+    custom_cid = "aura-trace-custom-998877"
+    resp = client.get("/health", headers={"X-Correlation-Id": custom_cid})
+    assert resp.status_code == 200
+    assert resp.headers.get("X-Correlation-Id") == custom_cid
+
+    # 2. Auto-generate UUID when missing
+    resp_no_header = client.get("/health")
+    assert resp_no_header.status_code == 200
+    generated_cid = resp_no_header.headers.get("X-Correlation-Id")
+    assert generated_cid is not None
+    # Validate UUID format
+    parsed = uuid.UUID(generated_cid)
+    assert parsed.version == 4

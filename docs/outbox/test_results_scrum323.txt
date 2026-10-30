@@ -1,0 +1,13 @@
+SCRUM-323 / W3-M2-01 - ket qua kiem thu (moi truong soan thao, KHONG phai may nhom)
+Thoi diem (UTC): 2026-10-28T08:11:03Z
+Baseline nguon: develop d280dce4 (repo clone cua ban); contract: AURA_Sprint3_Contract_Config_v1 (develop 68b8fc95 theo goi)
+Moi truong: .NET 10.0.112, PostgreSQL 16.15 (bản 17 cua nhom chua chay), xUnit shim (Fact only)
+
+[1] Logic publisher (18 test, InMemory store + FakeBroker)  : PASS 18 / FAIL 0
+[2] SQL tren PostgreSQL that (22 kiem tra, psql)              : PASS 22 / FAIL 0
+    gom: migration 002 chay 2 lan (idempotent), claim/lease/SKIP LOCKED, mark published idempotent,
+         backoff, NEEDS_ATTENTION, sweep, release, view theo correlationId, quyen role publisher toi thieu
+[3] Mutation: danh dau published bat ke confirm              : test bat duoc (3 test FAIL)
+
+CHUA KIEM: bien dich NpgsqlOutboxStore / RabbitMqBrokerPublisher / OutboxPublisherService (can NuGet);
+           test voi RabbitMQ that (confirm, mandatory/return, restart broker); dotnet test that; PG17.

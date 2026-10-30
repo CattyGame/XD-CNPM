@@ -1,0 +1,59 @@
+{
+  "analysisId": "58685092-7782-5bb6-b147-1b73c6047edd",
+  "batchId": "e919bf5b-3625-591d-8a23-8f61ef0c0a44",
+  "patientId": "b04af0cc-f6fa-5731-a609-d76368fee17b",
+  "processingStatus": "COMPLETED",
+  "reviewStatus": "PENDING",
+  "createdAt": "2026-10-28T01:59:50Z",
+  "updatedAt": "2026-10-28T01:59:59Z",
+  "result": {
+    "riskAvailable": false,
+    "riskLevel": null,
+    "riskScore": null,
+    "confidenceScore": null,
+    "isMock": false,
+    "modelVersion": "frangi-v0.2",
+    "configVersion": "s3-frangi-1.0.0",
+    "thresholdVersion": "frangi-threshold-0.02-v1",
+    "disclaimer": "Kết quả phân vùng nghiên cứu, không phải chẩn đoán.",
+    "version": 1,
+    "metrics": {
+      "vesselDensity": 0.0,
+      "tortuosityIndex": null,
+      "avRatio": null,
+      "fractalDimension": null,
+      "branchingPoints": null
+    },
+    "indicators": [],
+    "annotations": [
+      {
+        "fileId": "031b1b11-37f5-548e-9da1-139df255a50d",
+        "kind": "mask"
+      },
+      {
+        "fileId": "a59bf720-bdca-5926-9506-a0590a815a6c",
+        "kind": "overlay"
+      }
+    ],
+    "warnings": [
+      {
+        "code": "RISK_UNAVAILABLE",
+        "message": "Chưa cung cấp đánh giá rủi ro."
+      }
+    ],
+    "processingTimeMs": 100,
+    "limitations": "Segmentation research baseline; no clinical risk assessment."
+  },
+  "ownerId": "67f72444-73de-5901-93c8-6610bc97ceb2",
+  "image": {
+    "fileId": "60b3ce51-0014-51d9-9537-487c84d0b63f",
+    "kind": "original"
+  },
+  "job": {
+    "jobId": "8b86495a-4ee9-5136-a8c4-cb1ba35244ca",
+    "status": "SUCCEEDED",
+    "retryCount": 0,
+    "attemptNo": 1
+  },
+  "requesterId": "67f72444-73de-5901-93c8-6610bc97ceb2"
+}
