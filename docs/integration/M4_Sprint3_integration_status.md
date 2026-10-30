@@ -3,7 +3,8 @@
 > **Dự án**: AURA · **Sprint**: 3 (`aura-sprint3-1.0.0`)
 > **Thành viên**: Đào Duy Quân (M4 — AI Engineer)
 > **Mã công việc Jira**: `SCRUM-329` (`W3-M4-01`), `SCRUM-330` (`W3-M4-02`), `SCRUM-331` (`W3-M4-03`)
-> **Ngày cập nhật**: 2026-10-28
+> **Ngày cập nhật**: 2026-10-30
+> **Tài liệu Code Review liên quan**: [M4_Sprint3_code_review_and_action_items.md](file:///c:/UTH/XD-Phần%20mềm%20hướng%20đối%20tượng/docs/integration/M4_Sprint3_code_review_and_action_items.md)
 
 ---
 
@@ -40,3 +41,15 @@ Khi M1 dựng Docker Compose cho namespace `aura-s3`, container `ai-core` sử d
 
 - **Phụ thuộc vào M1 & M6**: Mount khóa công khai `/run/aura-service-auth/public/signing-public.pem` vào container `ai-core` và cấp client credential `analysis-worker` (scope `ai:analyze`, audience `aura-ai`) trong namespace `aura-s3`.
 - **Phụ thuộc vào M2**: Worker gọi `POST http://ai-core:8000/api/v1/analyze` với Bearer token dịch vụ, kiểm tra invariants của response `1.2.0`, lưu PNG `mask` và `overlay` vào `aura-annotations`, ánh xạ `risk_available=false` / `risk_assessment=null` sang `riskAvailable=false` và phát sự kiện `analysis.completed` (`schemaVersion: "0.7"`).
+
+---
+
+## 4. Biên bản phối hợp liên dịch vụ gửi M2 (Worker Integration Notes)
+
+Các ràng buộc kỹ thuật cốt lõi cần Worker tuân thủ nghiêm ngặt theo Contract 1.2.0:
+
+1. **`patient_id` bắt buộc phải là `null`**: Schema 1.2 quy định `patient_id: null` để đảm bảo de-identification (không rò rỉ dữ liệu định danh bệnh nhân vào AI container). Nếu Worker gửi chuỗi ID, AI Core sẽ từ chối fail-closed với lỗi HTTP `422 SCHEMA_VALIDATION_ERROR`.
+2. **`include_mask: true` và `include_overlay: true` là bắt buộc**: Cả hai cờ này phải luôn được đặt là `true` trong payload gửi sang AI Core để phục vụ lưu trữ annotations và hiển thị UI cho M5.
+3. **Cấu hình Worker Timeout $\ge 10 - 15$ giây**: Thuật toán Frangi v0.2 xử lý trên CPU cho ảnh kích thước lớn ($999 \times 960$) mất trung bình $\approx 2.5$ giây/ảnh (P95: $2.59$s). Worker không được dùng timeout ngắn (như 2 giây mặc định) để tránh timeout gãy luồng xử lý.
+4. **Header xác thực Bearer token**: Worker phải gọi Identity API để lấy token dịch vụ với `audience: "aura-ai"` và `scope: "ai:analyze"` trước khi gọi AI Core.
+5. **Distributed Tracing (`X-Correlation-Id`)**: AI Core đã tích hợp middleware ghi nhận và phản hồi header `X-Correlation-Id` từ Worker, đảm bảo tính liên tục của log tracing xuyên suốt toàn bộ pipeline.
