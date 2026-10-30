@@ -158,6 +158,7 @@ app.Use(async (context, next) =>
 });
 
 app.UseExceptionHandler();
+app.UseAuraPrometheusMetrics();
 
 app.Use(async (context, next) =>
 {
@@ -242,6 +243,7 @@ app.Use(async (context, next) =>
 });
 
 app.MapHealthChecks("/health");
+app.MapAuraMetrics();
 
 app.MapReverseProxy()
     .RequireCors(corsPolicyName);

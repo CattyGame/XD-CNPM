@@ -1,3 +1,4 @@
+using AURA.Billing.Api;
 using System.Text.RegularExpressions;
 using AURA.Billing.Api.Auth;
 using AURA.Billing.Api.Data;
@@ -440,5 +441,7 @@ app.MapPost("/internal/v1/billing/reservations/{reservationId:guid}/release", as
 .Produces(StatusCodes.Status404NotFound)
 .Produces(StatusCodes.Status409Conflict)
 .Produces(StatusCodes.Status503ServiceUnavailable);
+
+app.UseAuraPrometheusMetrics();
 
 app.Run();

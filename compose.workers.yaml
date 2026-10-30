@@ -1,0 +1,37 @@
+# AURA Analysis Worker Scaling Template (Sprint 4-5)
+# Supports scaling 2 to 4 worker replicas with RabbitMQ Quorum Queues
+
+services:
+  analysis-worker:
+    build:
+      context: .
+      dockerfile: src/services/AURA.Analysis.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_VHOST: /aura-s3
+      RABBITMQ_USER: s3-worker
+      RABBITMQ_PASSWORD: ${RABBITMQ_WORKER_PASSWORD:-r7zLyO13dkEahz7RraFZzWjTNNx_UO0_pQ_2J4OjB9cNWC4p}
+      RABBITMQ_PREFETCH_COUNT: 10
+      RABBITMQ_HEARTBEAT_SECONDS: 60
+      RABBITMQ_CHANNEL_POOL_SIZE: 16
+      AI_CORE_URL: http://ai-core:8000
+    deploy:
+      mode: replicated
+      replicas: 4
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1024M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    networks:
+      - aura_network
+    restart: on-failure
+
+networks:
+  aura_network:
+    name: aura_network
+    external: true
