@@ -1,3 +1,4 @@
+using AURA.Analysis.Api;
 using AURA.Analysis.Api.Http;
 using AURA.Analysis.Api.Outbox.Adapters;
 var builder = WebApplication.CreateBuilder(args);
@@ -15,6 +16,7 @@ builder.Services.AddOutboxPublisher(builder.Configuration);
 var app = builder.Build();
 
 app.UseExceptionHandler();
+app.UseAuraPrometheusMetrics();
 
 if (app.Environment.IsDevelopment())
 {
@@ -23,6 +25,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.MapHealthChecks("/health");
+app.MapAuraMetrics();
 app.MapAnalysisReadiness(analysisHttpEnabled);
 
 app.MapGet("/api/v1/platform/ping", () =>

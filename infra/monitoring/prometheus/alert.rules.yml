@@ -1,0 +1,31 @@
+groups:
+  - name: aura_microservices_alerts
+    rules:
+      - alert: AuraHighHttp5xxRate
+        expr: (sum(rate(http_requests_total{status=~"5.."}[2m])) / sum(rate(http_requests_total[2m])) * 100) > 2
+        for: 2m
+        labels:
+          severity: critical
+          service: aura-platform
+        annotations:
+          summary: "Tỷ lệ lỗi HTTP 5xx vượt quá 2% trong 2 phút"
+          description: "Microservices đang gặp lỗi máy chủ nội bộ HTTP 5xx cao (hiện tại: {{ $value | printf \"%.2f\" }}%)."
+
+      - alert: AuraAnalysisJobQueueBacklog
+        expr: rabbitmq_queue_messages{queue="aura.s3.analysis.jobs"} > 50
+        for: 5m
+        labels:
+          severity: warning
+          service: analysis-worker
+        annotations:
+          summary: "Hàng đợi phân tích ảnh bị tồn đọng quá 50 messages"
+          description: "Hàng đợi 'aura.s3.analysis.jobs' đang tồn đọng {{ $value }} messages vượt quá 5 phút. Cần xem xét scale thêm worker."
+
+      - alert: AuraServiceInstanceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dịch vụ {{ $labels.job }} không phản hồi"
+          description: "Prometheus không cào được metrics từ {{ $labels.instance }} trong hơn 1 phút."
