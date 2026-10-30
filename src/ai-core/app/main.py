@@ -91,8 +91,21 @@ async def correlation_id_middleware(request: Request, call_next):
     Echo hoặc tự sinh correlation ID để phục vụ distributed tracing xuyên suốt
     Web -> Gateway -> Analysis API -> Worker -> AI Core.
     """
-    correlation_id = request.headers.get("X-Correlation-Id") or str(uuid.uuid4())
-    response = await call_next(request)
+    raw_cid = request.headers.get("X-Correlation-Id")
+    correlation_id = raw_cid.strip() if (raw_cid and raw_cid.strip()) else str(uuid.uuid4())
+    try:
+        response = await call_next(request)
+    except Exception:
+        logger.exception("Unhandled exception in AI Core request pipeline.")
+        response = JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "error_code": "INFERENCE_RUNTIME_ERROR",
+                "message": "Lỗi nội bộ khi xử lý yêu cầu AI Core.",
+                "details": None,
+                "timestamp": utc_timestamp_z(),
+            },
+        )
     response.headers["X-Correlation-Id"] = correlation_id
     return response
 
