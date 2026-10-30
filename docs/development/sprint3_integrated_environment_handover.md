@@ -1,10 +1,10 @@
 # Bàn giao Môi trường Tích hợp Sprint 3 & Sổ tay Vận hành Khởi động
 
-> **Dự án**: AURA (SP26SE025) · Retinal Vascular Health Screening  
-> **Mã công việc Jira**: **SCRUM-318** (`[W3]M1] Dựng môi trường tích hợp riêng và kiểm tra khởi động`)  
-> **Người thực hiện (M1)**: Nguyễn Trương Hậu (Lead Architecture / Platform / DevOps)  
-> **Bên tiếp nhận**: Toàn đội phát triển (M2 - Analysis, M3 - Billing, M4 - AI, M5 - Web, M6 - Identity/Profile)  
-> **Trạng thái xác thực**: **PASS (Đã kiểm định qua PASS87C, PASS87S)**  
+> **Dự án**: AURA (SP26SE025) · Retinal Vascular Health Screening
+> **Mã công việc Jira**: **SCRUM-318** (`[W3]M1] Dựng môi trường tích hợp riêng và kiểm tra khởi động`)
+> **Người thực hiện (M1)**: Nguyễn Trương Hậu (Lead Architecture / Platform / DevOps)
+> **Bên tiếp nhận**: Toàn đội phát triển (M2 - Analysis, M3 - Billing, M4 - AI, M5 - Web, M6 - Identity/Profile)
+> **Trạng thái xác thực**: **PASS (Đã kiểm định qua PASS87C, PASS87S)**
 > **Bằng chứng hệ thống**: `C:\Users\nguye\Downloads\A87C\epoch-checkpoint87C.json` và `C:\Users\nguye\Downloads\A87S\postgres-sandbox-journal87S.json`
 
 ---

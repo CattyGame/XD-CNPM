@@ -56,14 +56,13 @@ INSERT 0 1
 T28 mong doi LOI ck_audit_outcome
 psql:/home/claude/outputs/analysis-migration/test_001.sql:93: ERROR:  new row for relation "audit_logs" violates check constraint "ck_audit_outcome"
 T29 mong doi OK: index partial outbox duoc dung / kiem tra ton tai
-       indexname       
+       indexname
 -----------------------
  ix_outbox_unpublished
 (1 row)
 
 T30 so bang trong schema analysis (mong doi 8)
- count 
+ count
 -------
      8
 (1 row)
-

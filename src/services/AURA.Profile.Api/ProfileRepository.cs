@@ -360,4 +360,255 @@ public class ProfileRepository
 
         return new AccessResolveResponse(false, "ACTIVE", patientId, null, null, null, null, 1);
     }
+
+    // ====================================================================
+    // CLINIC MEMBERSHIP MANAGEMENT (Task W3-M6-01)
+    // ====================================================================
+
+    public async Task<(bool Allowed, string? FailureReason)> CheckClinicManagementAuthorityAsync(
+        Guid actorAccountId, Guid clinicId, IReadOnlyList<string> actorRoles, CancellationToken cancellationToken = default)
+    {
+        if (actorRoles.Contains("SYSTEM_ADMIN", StringComparer.OrdinalIgnoreCase))
+        {
+            return (true, null);
+        }
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        const string clinicSql = "SELECT tenant_id FROM profile.clinics WHERE clinic_id = $1 AND status = 'ACTIVE' LIMIT 1;";
+        await using (var clinicCmd = new NpgsqlCommand(clinicSql, connection))
+        {
+            clinicCmd.Parameters.AddWithValue(clinicId);
+            var tenantObj = await clinicCmd.ExecuteScalarAsync(cancellationToken);
+            if (tenantObj is not Guid)
+            {
+                return (false, "CLINIC_NOT_FOUND");
+            }
+        }
+
+        const string memberSql = @"
+            SELECT role FROM profile.memberships
+            WHERE clinic_id = $1 AND account_id = $2 AND status = 'ACTIVE'
+            LIMIT 1;";
+
+        await using (var memberCmd = new NpgsqlCommand(memberSql, connection))
+        {
+            memberCmd.Parameters.AddWithValue(clinicId);
+            memberCmd.Parameters.AddWithValue(actorAccountId);
+            var roleObj = await memberCmd.ExecuteScalarAsync(cancellationToken);
+            if (roleObj is not string role)
+            {
+                return (false, "NOT_A_MEMBER");
+            }
+
+            if (string.Equals(role, ClinicMemberRoles.ClinicAdmin, StringComparison.OrdinalIgnoreCase))
+            {
+                return (true, null);
+            }
+
+            return (false, "FORBIDDEN");
+        }
+    }
+
+    public async Task<IReadOnlyList<ClinicMembershipDto>> GetClinicMembersAsync(
+        Guid clinicId, string? statusFilter = null, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        var queryFilter = string.IsNullOrWhiteSpace(statusFilter) || statusFilter.Equals("ALL", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : statusFilter.Trim().ToUpperInvariant();
+
+        const string sql = @"
+            SELECT m.membership_id, m.clinic_id, m.account_id, COALESCE(p.display_name, 'Thành viên phòng khám'),
+                   m.role, m.status, m.created_at, m.updated_at
+            FROM profile.memberships m
+            LEFT JOIN profile.profiles p ON p.account_id = m.account_id
+            WHERE m.clinic_id = $1
+              AND ($2::text IS NULL OR m.status = $2)
+            ORDER BY m.created_at ASC;";
+
+        await using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue(clinicId);
+        cmd.Parameters.AddWithValue((object?)queryFilter ?? DBNull.Value);
+
+        var items = new List<ClinicMembershipDto>();
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var membershipId = reader.GetGuid(0);
+            var cId = reader.GetGuid(1);
+            var accId = reader.GetGuid(2);
+            var displayName = reader.GetString(3);
+            var role = reader.GetString(4);
+            var status = reader.GetString(5);
+            var createdAt = reader.GetFieldValue<DateTimeOffset>(6);
+            var updatedAt = reader.GetFieldValue<DateTimeOffset>(7);
+
+            items.Add(new ClinicMembershipDto(
+                membershipId, cId, accId, displayName, role, status, createdAt, updatedAt));
+        }
+
+        return items;
+    }
+
+    public async Task<(bool Success, ClinicMembershipDto? Membership, string? ErrorCode, string? ErrorMessage)> AddOrReactivateClinicMemberAsync(
+        Guid clinicId, Guid targetAccountId, string role, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        // 1. Ki?m tra tài kho?n ngu?i dùng có t?n t?i trong profile.profiles
+        const string checkProfileSql = "SELECT display_name FROM profile.profiles WHERE account_id = $1 LIMIT 1;";
+        string displayName;
+        await using (var profileCmd = new NpgsqlCommand(checkProfileSql, connection))
+        {
+            profileCmd.Parameters.AddWithValue(targetAccountId);
+            var nameObj = await profileCmd.ExecuteScalarAsync(cancellationToken);
+            if (nameObj is not string name)
+            {
+                return (false, null, "ERR_ACCOUNT_NOT_FOUND", "Không tìm th?y h? so ngu?i dùng tuong ?ng.");
+            }
+            displayName = name;
+        }
+
+        // 2. Ki?m tra b?n ghi membership hi?n t?i
+        const string checkMembershipSql = @"
+            SELECT membership_id, role, status
+            FROM profile.memberships
+            WHERE clinic_id = $1 AND account_id = $2
+            LIMIT 1;";
+
+        Guid? existingMembershipId = null;
+        string? existingStatus = null;
+
+        await using (var checkCmd = new NpgsqlCommand(checkMembershipSql, connection))
+        {
+            checkCmd.Parameters.AddWithValue(clinicId);
+            checkCmd.Parameters.AddWithValue(targetAccountId);
+            await using var reader = await checkCmd.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                existingMembershipId = reader.GetGuid(0);
+                existingStatus = reader.GetString(2);
+            }
+        }
+
+        if (existingMembershipId.HasValue && string.Equals(existingStatus, MembershipStatuses.Active, StringComparison.OrdinalIgnoreCase))
+        {
+            return (false, null, "ERR_MEMBERSHIP_ALREADY_EXISTS", "Thành viên dã t?n t?i và dang ho?t d?ng trong phòng khám.");
+        }
+
+        if (existingMembershipId.HasValue)
+        {
+            // Tái kích ho?t membership dã b? thu h?i tru?c dó
+            const string reactivateSql = @"
+                UPDATE profile.memberships
+                SET role = $1, status = 'ACTIVE', updated_at = NOW()
+                WHERE clinic_id = $2 AND account_id = $3
+                RETURNING membership_id, created_at, updated_at;";
+
+            await using var reactivateCmd = new NpgsqlCommand(reactivateSql, connection);
+            reactivateCmd.Parameters.AddWithValue(role);
+            reactivateCmd.Parameters.AddWithValue(clinicId);
+            reactivateCmd.Parameters.AddWithValue(targetAccountId);
+
+            await using var reader = await reactivateCmd.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                var membershipId = reader.GetGuid(0);
+                var createdAt = reader.GetFieldValue<DateTimeOffset>(1);
+                var updatedAt = reader.GetFieldValue<DateTimeOffset>(2);
+
+                return (true, new ClinicMembershipDto(
+                    membershipId, clinicId, targetAccountId, displayName, role, MembershipStatuses.Active, createdAt, updatedAt), null, null);
+            }
+        }
+        else
+        {
+            // T?o m?i membership
+            var newMembershipId = Guid.NewGuid();
+            const string insertSql = @"
+                INSERT INTO profile.memberships (membership_id, clinic_id, account_id, role, status, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, 'ACTIVE', NOW(), NOW())
+                RETURNING created_at, updated_at;";
+
+            await using var insertCmd = new NpgsqlCommand(insertSql, connection);
+            insertCmd.Parameters.AddWithValue(newMembershipId);
+            insertCmd.Parameters.AddWithValue(clinicId);
+            insertCmd.Parameters.AddWithValue(targetAccountId);
+            insertCmd.Parameters.AddWithValue(role);
+
+            await using var reader = await insertCmd.ExecuteReaderAsync(cancellationToken);
+            if (await reader.ReadAsync(cancellationToken))
+            {
+                var createdAt = reader.GetFieldValue<DateTimeOffset>(0);
+                var updatedAt = reader.GetFieldValue<DateTimeOffset>(1);
+
+                return (true, new ClinicMembershipDto(
+                    newMembershipId, clinicId, targetAccountId, displayName, role, MembershipStatuses.Active, createdAt, updatedAt), null, null);
+            }
+        }
+
+        return (false, null, "ERR_INTERNAL_DB", "Không th? ghi nh?n thành viên phòng khám.");
+    }
+
+    public async Task<(bool Success, string? ErrorCode, string? ErrorMessage)> RevokeClinicMemberAsync(
+        Guid clinicId, Guid targetAccountId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        // 1. Ki?m tra thành viên có t?n t?i và dang ACTIVE
+        const string checkSql = @"
+            SELECT role FROM profile.memberships
+            WHERE clinic_id = $1 AND account_id = $2 AND status = 'ACTIVE'
+            LIMIT 1;";
+
+        string role;
+        await using (var checkCmd = new NpgsqlCommand(checkSql, connection))
+        {
+            checkCmd.Parameters.AddWithValue(clinicId);
+            checkCmd.Parameters.AddWithValue(targetAccountId);
+            var roleObj = await checkCmd.ExecuteScalarAsync(cancellationToken);
+            if (roleObj is not string r)
+            {
+                return (false, "ERR_MEMBERSHIP_NOT_FOUND", "Không tìm th?y thành viên ho?t d?ng trong phòng khám.");
+            }
+            role = r;
+        }
+
+        // 2. Ch?n t? g? b? n?u là CLINIC_ADMIN duy nh?t còn l?i
+        if (string.Equals(role, ClinicMemberRoles.ClinicAdmin, StringComparison.OrdinalIgnoreCase))
+        {
+            const string countAdminSql = @"
+                SELECT COUNT(*) FROM profile.memberships
+                WHERE clinic_id = $1 AND role = 'CLINIC_ADMIN' AND status = 'ACTIVE';";
+
+            await using var countCmd = new NpgsqlCommand(countAdminSql, connection);
+            countCmd.Parameters.AddWithValue(clinicId);
+            var count = Convert.ToInt64(await countCmd.ExecuteScalarAsync(cancellationToken));
+            if (count <= 1)
+            {
+                return (false, "ERR_CANNOT_REVOKE_SOLE_ADMIN", "Không th? g? b? qu?n tr? viên duy nh?t c?a phòng khám.");
+            }
+        }
+
+        // 3. Th?c hi?n chuy?n tr?ng thái luu v?t audit: status = 'REVOKED'
+        const string revokeSql = @"
+            UPDATE profile.memberships
+            SET status = 'REVOKED', updated_at = NOW()
+            WHERE clinic_id = $1 AND account_id = $2 AND status = 'ACTIVE';";
+
+        await using (var revokeCmd = new NpgsqlCommand(revokeSql, connection))
+        {
+            revokeCmd.Parameters.AddWithValue(clinicId);
+            revokeCmd.Parameters.AddWithValue(targetAccountId);
+            var rowsAffected = await revokeCmd.ExecuteNonQueryAsync(cancellationToken);
+            if (rowsAffected > 0)
+            {
+                return (true, null, null);
+            }
+        }
+
+        return (false, "ERR_MEMBERSHIP_NOT_FOUND", "Không tìm th?y thành viên ho?t d?ng trong phòng khám.");
+    }
 }

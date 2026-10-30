@@ -1,17 +1,17 @@
 # Bàn giao Kiến trúc Broker & Topology RabbitMQ — Sprint 3
 
-> **Dự án**: AURA (SP26SE025) · Retinal Vascular Health Screening  
-> **Mã công việc Jira**: **SCRUM-317** (`[W3]M1] Cấu hình broker và kết nối nội bộ cho Sprint 3`)  
-> **Người thực hiện (M1)**: Nguyễn Trương Hậu (Lead Architecture / Platform / DevOps)  
-> **Bên tiếp nhận**: Võ Hữu Duy (M2 - Outbox Publisher / Analysis Worker), Phạm Vũ Minh (M3 - Billing), Dung Hoang (M6 - Profile/Identity)  
-> **Trạng thái xác thực**: **PASS (Đã kiểm định tự động qua PASS49, PASS58, PASS65, PASS87C)**  
+> **Dự án**: AURA (SP26SE025) · Retinal Vascular Health Screening
+> **Mã công việc Jira**: **SCRUM-317** (`[W3]M1] Cấu hình broker và kết nối nội bộ cho Sprint 3`)
+> **Người thực hiện (M1)**: Nguyễn Trương Hậu (Lead Architecture / Platform / DevOps)
+> **Bên tiếp nhận**: Võ Hữu Duy (M2 - Outbox Publisher / Analysis Worker), Phạm Vũ Minh (M3 - Billing), Dung Hoang (M6 - Profile/Identity)
+> **Trạng thái xác thực**: **PASS (Đã kiểm định tự động qua PASS49, PASS58, PASS65, PASS87C)**
 > **Baseline tài nguyên**: Broker container `aura-s3-rabbitmq-1` (`78c20ad19277`), Lab node `aura-lab51-ac28e39b2b59-rabbitmq` (`ca92c7faac29`)
 
 ---
 
 ## 1. Mục đích và Phạm vi bàn giao
 
-Tài liệu này đặc tả cấu hình broker, topology RabbitMQ, ma trận phân quyền, hợp đồng thông điệp (Event & Job Schemas) và cơ chế Dead Letter Queue (DLQ) / Retry có kiểm soát cho môi trường tích hợp **Sprint 3**. 
+Tài liệu này đặc tả cấu hình broker, topology RabbitMQ, ma trận phân quyền, hợp đồng thông điệp (Event & Job Schemas) và cơ chế Dead Letter Queue (DLQ) / Retry có kiểm soát cho môi trường tích hợp **Sprint 3**.
 
 Cấu hình này phục vụ trực tiếp cho:
 1. **M2 - SCRUM-323**: Outbox Publisher đọc bảng `analysis.outbox_events` và phát sự kiện vào RabbitMQ với Publisher Confirms.

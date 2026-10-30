@@ -1,14 +1,14 @@
 # Bằng chứng Thực thi & Nghiệm thu Kỹ thuật: SCRUM-323 (W3-M2-01)
 **Kiểm thử và Xác nhận Vận hành Outbox Publisher trên Môi trường M1**
 
-> **Dự án**: AURA (`SP26SE025`) · Retinal Vascular Health Screening  
-> **Mã công việc Jira**: **SCRUM-323** (`[W3]M2] Triển khai publisher từ outbox sang broker`)  
-> **Người thực hiện kiểm chứng**: **Nguyễn Trương Hậu (M1 — Lead Architect / DevOps)**  
-> **Bên tiếp nhận**: **Võ Hữu Duy (M2 — Outbox Publisher / Analysis)**  
-> **Phương thức thực hiện**: **Cách A** (Chạy và kiểm chứng trực tiếp trên môi trường staging của M1)  
-> **Thời điểm xác nhận (UTC)**: `2026-10-30T07:30:10Z` (14:30:10 UTC+7)  
-> **Commit SHA xác thực**: [`49b24808fa9097a97e5e5bc22cf230fb9b113a07`](https://github.com/CattyGame/XD-PMHDT/commit/49b24808fa9097a97e5e5bc22cf230fb9b113a07)  
-> **Trạng thái thẩm định**: **ĐẠT YÊU CẦU TOÀN DIỆN (PASS 100%) — ĐỦ ĐIỀU KIỆN CHUYỂN SANG DONE**  
+> **Dự án**: AURA (`SP26SE025`) · Retinal Vascular Health Screening
+> **Mã công việc Jira**: **SCRUM-323** (`[W3]M2] Triển khai publisher từ outbox sang broker`)
+> **Người thực hiện kiểm chứng**: **Nguyễn Trương Hậu (M1 — Lead Architect / DevOps)**
+> **Bên tiếp nhận**: **Võ Hữu Duy (M2 — Outbox Publisher / Analysis)**
+> **Phương thức thực hiện**: **Cách A** (Chạy và kiểm chứng trực tiếp trên môi trường staging của M1)
+> **Thời điểm xác nhận (UTC)**: `2026-10-30T07:30:10Z` (14:30:10 UTC+7)
+> **Commit SHA xác thực**: [`49b24808fa9097a97e5e5bc22cf230fb9b113a07`](https://github.com/CattyGame/XD-PMHDT/commit/49b24808fa9097a97e5e5bc22cf230fb9b113a07)
+> **Trạng thái thẩm định**: **ĐẠT YÊU CẦU TOÀN DIỆN (PASS 100%) — ĐỦ ĐIỀU KIỆN CHUYỂN SANG DONE**
 
 ---
 
@@ -74,21 +74,21 @@ Toàn bộ **318/318 testcases** của phân hệ Analysis đều đạt 100%, k
 Kiểm tra trực tiếp qua RabbitMQ Management API (`127.0.0.1:15372/api/queues/%2Faura-s3`):
 
 ```text
-============================================================
+------------------------------------------------------------
 QUEUE NAME                          | TYPE     | MESSAGES
-============================================================
-aura.s3.analysis.audit              | quorum   | 0       
-aura.s3.analysis.jobs               | quorum   | 0       
-aura.s3.billing.events              | quorum   | 0       
-aura.s3.dead.audit                  | quorum   | 0       
-aura.s3.dead.billing                | quorum   | 0       
-aura.s3.dead.jobs                   | quorum   | 0       
-aura.s3.dead.notification           | quorum   | 0       
-aura.s3.notification.events         | quorum   | 0       
-aura.s3.retry.billing               | quorum   | 0       
-aura.s3.retry.jobs                  | quorum   | 0       
-aura.s3.retry.notification          | quorum   | 0       
-============================================================
+------------------------------------------------------------
+aura.s3.analysis.audit              | quorum   | 0
+aura.s3.analysis.jobs               | quorum   | 0
+aura.s3.billing.events              | quorum   | 0
+aura.s3.dead.audit                  | quorum   | 0
+aura.s3.dead.billing                | quorum   | 0
+aura.s3.dead.jobs                   | quorum   | 0
+aura.s3.dead.notification           | quorum   | 0
+aura.s3.notification.events         | quorum   | 0
+aura.s3.retry.billing               | quorum   | 0
+aura.s3.retry.jobs                  | quorum   | 0
+aura.s3.retry.notification          | quorum   | 0
+------------------------------------------------------------
 ```
 Tất cả các Quorum Queues và Dead Letter Queues (DLQ) đều đã được nạp cấu hình topology và sẵn sàng tiếp nhận message từ Outbox Publisher.
 

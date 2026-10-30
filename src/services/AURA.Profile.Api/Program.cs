@@ -296,4 +296,173 @@ app.MapPost("/internal/v1/profile/access/resolve", async (
 .WithName("ResolveAccess")
 .WithTags("Internal");
 
+
+// 5. GET /api/v1/clinics/{clinicId:guid}/memberships
+app.MapGet("/api/v1/clinics/{clinicId:guid}/memberships", async (
+    Guid clinicId,
+    HttpRequest request,
+    ProfileRepository repository,
+    UserIdentityResolver identityResolver,
+    CancellationToken ct,
+    string? status = null) =>
+{
+    var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
+    var identity = await identityResolver.ResolveAsync(request, ct);
+    if (!identity.Succeeded)
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(identity.Code, identity.Message, correlationId, identity.Retryable)),
+            statusCode: identity.StatusCode);
+    }
+
+    var (allowed, failureReason) = await repository.CheckClinicManagementAuthorityAsync(
+        identity.AccountId, clinicId, identity.Roles, ct);
+
+    if (!allowed)
+    {
+        if (failureReason == "CLINIC_NOT_FOUND" || failureReason == "NOT_A_MEMBER")
+        {
+            return Results.Json(
+                new ErrorEnvelope(new ErrorDetails("ERR_CLINIC_NOT_FOUND", "Không tìm th?y phòng khám.", correlationId, false)),
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_FORBIDDEN", "B?n không có quy?n qu?n lý thành viên phòng khám này.", correlationId, false)),
+            statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var items = await repository.GetClinicMembersAsync(clinicId, status, ct);
+    return Results.Ok(new ClinicMemberListResponse(clinicId, items));
+})
+.WithName("GetClinicMemberships")
+.WithTags("Clinics");
+
+// 6. POST /api/v1/clinics/{clinicId:guid}/memberships
+app.MapPost("/api/v1/clinics/{clinicId:guid}/memberships", async (
+    Guid clinicId,
+    AddClinicMemberRequest body,
+    HttpRequest request,
+    ProfileRepository repository,
+    UserIdentityResolver identityResolver,
+    CancellationToken ct) =>
+{
+    var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
+    var identity = await identityResolver.ResolveAsync(request, ct);
+    if (!identity.Succeeded)
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(identity.Code, identity.Message, correlationId, identity.Retryable)),
+            statusCode: identity.StatusCode);
+    }
+
+    var (allowed, failureReason) = await repository.CheckClinicManagementAuthorityAsync(
+        identity.AccountId, clinicId, identity.Roles, ct);
+
+    if (!allowed)
+    {
+        if (failureReason == "CLINIC_NOT_FOUND" || failureReason == "NOT_A_MEMBER")
+        {
+            return Results.Json(
+                new ErrorEnvelope(new ErrorDetails("ERR_CLINIC_NOT_FOUND", "Không tìm th?y phòng khám.", correlationId, false)),
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_FORBIDDEN", "B?n không có quy?n qu?n lý thành viên phòng khám này.", correlationId, false)),
+            statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    if (body.AccountId == Guid.Empty)
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "Thi?u accountId h?p l?.", correlationId, false)),
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    if (string.IsNullOrWhiteSpace(body.Role) || !ClinicMemberRoles.AllowedRoles.Contains(body.Role.Trim()))
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_INVALID_ROLE", "Vai trò thành viên không h?p l?. Ch? ch?p nh?n CLINIC_ADMIN, DOCTOR, STAFF.", correlationId, false)),
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var targetRole = body.Role.Trim().ToUpperInvariant();
+    var (success, member, errCode, errMsg) = await repository.AddOrReactivateClinicMemberAsync(
+        clinicId, body.AccountId, targetRole, ct);
+
+    if (!success)
+    {
+        var statusCode = errCode switch
+        {
+            "ERR_MEMBERSHIP_ALREADY_EXISTS" => StatusCodes.Status409Conflict,
+            "ERR_ACCOUNT_NOT_FOUND" => StatusCodes.Status404NotFound,
+            _ => StatusCodes.Status500InternalServerError
+        };
+
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(errCode ?? "ERR_INTERNAL_DB", errMsg ?? "Không th? thêm thành viên.", correlationId, false)),
+            statusCode: statusCode);
+    }
+
+    return Results.Json(member, statusCode: StatusCodes.Status201Created);
+})
+.WithName("AddClinicMembership")
+.WithTags("Clinics");
+
+// 7. DELETE /api/v1/clinics/{clinicId:guid}/memberships/{accountId:guid}
+app.MapDelete("/api/v1/clinics/{clinicId:guid}/memberships/{accountId:guid}", async (
+    Guid clinicId,
+    Guid accountId,
+    HttpRequest request,
+    ProfileRepository repository,
+    UserIdentityResolver identityResolver,
+    CancellationToken ct) =>
+{
+    var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
+    var identity = await identityResolver.ResolveAsync(request, ct);
+    if (!identity.Succeeded)
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(identity.Code, identity.Message, correlationId, identity.Retryable)),
+            statusCode: identity.StatusCode);
+    }
+
+    var (allowed, failureReason) = await repository.CheckClinicManagementAuthorityAsync(
+        identity.AccountId, clinicId, identity.Roles, ct);
+
+    if (!allowed)
+    {
+        if (failureReason == "CLINIC_NOT_FOUND" || failureReason == "NOT_A_MEMBER")
+        {
+            return Results.Json(
+                new ErrorEnvelope(new ErrorDetails("ERR_CLINIC_NOT_FOUND", "Không tìm th?y phòng khám.", correlationId, false)),
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_FORBIDDEN", "B?n không có quy?n qu?n lý thành viên phòng khám này.", correlationId, false)),
+            statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var (success, errCode, errMsg) = await repository.RevokeClinicMemberAsync(clinicId, accountId, ct);
+    if (!success)
+    {
+        var statusCode = errCode switch
+        {
+            "ERR_CANNOT_REVOKE_SOLE_ADMIN" => StatusCodes.Status400BadRequest,
+            "ERR_MEMBERSHIP_NOT_FOUND" => StatusCodes.Status404NotFound,
+            _ => StatusCodes.Status500InternalServerError
+        };
+
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(errCode ?? "ERR_INTERNAL_DB", errMsg ?? "Không th? thu h?i thành viên.", correlationId, false)),
+            statusCode: statusCode);
+    }
+
+    return Results.NoContent();
+})
+.WithName("RevokeClinicMembership")
+.WithTags("Clinics");
+
 app.Run();

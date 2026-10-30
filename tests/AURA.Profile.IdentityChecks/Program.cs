@@ -15,7 +15,7 @@ var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<str
 async Task Check(string name, string? authorization, int status, string? code = null,
     string? contextJson = null, int contextStatus = 200, int tokenStatus = 200,
     string? tokenJson = null, bool timeout = false, bool spoof = false,
-    bool missingConfig = false, bool multipleAuth = false)
+    bool missingConfig = false, bool multipleAuth = false, string[]? expectedRoles = null)
 {
     var handler = new FakeIdentityHandler(accountId)
     {
@@ -43,6 +43,8 @@ async Task Check(string name, string? authorization, int status, string? code = 
         throw new Exception("FAIL: " + name);
     if (status == 200)
     {
+        if (expectedRoles != null && (result.Roles == null || !expectedRoles.SequenceEqual(result.Roles)))
+        throw new Exception("FAIL: roles mismatch: " + name);
         if (handler.UserAuthorization != authorization || handler.ServiceAuthorization != "Bearer fake-service-token"
             || handler.LastCorrelation != "profile-unit-1" || handler.CallCount != 2)
             throw new Exception("FAIL: header isolation: " + name);
@@ -78,6 +80,9 @@ try
     await Check("Wrong service scope is dependency error", "Bearer user-A", 503, "ERR_IDENTITY_DEPENDENCY_UNAVAILABLE", contextStatus: 403);
     await Check("Identity timeout is retryable", "Bearer user-A", 503, "ERR_IDENTITY_DEPENDENCY_UNAVAILABLE", timeout: true);
     await Check("Development mock is delegated to Identity", "Bearer mock-dev-token-test-user", 200);
+    await Check("Resolves account with roles", "Bearer user-admin", 200,
+        contextJson: $$"""{"accountId":"{{accountId}}","accountStatus":"ACTIVE","roles":["SYSTEM_ADMIN","CLINIC_ADMIN"]}""",
+        expectedRoles: new[] { "SYSTEM_ADMIN", "CLINIC_ADMIN" });
 
     var cancelledHandler = new FakeIdentityHandler(accountId) { Cancel = true };
     using var cancelledHttp = new HttpClient(cancelledHandler) { BaseAddress = new Uri("http://identity.test") };
@@ -96,7 +101,7 @@ try
         Console.WriteLine("PASS: Caller cancellation propagates");
         passed++;
     }
-    Console.WriteLine($"RESULT: {passed}/20 Profile identity checks passed (fake HTTP; not Firebase integration).");
+    Console.WriteLine($"RESULT: {passed}/21 Profile identity checks passed (fake HTTP; not Firebase integration).");
     return 0;
 }
 catch (Exception exception)

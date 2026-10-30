@@ -1,9 +1,9 @@
 # Cẩm Nang Toàn Diện Về 7 Công Nghệ Cốt Lõi Trong Dự Án AURA
 **Masterclass Kỹ Thuật: Bản Chất, Cơ Chế Vận Hành & Vai Trò Thực Tế Trong Hệ Thống Tầm Soát Võng Mạc AURA**
 
-> **Dành cho**: Đội ngũ Kỹ thuật & Thành viên dự án AURA (`SP26SE025`)  
-> **Tác giả biên soạn**: Nguyễn Trương Hậu (Lead Architect / DevOps — M1)  
-> **Mục tiêu**: Nắm vững bản chất lý thuyết, cách thức hoạt động bên dưới (Under the hood), vai trò cụ thể trong dự án và tự tin trả lời vấn đáp / bảo vệ đồ án tốt nghiệp.  
+> **Dành cho**: Đội ngũ Kỹ thuật & Thành viên dự án AURA (`SP26SE025`)
+> **Tác giả biên soạn**: Nguyễn Trương Hậu (Lead Architect / DevOps — M1)
+> **Mục tiêu**: Nắm vững bản chất lý thuyết, cách thức hoạt động bên dưới (Under the hood), vai trò cụ thể trong dự án và tự tin trả lời vấn đáp / bảo vệ đồ án tốt nghiệp.
 
 ---
 
@@ -33,7 +33,7 @@ flowchart TD
     end
 
     NiFi -->|InvokeHTTP 202| Gateway["API Gateway (YARP)<br/>(CORS, Rate Limit, Auth, Tracing)"]
-    
+
     subgraph CoreServices["2. Dịch vụ Nghiệp vụ (Microservices)"]
         Gateway -->|Reverse Proxy| Identity["Identity API<br/>(JWT RS256)"]
         Gateway -->|Reverse Proxy| Profile["Profile & Clinic API<br/>(RBAC, Multi-tenancy)"]
@@ -79,7 +79,7 @@ flowchart TD
 ## 2. MICROSERVICES & API GATEWAY
 
 ### A. Bản chất công nghệ là gì?
-* **Kiến trúc Nguyên khối (Monolith)**: Đóng toàn bộ logic xác thực, bệnh nhân, xử lý ảnh, tính toán AI, hóa đơn vào một file code và chạy trên 1 server duy nhất.  
+* **Kiến trúc Nguyên khối (Monolith)**: Đóng toàn bộ logic xác thực, bệnh nhân, xử lý ảnh, tính toán AI, hóa đơn vào một file code và chạy trên 1 server duy nhất.
   *Nhược điểm*: Khi mô hình AI chạy hết CPU/RAM thì toàn bộ web bị treo cứng; sửa lỗi nhỏ ở chức năng thanh toán cũng phải build lại toàn bộ hệ thống.
 * **Kiến trúc Microservices**: Chia nhỏ hệ thống thành các dịch vụ độc lập, mỗi dịch vụ phụ trách một nghiệp vụ duy nhất (Single Responsibility) và sở hữu cơ sở dữ liệu riêng biệt.
 * **API Gateway**: Là "người bảo vệ" đứng ở cửa ngõ. Thay vì các client (Web, Mobile, NiFi) phải nhớ địa chỉ IP của từng microservice, client chỉ cần gửi request đến API Gateway. Gateway sẽ:
@@ -199,7 +199,7 @@ flowchart TD
     1. Bệnh nhân sau khi chụp đáy mắt có thể tắt máy tính hoặc chuyển sang lướt báo ở tab khác.
     2. Khi hệ thống AI và Bác sĩ hoàn thành đánh giá $\rightarrow$ Notification Service lắng nghe sự kiện từ RabbitMQ.
     3. Notification Service sử dụng Firebase Admin SDK bắn một gói tin Push Notification tới Google FCM.
-    4. Trình duyệt của bệnh nhân lập tức hiện một cửa sổ thông báo (Pop-up Toast) góc màn hình:  
+    4. Trình duyệt của bệnh nhân lập tức hiện một cửa sổ thông báo (Pop-up Toast) góc màn hình:
        *🔔 "Hệ thống AURA: Kết quả tầm soát mắt của bạn đã hoàn tất! Bấm để xem phân tích mạch máu."*
     5. Người dùng click vào thông báo $\rightarrow$ Trình duyệt tự động mở tab mới và điều hướng thẳng vào trang kết quả có hiển thị hình ảnh mạch máu võng mạc.
   * **Thông báo biến động số dư**: Thông báo ngay khi nạp tiền thành công hoặc khi phòng khám được hoàn trả credit do có ảnh lỗi trong đợt tầm soát.
@@ -234,32 +234,32 @@ flowchart TD
 Dưới đây là các câu hỏi hóc búa mà Hội đồng phản biện hoặc Nhà tuyển dụng rất hay hỏi và cách trả lời chuẩn chỉ theo phong cách Tech Lead:
 
 #### Câu 1: "Tại sao trong dự án lại cần dùng cả RabbitMQ và Redis, sao không dùng luôn Redis làm Message Queue?"
-> **Trả lời**:  
+> **Trả lời**:
 > "Redis và RabbitMQ phục vụ hai mục đích kiến trúc hoàn toàn khác nhau:
 > - **Redis** là bộ nhớ đệm In-Memory tối ưu cho việc truy xuất dữ liệu cực nhanh với độ trễ dưới 1 mili-giây, rất phù hợp cho **Rate Limiting, Session Blacklist, Khóa phân tán (Distributed Lock) và theo dõi tiến độ Batch**.
-> - **RabbitMQ** là một Message Broker chuyên biệt đạt chuẩn AMQP, cung cấp cơ chế **Quorum Queues đảm bảo độ bền vững tuyệt đối của thông điệp, Publisher Confirms xác nhận gửi an toàn, định tuyến phức tạp (Topic/Direct Exchange) và Dead Letter Queue (DLQ)** để cách ly các tin nhắn lỗi độc hại (Poison messages).  
+> - **RabbitMQ** là một Message Broker chuyên biệt đạt chuẩn AMQP, cung cấp cơ chế **Quorum Queues đảm bảo độ bền vững tuyệt đối của thông điệp, Publisher Confirms xác nhận gửi an toàn, định tuyến phức tạp (Topic/Direct Exchange) và Dead Letter Queue (DLQ)** để cách ly các tin nhắn lỗi độc hại (Poison messages).
 > Dữ liệu khám bệnh đáy mắt của bệnh nhân là dữ liệu y tế quan trọng không thể đánh rơi; nếu chỉ dùng Redis làm queue, khi Redis gặp sự cố hoặc tràn RAM có thể dẫn đến mất job phân tích. Vì vậy, nhóm dùng RabbitMQ làm xương sống điều phối xử lý bất đồng bộ, và dùng Redis làm tầng đệm tăng tốc."
 
 #### Câu 2: "Cơ chế Transactional Outbox Pattern ở M2 giải quyết vấn đề gì?"
-> **Trả lời**:  
-> "Trong kiến trúc microservices, khi lưu ảnh vào database và phát thông điệp sang RabbitMQ, hệ thống gặp phải bài toán **Dual-Write (Ghi hai nơi)**: Nếu ta lưu database thành công nhưng mạng bị ngắt khiến không gửi được message sang RabbitMQ, ảnh của bệnh nhân sẽ bị 'mồ côi' và không bao giờ được phân tích. Ngược lại, nếu gửi message sang RabbitMQ trước rồi mới lưu database, nếu database bị lỗi thì Worker sẽ nhận một job không hề tồn tại.  
+> **Trả lời**:
+> "Trong kiến trúc microservices, khi lưu ảnh vào database và phát thông điệp sang RabbitMQ, hệ thống gặp phải bài toán **Dual-Write (Ghi hai nơi)**: Nếu ta lưu database thành công nhưng mạng bị ngắt khiến không gửi được message sang RabbitMQ, ảnh của bệnh nhân sẽ bị 'mồ côi' và không bao giờ được phân tích. Ngược lại, nếu gửi message sang RabbitMQ trước rồi mới lưu database, nếu database bị lỗi thì Worker sẽ nhận một job không hề tồn tại.
 > Để giải quyết triệt để, nhóm triển khai **Transactional Outbox Pattern**: Bản ghi sự kiện được lưu vào bảng `analysis.outbox_events` nằm trong cùng một Database Transaction với ảnh. Nhờ tính chất ACID của PostgreSQL, hoặc cả hai cùng thành công, hoặc cả hai cùng rollback. Sau đó, tiến trình Outbox Publisher sẽ đọc bảng này và gửi sang RabbitMQ với Publisher Confirms; chỉ khi RabbitMQ báo ACK thì mới cập nhật trạng thái `published_at`."
 
 #### Câu 3: "Tại sao NiFi lại nhận ảnh qua HTTP 202 Accepted mà không phải HTTP 200 OK?"
-> **Trả lời**:  
-> "Mã `HTTP 200 OK` có nghĩa là yêu cầu đã được xử lý hoàn tất trọn vẹn và có kết quả cuối cùng. Trong khi đó, việc chụp và phân tích mạch máu võng mạc là một quy trình bất đồng bộ kéo dài nhiều bước (chạy Frangi lọc ảnh, bác sĩ xem xét).  
+> **Trả lời**:
+> "Mã `HTTP 200 OK` có nghĩa là yêu cầu đã được xử lý hoàn tất trọn vẹn và có kết quả cuối cùng. Trong khi đó, việc chụp và phân tích mạch máu võng mạc là một quy trình bất đồng bộ kéo dài nhiều bước (chạy Frangi lọc ảnh, bác sĩ xem xét).
 > Khi NiFi gửi ảnh sang API Gateway, Gateway và Analysis API trả về mã **`HTTP 202 Accepted`**. Mã này chuẩn hóa theo RFC 7231, mang ý nghĩa: *'Hệ thống đã tiếp nhận yêu cầu hợp lệ và đã lưu trữ ảnh an toàn, nhưng quá trình xử lý AI chưa diễn ra'*. Điều này giúp client hoặc camera không phải treo luồng chờ đợi, đúng với bản chất kiến trúc hướng sự kiện (Event-driven)."
 
 #### Câu 4: "Kiến trúc bảo mật giữa các Microservices được bảo vệ như thế nào?"
-> **Trả lời**:  
+> **Trả lời**:
 > "Hệ thống AURA áp dụng mô hình bảo mật **Zero Trust (Không tin tưởng ngầm)** và nguyên tắc **Fail-Closed**:
 > 1. Client bên ngoài giao tiếp với API Gateway qua giao thức HTTPS và Bearer Token người dùng do Identity API cấp.
 > 2. Giữa các microservices nội bộ (ví dụ Worker gọi sang AI Core), hệ thống không tin tưởng tự động chỉ vì cùng nằm trong mạng Docker. Thay vào đó, Worker bắt buộc phải có một **Service JWT Token** ký bằng thuật toán mã hóa bất đối xứng **RS256 (RSA 2048/3072 bit)**.
 > 3. AI Core sở hữu Public Key để tự giải mã và kiểm tra: đúng Issuer (`aura-identity-s3-v1`), đúng Audience (`aura-ai`) và đúng Scope (`ai:analyze`). Nếu không nạp được khóa công khai hoặc token sai chữ ký, AI Core lập tức từ chối với mã lỗi `401 Unauthorized` hoặc `503 Service Unavailable`, không cho phép bất kỳ ai can thiệp trái phép vào thuật toán phân tích."
 
 #### Câu 5: "Prometheus thu thập dữ liệu bằng cơ chế Push hay Pull? Tại sao lại chọn cơ chế đó?"
-> **Trả lời**:  
-> "Prometheus sử dụng cơ chế **Pull Model** (Prometheus định kỳ chủ động gọi đến endpoint `/metrics` của từng service để cào dữ liệu về).  
+> **Trả lời**:
+> "Prometheus sử dụng cơ chế **Pull Model** (Prometheus định kỳ chủ động gọi đến endpoint `/metrics` của từng service để cào dữ liệu về).
 > Nhóm chọn cơ chế Pull vì các ưu điểm kiến trúc vượt trội:
 > 1. **Kiểm soát được tải của hệ thống giám sát**: Prometheus chủ động quyết định tần suất cào dữ liệu (ví dụ 5s/lần), không sợ bị các microservices 'dội bom' metrics làm sập server giám sát khi hệ thống đang chịu tải cao.
 > 2. **Dễ dàng phát hiện dịch vụ bị chết (Healthcheck tự nhiên)**: Nếu Prometheus gọi đến `/metrics` của Analysis API mà bị timeout hoặc connection refused, Prometheus biết ngay lập tức dịch vụ đó đang gặp sự cố và kích hoạt cảnh báo Alertmanager.

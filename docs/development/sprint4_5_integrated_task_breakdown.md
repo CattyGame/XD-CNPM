@@ -1,8 +1,8 @@
 # AURA Phân công Sprint 4–5 Kết hợp (Sprint Tích hợp Tăng tốc)
 **Mở rộng Batch Processing, Doctor Review, Thanh toán Sandbox/FCM, Clinic Đa Tenant và Giám sát với Prometheus & Grafana**
 
-> **Ngày lập**: 30/10/2026 | **6 thành viên** | **24 task tích hợp** | **288 giờ dự kiến** (2 tuần gộp)  
-> **Phạm vi gộp**: Hợp nhất toàn bộ khối lượng công việc của Sprint 4 và Sprint 5 để đẩy nhanh tiến độ về đích.  
+> **Ngày lập**: 30/10/2026 | **6 thành viên** | **24 task tích hợp** | **288 giờ dự kiến** (2 tuần gộp)
+> **Phạm vi gộp**: Hợp nhất toàn bộ khối lượng công việc của Sprint 4 và Sprint 5 để đẩy nhanh tiến độ về đích.
 > **Nguyên tắc kỹ thuật**: Đảm bảo 100% các công nghệ theo yêu cầu đề tài đều được tích hợp đầy đủ và chạy thực tế: **OpenAPI/Swagger, Cache Redis, Firebase Cloud Messaging (FCM), Apache NiFi, Microservices - API Gateway, RabbitMQ, và Monitoring với Prometheus & Grafana**.
 
 ---
