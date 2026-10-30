@@ -10,6 +10,8 @@ import NotFoundPage from '../pages/NotFoundPage'
 import ServerErrorPage from '../pages/ServerErrorPage'
 import ProtectedRoute from './ProtectedRoute'
 import AppRouter from './AppRouter'
+import AnalysisResultPage from '../pages/AnalysisResultPage'
+import NotificationInboxPage from '../pages/NotificationInboxPage'
 
 function DemoScope({ children }: { children: ReactNode }) {
   return <>
@@ -34,6 +36,8 @@ export default function ApplicationRoutes() {
       <Route path="/batches/:batchId" element={<ProtectedRoute><BatchProgressPage /></ProtectedRoute>} />
       <Route path="/" element={<ProtectedRoute><SessionHomePage /></ProtectedRoute>} />
       <Route path="*" element={<NotFoundPage />} />
+      <Route path="/analyses/:analysisId" element={<ProtectedRoute><AnalysisResultPage /></ProtectedRoute>} />
+      <Route path="/notifications" element={<ProtectedRoute><NotificationInboxPage /></ProtectedRoute>}/>
     </Routes>
   )
 }

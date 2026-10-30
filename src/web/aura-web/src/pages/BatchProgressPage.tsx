@@ -108,6 +108,14 @@ function ItemRow({ item }: { item: BatchItem }) {
     {item.error && <p role="note">{item.error.message || 'Không thể hoàn tất phân tích ảnh.'}
       {item.error.retryable ? ' Có thể đủ điều kiện thử lại theo chính sách backend.' : ''}
     </p>}
+    {/* Chỉ cho mở kết quả khi AI đã xử lý hoàn tất */}
+    {item.processingStatus === 'COMPLETED' && (
+      <p>
+        <Link to={`/analyses/${item.analysisId}`}>
+        Xem kết quả chi tiết
+        </Link>
+        </p>
+      )}
     {item.processingStatus === 'DUPLICATE' && item.existingAnalysisId &&
       <p>Ảnh trùng; tham chiếu analysis có quyền: <code>{item.existingAnalysisId}</code></p>}
   </li>

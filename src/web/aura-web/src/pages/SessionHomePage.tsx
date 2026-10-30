@@ -19,6 +19,9 @@ export default function SessionHomePage() {
           <Link to="/" aria-current="page">Trang chủ</Link>
           {personalUpload && <Link to="/upload">Tải ảnh võng mạc</Link>}
           {!context.roles.includes("SYSTEM_ADMIN") && <Link to="/batches">Theo dõi batch</Link>}
+          {/* Mở hộp thư thông báo của tài khoản hiện tại */}
+          {!context.roles.includes("SYSTEM_ADMIN") && (
+            <Link to="/notifications">Thông báo</Link>)}
         </nav>
         <button type="button" onClick={() => void logout()}>Đăng xuất</button>
       </header>
