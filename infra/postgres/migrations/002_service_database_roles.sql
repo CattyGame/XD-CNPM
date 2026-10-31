@@ -1,4 +1,4 @@
-BEGIN;
+﻿BEGIN;
 
 DO $$
 BEGIN
@@ -275,4 +275,41 @@ BEGIN
 END
 $$;
 
+-- SCRUM-326: limit settlement inbox lifecycle updates; preserve event identity and payload fingerprint.
+DO $$
+BEGIN
+    IF to_regclass('billing.settlement_inbox') IS NOT NULL THEN
+        REVOKE INSERT, UPDATE, DELETE ON billing.settlement_inbox FROM aura_billing_app;
+        GRANT INSERT (
+            consumer_name,
+            event_id,
+            event_type,
+            schema_version,
+            occurred_at,
+            tenant_id,
+            analysis_id,
+            correlation_id,
+            payload_sha256
+        ) ON billing.settlement_inbox TO aura_billing_app;
+        GRANT UPDATE (
+            conflict_payload_sha256,
+            status,
+            resolver_attempts,
+            next_attempt_at,
+            lease_token,
+            lease_until,
+            last_error_code,
+            resolved_reservation_id,
+            resolved_generation,
+            result_version,
+            is_mock,
+            processing_status,
+            settlement_action,
+            settlement_reason,
+            completed_at,
+            updated_at
+        ) ON billing.settlement_inbox TO aura_billing_app;
+    END IF;
+END
+$$;
 COMMIT;

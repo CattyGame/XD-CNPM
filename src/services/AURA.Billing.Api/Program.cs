@@ -67,6 +67,13 @@ builder.Services.AddHttpClient("IdentityApi", client =>
     client.Timeout = TimeSpan.FromSeconds(5);
 });
 
+var analysisBaseUrl = builder.Configuration["Services:Analysis:BaseUrl"]
+    ?? "http://127.0.0.1:5001";
+builder.Services.AddHttpClient("AnalysisApi", client =>
+{
+    client.BaseAddress = new Uri(analysisBaseUrl, UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(5);
+});
 var profileBaseUrl = builder.Configuration["Services:Profile:BaseUrl"]
     ?? "http://127.0.0.1:5005";
 builder.Services.AddHttpClient("ProfileApi", client =>
@@ -81,6 +88,7 @@ builder.Services.AddSingleton<CreditReservationRepository>();
 builder.Services.AddSingleton<ServiceTokenValidator>();
 builder.Services.AddSingleton<SystemAdminAuthorizer>();
 builder.Services.AddSingleton<ProfileAccessClient>();
+builder.Services.AddSingleton<AnalysisSettlementResolverClient>();
 
 var app = builder.Build();
 
