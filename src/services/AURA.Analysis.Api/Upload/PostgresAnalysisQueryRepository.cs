@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Npgsql;
 
 namespace AURA.Analysis.Api.Upload;
@@ -34,7 +33,9 @@ public sealed class PostgresAnalysisQueryRepository(NpgsqlDataSource dataSource)
                    i.created_at, i.updated_at, r.owner_id, r.requester_id, i.file_id,
                    i.existing_analysis_id,
                    j.id AS job_id, j.status AS job_status, j.attempt_no, j.retryable, j.error_code,
-                   ar.result_payload::text AS result_payload
+                   ar.id AS result_id, ar.version, ar.risk_assessment::text, ar.metrics::text, ar.warnings::text,
+                   ar.is_mock, ar.model_version, ar.config_version, ar.threshold_version,
+                   ar.processing_time_ms, ar.limitations
             FROM analysis.images i
             JOIN analysis.analysis_requests r ON r.tenant_id = i.tenant_id AND r.id = i.analysis_request_id
             LEFT JOIN LATERAL (
@@ -44,7 +45,9 @@ public sealed class PostgresAnalysisQueryRepository(NpgsqlDataSource dataSource)
                 ORDER BY x.attempt_no DESC LIMIT 1
             ) j ON true
             LEFT JOIN LATERAL (
-                SELECT x.version, x.result_payload
+                SELECT x.id, x.version, x.risk_assessment, x.metrics, x.warnings, x.is_mock,
+                       x.model_version, x.config_version, x.threshold_version,
+                       x.processing_time_ms, x.limitations
                 FROM analysis.analysis_results x
                 WHERE x.tenant_id = i.tenant_id AND x.image_id = i.id
                 ORDER BY x.version DESC LIMIT 1
@@ -83,25 +86,36 @@ public sealed class PostgresAnalysisQueryRepository(NpgsqlDataSource dataSource)
             job = new AnalysisJobDetail(jobId, status, attempt - 1, attempt);
         }
 
+        // Đọc xong dòng chính rồi mới truy vấn annotation (reader hiện tại phải đóng trước).
+        Guid? resultId = reader.IsDBNull(16) ? null : reader.GetGuid(16);
         AnalysisResultDetail? result = null;
-        if (processingStatus == "COMPLETED" && !reader.IsDBNull(16))
+        if (processingStatus == "COMPLETED" && resultId is not null)
         {
-            try
-            {
-                var payloadStr = reader.GetString(16);
-                result = JsonSerializer.Deserialize<AnalysisResultDetail>(payloadStr, UploadJson.Options);
-            }
-            catch (JsonException)
-            {
-                // Fallback default valid Frangi Sprint 3 result if raw string differs
-                result = new AnalysisResultDetail(
-                    false, null, null, null, false, "frangi-v0.2", "s3-frangi-1.0.0", "frangi-threshold-0.02-v1",
-                    "Kết quả phân vùng nghiên cứu, không phải chẩn đoán.", 1,
-                    new AnalysisMetricsDetail(0.0, null, null, null, null),
-                    Array.Empty<string>(), Array.Empty<AnalysisAnnotationRef>(),
-                    new[] { new AnalysisWarningDetail("RISK_UNAVAILABLE", "Chưa cung cấp đánh giá rủi ro.") },
-                    100, "Segmentation research baseline; no clinical risk assessment.");
-            }
+            var version = reader.GetInt32(17);
+            var risk = reader.GetString(18);
+            var metrics = reader.GetString(19);
+            var warnings = reader.GetString(20);
+            var isMock = reader.GetBoolean(21);
+            var modelVersion = reader.GetString(22);
+            var configVersion = reader.GetString(23);
+            var thresholdVersion = reader.GetString(24);
+            var processingMs = reader.GetDouble(25);
+            var limitations = reader.GetString(26);
+            await reader.CloseAsync();
+
+            var rows = new List<AnalysisResultMapper.AnnotationRow>();
+            await using var ann = dataSource.CreateCommand("""
+                SELECT file_id, type FROM analysis.annotation_refs
+                WHERE tenant_id = $1 AND image_id = $2 AND analysis_result_id = $3;
+                """);
+            ann.Parameters.AddWithValue(identity.TenantId);
+            ann.Parameters.AddWithValue(identity.AnalysisId);
+            ann.Parameters.AddWithValue(resultId.Value);
+            await using var ar = await ann.ExecuteReaderAsync(ct);
+            while (await ar.ReadAsync(ct)) rows.Add(new(ar.GetGuid(0), ar.GetString(1)));
+
+            result = AnalysisResultMapper.Map(version, risk, metrics, warnings, isMock, modelVersion,
+                configVersion, thresholdVersion, processingMs, limitations, rows);
         }
 
         AnalysisErrorDetail? error = null;

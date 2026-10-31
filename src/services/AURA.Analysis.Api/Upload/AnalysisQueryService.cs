@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace AURA.Analysis.Api.Upload;
 
@@ -13,9 +14,9 @@ public sealed record AnalysisMetricsDetail(double? VesselDensity, double? Tortuo
 
 public sealed record AnalysisResultDetail(
     bool RiskAvailable,
-    string? RiskLevel,
-    double? RiskScore,
-    double? ConfidenceScore,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] string? RiskLevel,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] double? RiskScore,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.Never)] double? ConfidenceScore,
     bool IsMock,
     string ModelVersion,
     string ConfigVersion,
