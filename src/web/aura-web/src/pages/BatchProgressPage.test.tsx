@@ -123,3 +123,36 @@ describe('SCRUM-332 batch progress component', () => {
     expect(controllerSignals[0].aborted).toBe(true)
   })
 })
+it('hiển thị đúng thông báo khi toàn bộ ảnh bị trùng', async () => {
+  const duplicateBatch: BatchProgress = {
+    ...terminal,
+    items: [{
+      ...terminal.items[0],
+      processingStatus: 'DUPLICATE',
+      riskLevel: null,
+      existingAnalysisId: '60000000-0000-4000-8000-000000000006',
+    }],
+    summary: {
+      total: 1,
+      active: 0,
+      succeeded: 0,
+      failed: 0,
+      duplicate: 1,
+    },
+  }
+
+  mocks.get.mockResolvedValue({
+    kind: 'batch',
+    data: duplicateBatch,
+  })
+
+  show()
+
+  expect(
+    await screen.findByText(
+      /Batch đã kết thúc — toàn bộ ảnh trùng, không có phân tích AI mới/
+    )
+  ).toBeTruthy()
+
+  expect(screen.queryByText('Đã hoàn tất AI')).toBeNull()
+})
