@@ -5,18 +5,16 @@ services:
   analysis-worker:
     build:
       context: .
-      dockerfile: src/services/AURA.Analysis.Api/Dockerfile
+      dockerfile: src/services/Aura.Worker.Analysis/Dockerfile
     environment:
-      ASPNETCORE_ENVIRONMENT: Production
-      RABBITMQ_HOST: rabbitmq
-      RABBITMQ_PORT: 5672
-      RABBITMQ_VHOST: /aura-s3
-      RABBITMQ_USER: s3-worker
-      RABBITMQ_PASSWORD: ${RABBITMQ_WORKER_PASSWORD:-r7zLyO13dkEahz7RraFZzWjTNNx_UO0_pQ_2J4OjB9cNWC4p}
-      RABBITMQ_PREFETCH_COUNT: 10
-      RABBITMQ_HEARTBEAT_SECONDS: 60
-      RABBITMQ_CHANNEL_POOL_SIZE: 16
-      AI_CORE_URL: http://ai-core:8000
+      DOTNET_ENVIRONMENT: Production
+      RabbitMq__HostName: rabbitmq
+      RabbitMq__Port: 5672
+      RabbitMq__VirtualHost: /aura-s3
+      RabbitMq__UserName: s3-worker
+      RabbitMq__Password: ${RABBITMQ_WORKER_PASSWORD:?Set RABBITMQ_WORKER_PASSWORD in .env}
+      WorkerOptions__Prefetch: 10
+      ConnectionStrings__Redis: redis:6379
     deploy:
       mode: replicated
       replicas: 4

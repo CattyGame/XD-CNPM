@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using AURA.Common.Cache;
 
 namespace AURA.Analysis.Api.Upload;
 
@@ -100,7 +101,8 @@ public static class BatchStatusProjection
     }
 }
 
-public sealed class BatchStatusService(IBatchStatusRepository repository, IPatientAccessResolver access)
+public sealed class BatchStatusService(IBatchStatusRepository repository, IPatientAccessResolver access,
+    IBatchRedisProgressService? batchProgress = null)
 {
     private static UploadFailure Missing() => new(404, "ERR_NOT_FOUND", "Không tìm thấy tài nguyên.");
 
@@ -125,7 +127,21 @@ public sealed class BatchStatusService(IBatchStatusRepository repository, IPatie
             var snapshot = await repository.ReadAsync(identity, ct);
             if (snapshot is null) throw Missing();
             if (snapshot.BatchId != batchId) throw UploadFailure.Dependency("Analysis database");
-            return BatchStatusProjection.Create(snapshot);
+            var response = BatchStatusProjection.Create(snapshot);
+            if (batchProgress is null) return response;
+            var progress = await batchProgress.GetProgressAsync(batchId);
+            if (progress is null || progress.Total != response.Summary.Total)
+                throw UploadFailure.Dependency("Redis batch progress");
+            var duplicates = response.Summary.Duplicate;
+            var summary = response.Summary with
+            {
+                Total = progress.Total,
+                Active = progress.Processing,
+                Succeeded = Math.Max(0, progress.Completed - duplicates),
+                Failed = progress.Failed,
+                Duplicate = duplicates
+            };
+            return response with { BatchStatus = progress.Status, Summary = summary };
         }
         catch (UploadFailure) { throw; }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }

@@ -15,4 +15,8 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.3" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\..\common\AURA.Common.Cache\AURA.Common.Cache.csproj" />
+  </ItemGroup>
+
 </Project>

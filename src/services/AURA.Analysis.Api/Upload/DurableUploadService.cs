@@ -1,9 +1,10 @@
 using AURA.Analysis.Api.Http;
+using AURA.Common.Cache;
 namespace AURA.Analysis.Api.Upload;
 
 /// <summary>Resumes durable intents. Unknown outcomes never authorize compensation.</summary>
 public sealed class DurableUploadService(UploadPlanningService planning, IUploadRecoveryJournal journal,
-    ICreditReservations credits, IPrivateFileStorage storage) : IAnalysisUploadHandler
+    ICreditReservations credits, IPrivateFileStorage storage, IBatchRedisProgressService batchProgress) : IAnalysisUploadHandler
 {
     public async Task<UploadResult> CreateAsync(UploadCommand command, CancellationToken ct)
     {
@@ -69,6 +70,10 @@ public sealed class DurableUploadService(UploadPlanningService planning, IUpload
             await storage.PutAsync(r.Container,image.ObjectKey,bytes,image.MimeType,ct);
             r = await Step(r,UploadRecoveryEvent.BlobStored,e.AnalysisId,ct);
         }
+        // The Redis key exists before the outbox publisher can expose the jobs to workers.
+        await batchProgress.InitializeBatchAsync(r.Plan.BatchId, r.Plan.Images.Count);
+        foreach (var image in r.Plan.Images.Where(i => i.Job is null))
+            await batchProgress.RecordImageOutcomeAsync(r.Plan.BatchId, image.AnalysisId, isSuccess: true);
         // The repository verifies/fences this exact frozen plan inside the acceptance transaction.
         // An exception, including a lost COMMIT acknowledgement, never releases/deletes anything here.
         await prepared.Session.CommitAsync(r.Plan,ct);

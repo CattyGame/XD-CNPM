@@ -1,6 +1,8 @@
 using AURA.Analysis.Api.Upload;
+using AURA.Common.Cache;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
+using StackExchange.Redis;
 
 namespace AURA.Analysis.Api.Http;
 
@@ -9,6 +11,8 @@ public static class AnalysisRuntime
     public static IServiceCollection AddAnalysisRuntime(this IServiceCollection services,IConfiguration configuration,IHostEnvironment environment)
     {
         var raw=configuration.GetConnectionString("Postgres");
+        var redisConnection=configuration.GetConnectionString("Redis");
+        if(string.IsNullOrWhiteSpace(redisConnection))throw new InvalidOperationException("Analysis Redis configuration is required.");
         if(string.IsNullOrWhiteSpace(raw))throw new InvalidOperationException("Analysis PostgreSQL configuration is required.");
         NpgsqlConnectionStringBuilder db;
         try{db=new NpgsqlConnectionStringBuilder(raw);}
@@ -34,6 +38,8 @@ public static class AnalysisRuntime
         services.AddSingleton(options);services.AddSingleton(new StorageOptions());
         services.AddSingleton(new AnalysisUploadGate(capacity));services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton(_=>NpgsqlDataSource.Create(db.ConnectionString));
+        services.AddSingleton<IConnectionMultiplexer>(_=>ConnectionMultiplexer.Connect(redisConnection));
+        services.AddSingleton<IBatchRedisProgressService,BatchRedisProgressService>();
         services.AddAnalysisServiceClients(configuration);services.AddAnalysisPrivateStorage(configuration,environment);
         services.AddTransient<IUploadRepository,PostgresUploadRepository>();services.AddTransient<IUploadRecoveryJournal,PostgresUploadRecoveryRepository>();
         services.AddTransient<IFileAccessRepository,PostgresFileAccessRepository>();services.AddTransient<IBatchStatusRepository,PostgresBatchStatusRepository>();

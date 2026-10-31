@@ -83,6 +83,46 @@ public static class OutboxEventFactory
         };
     }
 
+    public static OutboxRecord CreateBatchCompletedEvent(
+        Guid tenantId,
+        Guid batchId,
+        Guid patientId,
+        string correlationId,
+        string batchStatus,
+        int totalImages,
+        int completedImages,
+        int failedImages)
+    {
+        var evt = new DomainEventEnvelope<BatchCompletedData>
+        {
+            EventId = batchId,
+            EventType = "batch.completed",
+            SchemaVersion = "0.7",
+            OccurredAt = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+            TenantId = tenantId,
+            CorrelationId = correlationId,
+            AnalysisId = batchId,
+            Data = new BatchCompletedData
+            {
+                BatchId = batchId,
+                PatientId = patientId,
+                BatchStatus = batchStatus,
+                TotalImages = totalImages,
+                CompletedImages = completedImages,
+                FailedImages = failedImages
+            }
+        };
+
+        return new OutboxRecord
+        {
+            EventId = evt.EventId,
+            EventType = evt.EventType,
+            PayloadJson = JsonSerializer.Serialize(evt),
+            AvailableAt = DateTime.UtcNow,
+            Status = "PENDING"
+        };
+    }
+
     public static OutboxRecord CreateRetryJobMessage(
         Guid tenantId,
         Guid batchId,

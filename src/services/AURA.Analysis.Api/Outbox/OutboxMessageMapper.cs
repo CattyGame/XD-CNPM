@@ -12,7 +12,7 @@ public static class OutboxMessageMapper
 {
     public const string JobType = "analysis.job.run";
     private static readonly HashSet<string> EventTypes = new(StringComparer.Ordinal)
-        { "analysis.requested", "analysis.completed", "analysis.failed" };
+        { "analysis.requested", "analysis.completed", "analysis.failed", "batch.completed" };
     // analysis.reviewed nam ngoai demo Sprint 3 -> khong phat.
 
     private static readonly Regex CorrelationRx = new("^[A-Za-z0-9._-]{1,64}$", RegexOptions.Compiled);

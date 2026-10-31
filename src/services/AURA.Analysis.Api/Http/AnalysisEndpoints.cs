@@ -21,6 +21,7 @@ public static class AnalysisEndpoints
     public static void MapAnalysisEndpoints(this WebApplication app)
     {
         app.MapPost("/api/v1/analyses",(Func<HttpContext,Task<IResult>>)(c=>Handle(c,()=>Upload(c))));
+        app.MapPost("/api/v1/batches",(Func<HttpContext,Task<IResult>>)(c=>Handle(c,()=>Upload(c))));
         app.MapGet("/api/v1/batches/{batchId}",(HttpContext c,string batchId)=>Handle(c,async()=>
         {
             var user=await User(c);var clinic=Clinic(c);

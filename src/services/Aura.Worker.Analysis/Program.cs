@@ -5,6 +5,8 @@ using Aura.Worker.Analysis.Data.Repositories;
 using Aura.Worker.Analysis.Messaging;
 using Aura.Worker.Analysis.Processing;
 using Aura.Worker.Analysis.Services;
+using AURA.Common.Cache;
+using StackExchange.Redis;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -19,6 +21,10 @@ builder.Services.Configure<ServiceAuthOptions>(builder.Configuration.GetSection(
 // 2. Database
 var connectionString = builder.Configuration.GetConnectionString("Postgres")
     ?? "Host=postgres;Port=5432;Database=aura_dev;Username=aura_analysis_app;Password=secret";
+var redisConnection = builder.Configuration.GetConnectionString("Redis") ?? "redis:6379";
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisConnection));
+builder.Services.AddSingleton<IBatchRedisProgressService, BatchRedisProgressService>();
+builder.Services.AddSingleton<IBatchCompletedEventPublisher, BatchCompletedEventPublisher>();
 builder.Services.AddDbContext<WorkerDbContext>(options =>
 {
     options.UseNpgsql(connectionString);

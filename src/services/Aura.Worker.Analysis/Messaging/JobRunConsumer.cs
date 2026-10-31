@@ -39,9 +39,9 @@ public class JobRunConsumer : BackgroundService
             try
             {
                 InitializeRabbitMq();
-                var consumer = new EventingBasicConsumer(_channel);
+                var consumer = new AsyncEventingBasicConsumer(_channel);
 
-                consumer.Received += async (model, ea) =>
+                consumer.Received += async (_, ea) =>
                 {
                     await HandleMessageAsync(ea, stoppingToken);
                 };
