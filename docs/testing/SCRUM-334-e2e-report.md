@@ -1,8 +1,8 @@
 # SCRUM-334 — Báo cáo kiểm thử giao diện toàn luồng và demo NiFi
 
-**Dự án:** AURA — XD-PMHDT · **Jira:** [SCRUM-334](https://nguyentruonghau2202.atlassian.net/browse/SCRUM-334)  
-**Nhánh:** `feature/SCRUM-334-e2e-nifi-demo` (tạo từ `develop` tại `9702742`)  
-**Giai đoạn ghi nhận:** 30–31/10/2026  
+**Dự án:** AURA — XD-PMHDT · **Jira:** [SCRUM-334](https://nguyentruonghau2202.atlassian.net/browse/SCRUM-334)
+**Nhánh:** `feature/SCRUM-334-e2e-nifi-demo` (tạo từ `develop` tại `9702742`)
+**Giai đoạn ghi nhận:** 30–31/10/2026
 **Trạng thái:** **Báo cáo tạm thời — chưa nghiệm thu E2E toàn luồng**
 
 ## 1. Phạm vi và điều kiện nghiệm thu
@@ -49,7 +49,7 @@
 | MT07 | Camera → NiFi → Batch/Result | Không có NiFi container trên máy M5 | **BLOCKED** |
 | MT08 | Low quality, GET lỗi, session hết hạn, tenant khác, notification/reconnect | Chưa có minh chứng runtime cho toàn bộ ca | **CHƯA KIỂM THỬ** |
 
-**Batch ID quan sát:** `e5fea903-9a8b-5eca-a8b3-850ca8e1fadd`  
+**Batch ID quan sát:** `e5fea903-9a8b-5eca-a8b3-850ca8e1fadd`
 **Analysis ID được tham chiếu cho ảnh trùng:** `0b44d559-003e-5dc3-8f2c-395e0cb5db86`
 
 Đây là các ID quan sát từ UI/API trong môi trường M5, chưa chứng minh Worker đã tạo kết quả mới. Ảnh chụp kiểm thử đã được trao đổi trong phiên làm việc nhưng **chưa được đính kèm vào file Markdown này**.
