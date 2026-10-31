@@ -9,6 +9,7 @@ using Aura.Worker.Analysis.Messaging;
 using Aura.Worker.Analysis.Processing;
 using Aura.Worker.Analysis.Services;
 using Xunit;
+using AURA.Common.Cache;
 
 namespace Aura.Worker.Analysis.Tests.Processing;
 
@@ -19,6 +20,8 @@ public class JobProcessorTests
     private readonly Mock<IBlobStorageService> _blobMock = new();
     private readonly Mock<IAiHttpClient> _aiMock = new();
     private readonly Mock<IProfileResolveClient> _profileMock = new();
+    private readonly Mock<IBatchRedisProgressService> _batchProgressMock = new();
+    private readonly Mock<IBatchCompletedEventPublisher> _batchEventsMock = new();
     private readonly Mock<ILogger<JobProcessor>> _loggerMock = new();
     private readonly IOptions<WorkerOptions> _options;
 
@@ -31,6 +34,31 @@ public class JobProcessorTests
             LeaseSeconds = 90,
             DurableCallIntent = true
         });
+
+        _batchProgressMock
+            .Setup(p => p.RecordImageOutcomeAsync(
+                It.IsAny<Guid>(),
+                It.IsAny<Guid>(),
+                It.IsAny<bool>()))
+            .Returns((Guid batchId, Guid imageId, bool isSuccess) =>
+                Task.FromResult(new BatchImageCompletionResult(
+                    batchId,
+                    2,
+                    isSuccess ? 1 : 0,
+                    isSuccess ? 0 : 1,
+                    1,
+                    false,
+                    "IN_PROGRESS")));
+
+        _batchEventsMock
+            .Setup(p => p.PublishAsync(
+                It.IsAny<Guid>(),
+                It.IsAny<Guid>(),
+                It.IsAny<Guid>(),
+                It.IsAny<string>(),
+                It.IsAny<BatchImageCompletionResult>(),
+                It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
     }
 
     private JobProcessor CreateProcessor()
@@ -41,6 +69,8 @@ public class JobProcessorTests
             _blobMock.Object,
             _aiMock.Object,
             _profileMock.Object,
+            _batchProgressMock.Object,
+            _batchEventsMock.Object,
             _options,
             _loggerMock.Object);
     }
@@ -173,10 +203,11 @@ public class JobProcessorTests
         var tenantId = Guid.NewGuid();
         var analysisId = Guid.NewGuid();
         var jobId = Guid.NewGuid();
+        var batchId = Guid.NewGuid();
 
-        var message = new JobRunMessage { JobId = jobId, AnalysisId = analysisId, TenantId = tenantId, Attempt = 1 };
+        var message = new JobRunMessage { JobId = jobId, AnalysisId = analysisId, TenantId = tenantId, BatchId = batchId, Attempt = 1 };
         var job = new JobRecord { JobId = jobId, AnalysisId = analysisId, TenantId = tenantId, AttemptNo = 1, Status = JobStatus.Queued };
-        var analysis = new AnalysisRecord { AnalysisId = analysisId, TenantId = tenantId, ProcessingStatus = AnalysisStatus.Queued, OriginalBlobKey = "original.png" };
+        var analysis = new AnalysisRecord { AnalysisId = analysisId, TenantId = tenantId, PatientId = Guid.NewGuid(), BatchId = batchId, ProcessingStatus = AnalysisStatus.Queued, OriginalBlobKey = "original.png" };
 
         _jobRepoMock.Setup(r => r.GetJobAsync(jobId, It.IsAny<CancellationToken>())).ReturnsAsync(job);
         _analysisRepoMock.Setup(r => r.GetAnalysisAsync(analysisId, It.IsAny<CancellationToken>())).ReturnsAsync(analysis);
