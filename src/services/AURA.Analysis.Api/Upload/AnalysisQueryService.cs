@@ -46,7 +46,8 @@ public sealed record AnalysisDetailResponse(
     AnalysisJobDetail? Job,
     AnalysisResultDetail? Result,
     AnalysisErrorDetail? Error,
-    Guid? ExistingAnalysisId = null);
+    Guid? ExistingAnalysisId = null,
+    int ReviewVersion = 0);
 
 public interface IAnalysisQueryRepository
 {
@@ -54,12 +55,17 @@ public interface IAnalysisQueryRepository
     Task<AnalysisDetailResponse?> ReadAsync(AnalysisIdentity identity, string? correlationId, CancellationToken ct);
 }
 
+public interface IDoctorWorklistRepository
+{
+    Task<IReadOnlyList<AnalysisIdentity>> ListDoctorWorklistAsync(Guid tenantId, Guid patientId, CancellationToken ct);
+}
+
 public sealed class AnalysisQueryService(IAnalysisQueryRepository repository, IPatientAccessResolver access)
 {
     private static UploadFailure NotFound() => new(404, "ERR_NOT_FOUND", "Không tìm thấy tài nguyên.");
 
     public async Task<AnalysisDetailResponse> GetAsync(Guid requesterId, Guid? clinicId, Guid analysisId,
-        CancellationToken ct, string? correlationId = null)
+        CancellationToken ct, string? correlationId = null, string action = "ANALYSIS_READ")
     {
         ct.ThrowIfCancellationRequested();
         if (requesterId == Guid.Empty) throw new UploadFailure(401, "ERR_UNAUTHORIZED", "Cần xác thực tài khoản.");
@@ -71,13 +77,17 @@ public sealed class AnalysisQueryService(IAnalysisQueryRepository repository, IP
             var identity = await repository.FindIdentityAsync(analysisId, ct);
             if (identity is null) throw NotFound();
 
-            var decision = await access.ResolveAsync(new PatientAccessRequest(requesterId, clinicId, identity.PatientId, "ANALYSIS_READ")
+            var decision = await access.ResolveAsync(new PatientAccessRequest(requesterId, clinicId, identity.PatientId, action)
             {
                 CorrelationId = correlationId
             }, ct);
 
             if (!decision.Allowed || decision.TenantId != identity.TenantId || decision.OwnerPrincipalId != identity.OwnerId)
+            {
+                if (action == "DOCTOR_REVIEW")
+                    throw new UploadFailure(403, "ERR_FORBIDDEN", "Bác sĩ chưa được phân công cho ca bệnh này.");
                 throw NotFound();
+            }
 
             var result = await repository.ReadAsync(identity, correlationId, ct);
             if (result is null) throw NotFound();

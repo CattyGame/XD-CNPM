@@ -33,6 +33,30 @@ public static class AnalysisEndpoints
             return Results.Json(await c.RequestServices.GetRequiredService<AnalysisQueryService>().GetAsync(user.AccountId,clinic,
                 ResourceId(analysisId),c.RequestAborted,Correlation(c)),UploadJson.Options);
         }));
+        app.MapGet("/api/v1/doctor/worklist",(HttpContext c)=>Handle(c,async()=>
+        {
+            var user=await User(c);AnalysisUserPolicy.RequireDoctor(user);
+            var clinic=Clinic(c) ?? throw UploadFailure.Validation(new ErrorDetail("clinicContextId","required"));
+            var response=await c.RequestServices.GetRequiredService<DoctorWorklistService>().GetAsync(
+                c.Request,user.AccountId,clinic,c.RequestAborted,Correlation(c));
+            return Results.Json(response,UploadJson.Options);
+        }));
+        app.MapGet("/api/v1/doctor/analyses/{analysisId}",(HttpContext c,string analysisId)=>Handle(c,async()=>
+        {
+            var user=await User(c);AnalysisUserPolicy.RequireDoctor(user);
+            var clinic=Clinic(c) ?? throw UploadFailure.Validation(new ErrorDetail("clinicContextId","required"));
+            var response=await c.RequestServices.GetRequiredService<AnalysisQueryService>().GetAsync(
+                user.AccountId,clinic,ResourceId(analysisId),c.RequestAborted,Correlation(c),"DOCTOR_REVIEW");
+            return Results.Json(response,UploadJson.Options);
+        }));
+        app.MapPost("/api/v1/doctor/analyses/{analysisId}/reviews",(HttpContext c,string analysisId,DoctorReviewRequest request)=>Handle(c,async()=>
+        {
+            var user=await User(c);AnalysisUserPolicy.RequireDoctor(user);
+            var clinic=Clinic(c) ?? throw UploadFailure.Validation(new ErrorDetail("clinicContextId","required"));
+            var review=await c.RequestServices.GetRequiredService<DoctorReviewService>().SubmitAsync(
+                user.AccountId,clinic,ResourceId(analysisId),request,Correlation(c),c.RequestAborted);
+            return Results.Json(review,UploadJson.Options,statusCode:StatusCodes.Status201Created);
+        }));
         app.MapGet("/api/v1/analyses/{analysisId}/files/{fileId}/access",(HttpContext c,string analysisId,string fileId)=>Handle(c,async()=>
         {
             c.Response.Headers.CacheControl="no-store";

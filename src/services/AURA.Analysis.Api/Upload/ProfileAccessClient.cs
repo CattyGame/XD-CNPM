@@ -11,7 +11,7 @@ public sealed class ProfileAccessClient(HttpClient http, IServiceTokenProvider t
     {
         ct.ThrowIfCancellationRequested();
         if (request.RequesterId == Guid.Empty || request.PatientId == Guid.Empty
-            || request.ClinicId == Guid.Empty || request.Action is not ("ANALYSIS_CREATE" or "ANALYSIS_READ" or "FILE_READ"))
+            || request.ClinicId == Guid.Empty || request.Action is not ("ANALYSIS_CREATE" or "ANALYSIS_READ" or "FILE_READ" or "DOCTOR_REVIEW"))
             throw UploadFailure.Dependency("Profile");
         try
         {

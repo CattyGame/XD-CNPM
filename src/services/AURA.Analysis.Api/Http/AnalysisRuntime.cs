@@ -38,11 +38,15 @@ public static class AnalysisRuntime
         services.AddTransient<IUploadRepository,PostgresUploadRepository>();services.AddTransient<IUploadRecoveryJournal,PostgresUploadRecoveryRepository>();
         services.AddTransient<IFileAccessRepository,PostgresFileAccessRepository>();services.AddTransient<IBatchStatusRepository,PostgresBatchStatusRepository>();
         services.AddTransient<IAnalysisQueryRepository,PostgresAnalysisQueryRepository>();
+        services.AddTransient<IDoctorWorklistRepository,PostgresAnalysisQueryRepository>();
+        services.AddTransient<IDoctorReviewRepository,PostgresDoctorReviewRepository>();
+        services.AddTransient<IDoctorAssignmentClient,ProfileDoctorAssignmentClient>();
         services.AddTransient<IInternalResolversRepository,PostgresInternalResolversRepository>();
         services.AddTransient<UploadPlanningService>();services.AddTransient<IAnalysisUploadHandler,DurableUploadService>();
         services.AddTransient<IAnalysisReadinessChecks,AnalysisReadinessChecks>();
         services.AddTransient<BatchStatusService>();services.AddTransient<FileAccessService>();
         services.AddTransient<AnalysisQueryService>();services.AddTransient<InternalResolversService>();
+        services.AddTransient<DoctorReviewService>();services.AddTransient<DoctorWorklistService>();
         return services;
     }
 }
