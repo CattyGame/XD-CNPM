@@ -136,7 +136,11 @@ function BatchViewer({ batchId, context }: { batchId: string; context: BackendCo
     {view.phase === 'error' && (view.error?.status === 403 || view.error?.status === 404) &&
       <p>Kiểm tra lại tài khoản hoặc liên hệ người quản lý quyền truy cập. Không thử lại upload.</p>}
     {view.data && <>
-      <p role="status"><strong>{statusLabels[view.data.batchStatus] ?? view.data.batchStatus}</strong>
+      <p role="status"><strong>{isBatchTerminal(view.data) &&
+      view.data.summary.total > 0 &&
+      view.data.summary.duplicate === view.data.summary.total
+      ? 'Batch đã kết thúc — toàn bộ ảnh trùng, không có phân tích AI mới'
+      : (statusLabels[view.data.batchStatus] ?? view.data.batchStatus)}</strong>
         {isBatchTerminal(view.data) ? ' — đã dừng polling.' : ' — trạng thái sẽ tự cập nhật.'}</p>
       <p>Ngày tạo: {new Date(view.data.createdAt).toLocaleString('vi-VN')}</p>
       <div className="batch-summary" aria-label="Tổng hợp batch">
