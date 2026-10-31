@@ -23,6 +23,21 @@ BEGIN
     IF NOT has_column_privilege('aura_billing_app', 'billing.settlement_inbox', 'status', 'UPDATE') THEN
         RAISE EXCEPTION 'Runtime role is missing lifecycle UPDATE on status.';
     END IF;
+    IF NOT has_column_privilege('aura_billing_app', 'billing.settlement_inbox', 'conflict_prior_status', 'UPDATE') THEN
+        RAISE EXCEPTION 'Runtime role is missing UPDATE on conflict_prior_status.';
+    END IF;
+
+    IF NOT has_column_privilege('aura_billing_app', 'billing.settlement_inbox', 'conflict_prior_settlement_action', 'UPDATE') THEN
+        RAISE EXCEPTION 'Runtime role is missing UPDATE on conflict_prior_settlement_action.';
+    END IF;
+
+    IF NOT has_column_privilege('aura_billing_app', 'billing.settlement_inbox', 'conflict_prior_settlement_reason', 'UPDATE') THEN
+        RAISE EXCEPTION 'Runtime role is missing UPDATE on conflict_prior_settlement_reason.';
+    END IF;
+
+    IF NOT has_column_privilege('aura_billing_app', 'billing.settlement_inbox', 'conflict_prior_completed_at', 'UPDATE') THEN
+        RAISE EXCEPTION 'Runtime role is missing UPDATE on conflict_prior_completed_at.';
+    END IF;
     IF has_column_privilege('aura_billing_app', 'billing.settlement_inbox', 'payload_sha256', 'UPDATE') THEN
         RAISE EXCEPTION 'Runtime role must not UPDATE the original payload fingerprint.';
     END IF;

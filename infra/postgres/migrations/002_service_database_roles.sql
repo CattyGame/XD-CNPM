@@ -293,6 +293,10 @@ BEGIN
         ) ON billing.settlement_inbox TO aura_billing_app;
         GRANT UPDATE (
             conflict_payload_sha256,
+            conflict_prior_status,
+            conflict_prior_settlement_action,
+            conflict_prior_settlement_reason,
+            conflict_prior_completed_at,
             status,
             resolver_attempts,
             next_attempt_at,

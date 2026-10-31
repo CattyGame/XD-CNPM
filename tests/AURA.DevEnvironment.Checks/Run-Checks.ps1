@@ -91,7 +91,7 @@ try {
     $global:AuraM1EnvironmentCheckState.emptyAt = -1
 
     $plan = @(& $initialize -PlanOnly)
-    Assert-Check ($plan.Count -eq 10) "Migration plan includes every service and final grants pass"
+    Assert-Check ($plan.Count -eq 12) "Migration plan includes every service, Billing settlement inbox and final grants pass"
     Assert-Check ($plan[0] -eq "infra/postgres/migrations/001_notification_devices.sql") "Notification schema is bootstrapped first"
     Assert-Check ($plan[2] -eq "infra/postgres/migrations/002_identity_and_profile.sql") "Identity/Profile migration is included"
     Assert-Check ($plan[3] -eq "infra/postgres/migrations/003_doctor_assignments.sql") "Doctor assignments follow Profile schema"
@@ -118,7 +118,7 @@ try {
     }
     $originalEncoding = $OutputEncoding
     & $initialize -EnvFile ".env.example"
-    Assert-Check ($global:AuraM1EnvironmentCheckState.dockerCalls.Count -eq 11) "Migration runner invokes config validation and all ten migrations"
+    Assert-Check ($global:AuraM1EnvironmentCheckState.dockerCalls.Count -eq 13) "Migration runner invokes config validation and all twelve migrations"
     Assert-Check ($OutputEncoding -eq $originalEncoding) "Migration runner restores pipeline encoding"
     Assert-Check (@($global:AuraM1EnvironmentCheckState.dockerCalls | Where-Object { $_ -like '*ALTER ROLE*' }).Count -eq 0) "Default migration run preserves existing passwords/logins"
     $global:AuraM1EnvironmentCheckState.dockerCalls.Clear()
