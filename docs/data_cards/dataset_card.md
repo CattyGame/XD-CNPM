@@ -14,6 +14,8 @@ Dataset thực tế đã tải và kiểm tra là CHASE_DB1.
 | Dataset | Trạng thái trong dự án | Mục đích |
 |---|---|---|
 | CHASE_DB1 | Đã tải và kiểm tra ảnh–nhãn | Baseline phân vùng mạch máu và kiểm thử xử lý ảnh |
+| HRF (High-Resolution Fundus) | Đã lưu trữ trong data-assets/HRF | Sàng lọc & Phân vùng tổn thương Bệnh Võng Mạc Đái Tháo Đường (DR) |
+| INSPIRE_AVR | Đã lưu trữ trong data-assets/INSPIRE_AVR | Đo tỷ lệ Arteriovenous Ratio (AVR), Bệnh Võng Mạc Tăng Huyết Áp & Nguy cơ Tim mạch / Đột quỵ |
 | DRIVE | Chưa tải, chưa kiểm tra trực tiếp | Nguồn tham khảo; cân nhắc đánh giá bổ sung |
 | APTOS 2019 | Chưa tải, chưa kiểm tra trực tiếp | Nguồn tham khảo cho phân loại bệnh võng mạc tiểu đường |
 | STARE | Chưa xác nhận dữ liệu local và kết quả kiểm tra | Dataset ứng viên để đánh giá bổ sung |
