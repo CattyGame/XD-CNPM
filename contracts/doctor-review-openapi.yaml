@@ -1,0 +1,170 @@
+openapi: 3.1.0
+info:
+  title: AURA Doctor Review API
+  version: 1.0.0
+  description: API cho worklist, đọc kết quả AI và lưu review bác sĩ thành revision bất biến.
+servers:
+  - url: http://127.0.0.1:5000
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/doctor/worklist:
+    get:
+      summary: Danh sách ca COMPLETED chưa review được phân công cho bác sĩ
+      parameters:
+        - $ref: '#/components/parameters/ClinicContextId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Các ca bệnh đang chờ review; kết quả AI gốc và ảnh được giữ nguyên.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    maxItems: 200
+                    items:
+                      $ref: '#/components/schemas/DoctorAnalysis'
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+      x-roles: [DOCTOR]
+      x-resource-scope: ASSIGNED
+  /api/v1/doctor/analyses/{analysisId}:
+    get:
+      summary: Chi tiết ca phân tích dành cho bác sĩ được phân công
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+        - $ref: '#/components/parameters/ClinicContextId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Ảnh gốc, kết quả AI, annotations, chỉ số và reviewVersion hiện tại.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DoctorAnalysis' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+      x-roles: [DOCTOR]
+      x-resource-scope: ASSIGNED
+  /api/v1/doctor/analyses/{analysisId}/reviews:
+    post:
+      summary: Gửi review bác sĩ dưới dạng revision append-only
+      description: >-
+        Kết quả AI không bị cập nhật. baseVersion phải bằng row_version hiện tại;
+        chỉ một request đồng thời được ghi thành công. Request dùng version cũ trả 409.
+        Review, row_version, trạng thái REVIEWED và audit log được ghi trong cùng transaction.
+      parameters:
+        - $ref: '#/components/parameters/AnalysisId'
+        - $ref: '#/components/parameters/ClinicContextId'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewRequest' }
+      responses:
+        '201':
+          description: Revision đã được lưu.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Review' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+      x-roles: [DOCTOR]
+      x-resource-scope: ASSIGNED
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    AnalysisId:
+      name: analysisId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ClinicContextId:
+      name: clinicContextId
+      in: query
+      required: true
+      schema: { type: string, format: uuid }
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema: { type: string, maxLength: 64 }
+  schemas:
+    DoctorAnalysis:
+      type: object
+      required: [analysisId, batchId, patientId, processingStatus, reviewStatus, reviewVersion, image]
+      properties:
+        analysisId: { type: string, format: uuid }
+        batchId: { type: string, format: uuid }
+        patientId: { type: string, format: uuid }
+        processingStatus: { type: string }
+        reviewStatus: { type: string, enum: [NOT_REQUIRED, PENDING, IN_REVIEW, REVIEWED, CORRECTION_REQUIRED] }
+        reviewVersion: { type: integer, minimum: 0 }
+        image:
+          type: object
+          required: [fileId, kind]
+          properties:
+            fileId: { type: string, format: uuid }
+            kind: { const: original }
+        result:
+          type: object
+          description: Kết quả AI bất biến, annotations và các chỉ số mạch máu.
+          additionalProperties: true
+    ReviewRequest:
+      oneOf:
+        - type: object
+          required: [isApproved, baseVersion]
+          properties:
+            isApproved: { const: true }
+            baseVersion: { type: integer, minimum: 0 }
+            doctorNotes: { type: string, maxLength: 2000 }
+          additionalProperties: false
+        - type: object
+          required: [isApproved, baseVersion, correctedRiskLevel, reason]
+          properties:
+            isApproved: { const: false }
+            baseVersion: { type: integer, minimum: 0 }
+            correctedRiskLevel: { type: string, enum: [LOW, MODERATE, HIGH] }
+            reason: { type: string, minLength: 1, maxLength: 1000, pattern: '\S' }
+            doctorNotes: { type: string, maxLength: 2000 }
+          additionalProperties: false
+    Review:
+      type: object
+      required: [reviewId, analysisId, version, isApproved, doctorId, createdAt, aiResultVersion]
+      properties:
+        reviewId: { type: string, format: uuid }
+        analysisId: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+        isApproved: { type: boolean }
+        correctedRiskLevel: { type: string, enum: [LOW, MODERATE, HIGH] }
+        doctorNotes: { type: string }
+        doctorId: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        reason: { type: string }
+        aiResultVersion: { type: integer, minimum: 1 }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, correlationId, retryable]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            correlationId: { type: string }
+            retryable: { type: boolean }

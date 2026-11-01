@@ -29,6 +29,9 @@ public static class AnalysisServiceClients
         services.AddHttpClient<IPatientAccessResolver, ProfileAccessClient>(client => Configure(client, "Profile"))
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
             .RedactLoggedHeaders(new[] { "Authorization", "X-User-Authorization" });
+        services.AddHttpClient("ProfileAssignments", client => Configure(client, "Profile"))
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
+            .RedactLoggedHeaders(new[] { "Authorization", "X-User-Authorization" });
         services.AddHttpClient<ICreditReservations, BillingReservationsClient>(client => Configure(client, "Billing"))
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
             .RedactLoggedHeaders(new[] { "Authorization", "X-User-Authorization" });

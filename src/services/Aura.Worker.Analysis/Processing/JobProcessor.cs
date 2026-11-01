@@ -7,6 +7,7 @@ using Aura.Worker.Analysis.Data.Repositories;
 using Aura.Worker.Analysis.Domain;
 using Aura.Worker.Analysis.Messaging;
 using Aura.Worker.Analysis.Services;
+using AURA.Common.Cache;
 
 namespace Aura.Worker.Analysis.Processing;
 
@@ -33,6 +34,8 @@ public class JobProcessor : IJobProcessor
     private readonly IProfileResolveClient _profileClient;
     private readonly WorkerOptions _workerOptions;
     private readonly ILogger<JobProcessor> _logger;
+    private readonly IBatchRedisProgressService _batchProgress;
+    private readonly IBatchCompletedEventPublisher _batchEvents;
     private readonly string _workerInstanceId;
 
     public JobProcessor(
@@ -41,6 +44,8 @@ public class JobProcessor : IJobProcessor
         IBlobStorageService blobService,
         IAiHttpClient aiClient,
         IProfileResolveClient profileClient,
+        IBatchRedisProgressService batchProgress,
+        IBatchCompletedEventPublisher batchEvents,
         IOptions<WorkerOptions> workerOptions,
         ILogger<JobProcessor> logger)
     {
@@ -49,6 +54,8 @@ public class JobProcessor : IJobProcessor
         _blobService = blobService;
         _aiClient = aiClient;
         _profileClient = profileClient;
+        _batchProgress = batchProgress;
+        _batchEvents = batchEvents;
         _workerOptions = workerOptions.Value;
         _logger = logger;
         _workerInstanceId = $"worker-{Environment.MachineName}-{Guid.NewGuid():N}";
@@ -78,6 +85,9 @@ public class JobProcessor : IJobProcessor
         if (job.Status == JobStatus.Succeeded || job.Status == JobStatus.Failed)
         {
             _logger.LogInformation("Job {JobId} already reached terminal state {Status}. Idempotent ACK.", message.JobId, job.Status);
+            var terminalAnalysis = await _analysisRepo.GetAnalysisAsync(message.AnalysisId, cancellationToken);
+            if (terminalAnalysis is not null)
+                await RecordBatchOutcomeAsync(message, terminalAnalysis, job.Status == JobStatus.Succeeded, cancellationToken);
             return JobProcessResult.AckDuplicate;
         }
 
@@ -94,6 +104,7 @@ public class JobProcessor : IJobProcessor
         {
             _logger.LogInformation("Analysis {AnalysisId} already terminal ({Status}). Acknowledging duplicate job.",
                 analysis.AnalysisId, analysis.ProcessingStatus);
+            await RecordBatchOutcomeAsync(message, analysis, analysis.ProcessingStatus == AnalysisStatus.Completed, cancellationToken);
             return JobProcessResult.AckDuplicate;
         }
 
@@ -136,6 +147,7 @@ public class JobProcessor : IJobProcessor
 
             await _analysisRepo.CommitFailureAsync(analysis.AnalysisId, job.JobId, AnalysisStatus.Rejected,
                 JsonSerializer.Serialize(new { error = "ANALYSIS_ABORT", reason = initialAccess.Reason }), abortEvt, cancellationToken);
+            await RecordBatchOutcomeAsync(message, analysis, isSuccess: false, cancellationToken);
             return JobProcessResult.AckFailure;
         }
 
@@ -158,6 +170,7 @@ public class JobProcessor : IJobProcessor
 
             await _analysisRepo.CommitFailureAsync(analysis.AnalysisId, job.JobId, AnalysisStatus.Failed,
                 JsonSerializer.Serialize(new { error = ErrorCodes.ErrImageMissing, message = ex.Message }), missingEvt, cancellationToken);
+            await RecordBatchOutcomeAsync(message, analysis, isSuccess: false, cancellationToken);
             return JobProcessResult.AckFailure;
         }
 
@@ -199,6 +212,7 @@ public class JobProcessor : IJobProcessor
 
                 await _analysisRepo.CommitFailureAsync(analysis.AnalysisId, job.JobId, AnalysisStatus.LowQuality,
                     JsonSerializer.Serialize(new { errorCode = ErrorCodes.ErrImageLowQuality, message = aiResult.ErrorMessage }), lqEvt, cancellationToken);
+                await RecordBatchOutcomeAsync(message, analysis, isSuccess: false, cancellationToken);
                 return JobProcessResult.AckFailure;
             }
 
@@ -241,6 +255,7 @@ public class JobProcessor : IJobProcessor
 
                     await _analysisRepo.CommitFailureAsync(analysis.AnalysisId, job.JobId, AnalysisStatus.Failed,
                         JsonSerializer.Serialize(new { errorCode = aiResult.ErrorCode ?? ErrorCodes.ErrAiFailed, message = aiResult.ErrorMessage }), failEvt, cancellationToken);
+                    await RecordBatchOutcomeAsync(message, analysis, isSuccess: false, cancellationToken);
                     return JobProcessResult.AckFailure;
                 }
             }
@@ -256,6 +271,7 @@ public class JobProcessor : IJobProcessor
 
             await _analysisRepo.CommitFailureAsync(analysis.AnalysisId, job.JobId, AnalysisStatus.Failed,
                 JsonSerializer.Serialize(new { errorCode = aiResult.ErrorCode ?? ErrorCodes.ErrAiFailed, message = aiResult.ErrorMessage }), termEvt, cancellationToken);
+            await RecordBatchOutcomeAsync(message, analysis, isSuccess: false, cancellationToken);
             return JobProcessResult.AckFailure;
         }
 
@@ -282,6 +298,7 @@ public class JobProcessor : IJobProcessor
 
             await _analysisRepo.CommitFailureAsync(analysis.AnalysisId, job.JobId, AnalysisStatus.Failed,
                 JsonSerializer.Serialize(new { errorCode = validation.ErrorCode, message = validation.ErrorMessage }), invalidEvt, cancellationToken);
+            await RecordBatchOutcomeAsync(message, analysis, isSuccess: false, cancellationToken);
             return JobProcessResult.AckFailure;
         }
 
@@ -305,6 +322,7 @@ public class JobProcessor : IJobProcessor
 
             await _analysisRepo.CommitFailureAsync(analysis.AnalysisId, job.JobId, AnalysisStatus.Rejected,
                 JsonSerializer.Serialize(new { error = "ANALYSIS_ABORT", reason = preCommitAccess.Reason }), abortEvt, cancellationToken);
+            await RecordBatchOutcomeAsync(message, analysis, isSuccess: false, cancellationToken);
             return JobProcessResult.AckFailure;
         }
 
@@ -367,8 +385,21 @@ public class JobProcessor : IJobProcessor
 
         // 14. Commit Result + Analysis status + Job status + Outbox in SINGLE transaction
         await _analysisRepo.CommitSuccessAsync(analysis.AnalysisId, job.JobId, resultJson, completedEvt, cancellationToken);
+        await RecordBatchOutcomeAsync(message, analysis, isSuccess: true, cancellationToken);
         _logger.LogInformation("Successfully processed and committed analysis {AnalysisId}", analysis.AnalysisId);
 
         return JobProcessResult.AckSuccess;
+    }
+
+    private async Task RecordBatchOutcomeAsync(JobRunMessage message, AnalysisRecord analysis, bool isSuccess, CancellationToken cancellationToken)
+    {
+        var result = await _batchProgress.RecordImageOutcomeAsync(analysis.BatchId, analysis.AnalysisId, isSuccess);
+        if (result.IsBatchFinished)
+        {
+            _logger.LogInformation("Batch {BatchId} finished: status={Status}, completed={Completed}, failed={Failed}",
+                result.BatchId, result.BatchStatus, result.Completed, result.Failed);
+            await _batchEvents.PublishAsync(analysis.TenantId, analysis.BatchId, analysis.PatientId,
+                message.CorrelationId, result, cancellationToken);
+        }
     }
 }

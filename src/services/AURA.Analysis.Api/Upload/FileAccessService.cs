@@ -9,6 +9,7 @@ public sealed class StorageOptions
 
     public string OriginalContainer { get; set; } = "aura-originals";
     public string AnnotationContainer { get; set; } = "aura-annotations";
+    public string ReportContainer { get; set; } = "aura-reports";
     public int ReadUrlTtlSeconds { get; set; } = 120;
 }
 

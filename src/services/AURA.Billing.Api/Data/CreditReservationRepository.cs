@@ -267,6 +267,45 @@ public sealed class CreditReservationRepository(
         Guid reservationId, Guid idempotencyKey, string fingerprint, string reason, CancellationToken cancellationToken) =>
         TransitionAsync(reservationId, idempotencyKey, fingerprint, "RELEASE", reason, cancellationToken);
 
+    /// <summary>
+    /// Applies a capture using a caller-owned connection and transaction. The caller is
+    /// responsible for committing or rolling back the transaction, allowing the reservation,
+    /// wallet, ledger and settlement inbox to be committed atomically.
+    /// </summary>
+    internal Task<ReservationOperationResult> CaptureInTransactionAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid reservationId,
+        Guid tenantId,
+        Guid analysisId,
+        int generation,
+        Guid idempotencyKey,
+        string fingerprint,
+        CancellationToken cancellationToken) =>
+        TransitionInTransactionAsync(
+            connection, transaction, reservationId, tenantId, analysisId, generation,
+            idempotencyKey, fingerprint, "CAPTURE", null, cancellationToken);
+
+    /// <summary>
+    /// Applies a release using a caller-owned connection and transaction. The caller is
+    /// responsible for committing or rolling back the transaction, allowing the reservation,
+    /// wallet, ledger and settlement inbox to be committed atomically.
+    /// </summary>
+    internal Task<ReservationOperationResult> ReleaseInTransactionAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid reservationId,
+        Guid tenantId,
+        Guid analysisId,
+        int generation,
+        Guid idempotencyKey,
+        string fingerprint,
+        string reason,
+        CancellationToken cancellationToken) =>
+        TransitionInTransactionAsync(
+            connection, transaction, reservationId, tenantId, analysisId, generation,
+            idempotencyKey, fingerprint, "RELEASE", reason, cancellationToken);
+
     private async Task<ReservationOperationResult> TransitionAsync(
         Guid reservationId,
         Guid idempotencyKey,
@@ -281,154 +320,23 @@ public sealed class CreditReservationRepository(
             await using var transaction = await connection.BeginTransactionAsync(
                 IsolationLevel.ReadCommitted, cancellationToken);
 
-            ReservationStoredRecord? stored;
-            await using (var reservationCommand = new NpgsqlCommand("""
-                SELECT id, tenant_id, analysis_id, generation, wallet_id, units,
-                       environment, is_mock, state, release_reason, created_at
-                FROM billing.credit_reservations
-                WHERE id = @id
-                FOR UPDATE
-                """, connection, transaction))
-            {
-                reservationCommand.Parameters.AddWithValue("id", reservationId);
-                await using var reader = await reservationCommand.ExecuteReaderAsync(cancellationToken);
-                stored = await reader.ReadAsync(cancellationToken)
-                    ? ReadStoredRecord(reader)
-                    : null;
-            }
+            var result = await TransitionInTransactionAsync(
+                connection, transaction, reservationId,
+                expectedTenantId: null,
+                expectedAnalysisId: null,
+                expectedGeneration: null,
+                idempotencyKey, fingerprint, operation, releaseReason, cancellationToken);
 
-            if (stored is null)
+            if (result.Status == ReservationOperationStatus.Changed)
+            {
+                await transaction.CommitAsync(cancellationToken);
+            }
+            else
             {
                 await transaction.RollbackAsync(cancellationToken);
-                return new ReservationOperationResult(ReservationOperationStatus.NotFound);
             }
 
-            // Check the operation key before terminal-state checks so an HTTP retry
-            // with the same key receives the original result.
-            // Ledger rows are append-only and the runtime has SELECT/INSERT only.
-            // The reservation row lock serializes transitions for this reservation;
-            // ledger uniqueness still guards keys shared by different reservations.
-            await using (var keyCommand = new NpgsqlCommand("""
-                SELECT entry_type, request_fingerprint
-                FROM billing.credit_ledger_entries
-                WHERE tenant_id = @tenant_id AND idempotency_key = @idempotency_key
-                """, connection, transaction))
-            {
-                keyCommand.Parameters.AddWithValue("tenant_id", stored.TenantId);
-                keyCommand.Parameters.AddWithValue("idempotency_key", idempotencyKey);
-                await using var keyReader = await keyCommand.ExecuteReaderAsync(cancellationToken);
-                if (await keyReader.ReadAsync(cancellationToken))
-                {
-                    var entryType = keyReader.GetString(0);
-                    var priorFingerprint = keyReader.GetString(1);
-                    await keyReader.DisposeAsync();
-                    await transaction.RollbackAsync(cancellationToken);
-                    return string.Equals(entryType, operation, StringComparison.Ordinal)
-                        && string.Equals(priorFingerprint, fingerprint, StringComparison.Ordinal)
-                        ? new ReservationOperationResult(ReservationOperationStatus.Replayed, stored.Response)
-                        : new ReservationOperationResult(ReservationOperationStatus.IdempotencyConflict);
-                }
-            }
-
-            if (!string.Equals(stored.State, "RESERVED", StringComparison.Ordinal))
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                return new ReservationOperationResult(ReservationOperationStatus.Conflict);
-            }
-
-            if (operation == "CAPTURE" && stored.IsMock
-                && !string.Equals(stored.Environment, "TEST", StringComparison.Ordinal))
-            {
-                await transaction.RollbackAsync(cancellationToken);
-                return new ReservationOperationResult(ReservationOperationStatus.MockLiveBlocked, stored.Response);
-            }
-
-            int currentBalance;
-            await using (var balanceCommand = new NpgsqlCommand("""
-                SELECT balance FROM billing.credit_wallets WHERE id = @wallet_id FOR UPDATE
-                """, connection, transaction))
-            {
-                balanceCommand.Parameters.AddWithValue("wallet_id", stored.WalletId);
-                var value = await balanceCommand.ExecuteScalarAsync(cancellationToken);
-                if (value is not int balance)
-                {
-                    await transaction.RollbackAsync(cancellationToken);
-                    return new ReservationOperationResult(ReservationOperationStatus.Conflict);
-                }
-                currentBalance = balance;
-            }
-
-            var balanceAfter = currentBalance;
-            if (operation == "RELEASE")
-            {
-                await using var creditCommand = new NpgsqlCommand("""
-                    UPDATE billing.credit_wallets
-                    SET balance = balance + @units, updated_at = now()
-                    WHERE id = @wallet_id AND balance <= 2147483647 - @units
-                    RETURNING balance
-                    """, connection, transaction);
-                creditCommand.Parameters.AddWithValue("units", stored.Units);
-                creditCommand.Parameters.AddWithValue("wallet_id", stored.WalletId);
-                var value = await creditCommand.ExecuteScalarAsync(cancellationToken);
-                if (value is not int creditedBalance)
-                {
-                    await transaction.RollbackAsync(cancellationToken);
-                    return new ReservationOperationResult(ReservationOperationStatus.Conflict);
-                }
-                balanceAfter = creditedBalance;
-            }
-
-            await using (var updateReservation = new NpgsqlCommand("""
-                UPDATE billing.credit_reservations
-                SET state = @state,
-                    release_reason = @release_reason,
-                    updated_at = now(),
-                    captured_at = CASE WHEN @state = 'CAPTURED' THEN now() ELSE NULL END,
-                    released_at = CASE WHEN @state = 'RELEASED' THEN now() ELSE NULL END
-                WHERE id = @id AND state = 'RESERVED'
-                """, connection, transaction))
-            {
-                updateReservation.Parameters.AddWithValue("state", operation == "CAPTURE" ? "CAPTURED" : "RELEASED");
-                updateReservation.Parameters.Add("release_reason", NpgsqlDbType.Varchar).Value = (object?)releaseReason ?? DBNull.Value;
-                updateReservation.Parameters.AddWithValue("id", reservationId);
-                var updated = await updateReservation.ExecuteNonQueryAsync(cancellationToken);
-                if (updated != 1)
-                {
-                    await transaction.RollbackAsync(cancellationToken);
-                    return new ReservationOperationResult(ReservationOperationStatus.Conflict);
-                }
-            }
-
-            await using (var insertLedger = new NpgsqlCommand("""
-                INSERT INTO billing.credit_ledger_entries
-                    (wallet_id, tenant_id, reservation_id, entry_type, amount,
-                     balance_after, idempotency_key, request_fingerprint, metadata)
-                VALUES
-                    (@wallet_id, @tenant_id, @reservation_id, @entry_type, @amount,
-                     @balance_after, @idempotency_key, @request_fingerprint, @metadata)
-                """, connection, transaction))
-            {
-                insertLedger.Parameters.AddWithValue("wallet_id", stored.WalletId);
-                insertLedger.Parameters.AddWithValue("tenant_id", stored.TenantId);
-                insertLedger.Parameters.AddWithValue("reservation_id", reservationId);
-                insertLedger.Parameters.AddWithValue("entry_type", operation);
-                insertLedger.Parameters.AddWithValue("amount", operation == "CAPTURE" ? 0 : stored.Units);
-                insertLedger.Parameters.AddWithValue("balance_after", balanceAfter);
-                insertLedger.Parameters.AddWithValue("idempotency_key", idempotencyKey);
-                insertLedger.Parameters.AddWithValue("request_fingerprint", fingerprint);
-                insertLedger.Parameters.Add("metadata", NpgsqlDbType.Jsonb).Value = JsonSerializer.Serialize(new
-                {
-                    operation,
-                    releaseReason,
-                    environment = stored.Environment,
-                    isMock = stored.IsMock
-                });
-                await insertLedger.ExecuteNonQueryAsync(cancellationToken);
-            }
-
-            await transaction.CommitAsync(cancellationToken);
-            var final = await GetAsync(reservationId, cancellationToken);
-            return new ReservationOperationResult(ReservationOperationStatus.Changed, final);
+            return result;
         }
         catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
         {
@@ -437,6 +345,185 @@ public sealed class CreditReservationRepository(
         }
     }
 
+    /// <summary>
+    /// Performs the reservation, wallet and ledger transition inside an existing transaction.
+    /// This method deliberately does not commit or roll back; its caller owns transaction scope.
+    /// When expected binding values are supplied, all four identifiers must match the locked row.
+    /// </summary>
+    private static async Task<ReservationOperationResult> TransitionInTransactionAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        Guid reservationId,
+        Guid? expectedTenantId,
+        Guid? expectedAnalysisId,
+        int? expectedGeneration,
+        Guid idempotencyKey,
+        string fingerprint,
+        string operation,
+        string? releaseReason,
+        CancellationToken cancellationToken)
+    {
+        if (connection.State != ConnectionState.Open)
+        {
+            throw new InvalidOperationException("The supplied Billing transaction connection must be open.");
+        }
+
+        if (!ReferenceEquals(transaction.Connection, connection))
+        {
+            throw new ArgumentException("The supplied Npgsql transaction does not belong to the supplied connection.", nameof(transaction));
+        }
+
+        ReservationStoredRecord? stored;
+        await using (var reservationCommand = new NpgsqlCommand("""
+            SELECT id, tenant_id, analysis_id, generation, wallet_id, units,
+                   environment, is_mock, state, release_reason, created_at
+            FROM billing.credit_reservations
+            WHERE id = @id
+            FOR UPDATE
+            """, connection, transaction))
+        {
+            reservationCommand.Parameters.AddWithValue("id", reservationId);
+            await using var reader = await reservationCommand.ExecuteReaderAsync(cancellationToken);
+            stored = await reader.ReadAsync(cancellationToken)
+                ? ReadStoredRecord(reader)
+                : null;
+        }
+
+        if (stored is null)
+        {
+            return new ReservationOperationResult(ReservationOperationStatus.NotFound);
+        }
+
+        if ((expectedTenantId.HasValue && stored.TenantId != expectedTenantId.Value)
+            || (expectedAnalysisId.HasValue && stored.Response.AnalysisId != expectedAnalysisId.Value)
+            || (expectedGeneration.HasValue && stored.Response.Generation != expectedGeneration.Value))
+        {
+            return new ReservationOperationResult(ReservationOperationStatus.Conflict);
+        }
+
+        // Check the operation key before terminal-state checks so an HTTP retry
+        // with the same key receives the original result.
+        // Ledger rows are append-only and the runtime has SELECT/INSERT only.
+        // The reservation row lock serializes transitions for this reservation;
+        // ledger uniqueness still guards keys shared by different reservations.
+        await using (var keyCommand = new NpgsqlCommand("""
+            SELECT entry_type, request_fingerprint
+            FROM billing.credit_ledger_entries
+            WHERE tenant_id = @tenant_id AND idempotency_key = @idempotency_key
+            """, connection, transaction))
+        {
+            keyCommand.Parameters.AddWithValue("tenant_id", stored.TenantId);
+            keyCommand.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+            await using var keyReader = await keyCommand.ExecuteReaderAsync(cancellationToken);
+            if (await keyReader.ReadAsync(cancellationToken))
+            {
+                var entryType = keyReader.GetString(0);
+                var priorFingerprint = keyReader.GetString(1);
+                await keyReader.DisposeAsync();
+                return string.Equals(entryType, operation, StringComparison.Ordinal)
+                    && string.Equals(priorFingerprint, fingerprint, StringComparison.Ordinal)
+                    ? new ReservationOperationResult(ReservationOperationStatus.Replayed, stored.Response)
+                    : new ReservationOperationResult(ReservationOperationStatus.IdempotencyConflict);
+            }
+        }
+
+        if (!string.Equals(stored.State, "RESERVED", StringComparison.Ordinal))
+        {
+            return new ReservationOperationResult(ReservationOperationStatus.Conflict);
+        }
+
+        if (operation == "CAPTURE" && stored.IsMock
+            && !string.Equals(stored.Environment, "TEST", StringComparison.Ordinal))
+        {
+            return new ReservationOperationResult(ReservationOperationStatus.MockLiveBlocked, stored.Response);
+        }
+
+        int currentBalance;
+        await using (var balanceCommand = new NpgsqlCommand("""
+            SELECT balance FROM billing.credit_wallets WHERE id = @wallet_id FOR UPDATE
+            """, connection, transaction))
+        {
+            balanceCommand.Parameters.AddWithValue("wallet_id", stored.WalletId);
+            var value = await balanceCommand.ExecuteScalarAsync(cancellationToken);
+            if (value is not int balance)
+            {
+                return new ReservationOperationResult(ReservationOperationStatus.Conflict);
+            }
+            currentBalance = balance;
+        }
+
+        var balanceAfter = currentBalance;
+        if (operation == "RELEASE")
+        {
+            await using var creditCommand = new NpgsqlCommand("""
+                UPDATE billing.credit_wallets
+                SET balance = balance + @units, updated_at = now()
+                WHERE id = @wallet_id AND balance <= 2147483647 - @units
+                RETURNING balance
+                """, connection, transaction);
+            creditCommand.Parameters.AddWithValue("units", stored.Units);
+            creditCommand.Parameters.AddWithValue("wallet_id", stored.WalletId);
+            var value = await creditCommand.ExecuteScalarAsync(cancellationToken);
+            if (value is not int creditedBalance)
+            {
+                return new ReservationOperationResult(ReservationOperationStatus.Conflict);
+            }
+            balanceAfter = creditedBalance;
+        }
+
+        var finalState = operation == "CAPTURE" ? "CAPTURED" : "RELEASED";
+        await using (var updateReservation = new NpgsqlCommand("""
+            UPDATE billing.credit_reservations
+            SET state = @state,
+                release_reason = @release_reason,
+                updated_at = now(),
+                captured_at = CASE WHEN @state = 'CAPTURED' THEN now() ELSE NULL END,
+                released_at = CASE WHEN @state = 'RELEASED' THEN now() ELSE NULL END
+            WHERE id = @id AND state = 'RESERVED'
+            """, connection, transaction))
+        {
+            updateReservation.Parameters.AddWithValue("state", finalState);
+            updateReservation.Parameters.Add("release_reason", NpgsqlDbType.Varchar).Value = (object?)releaseReason ?? DBNull.Value;
+            updateReservation.Parameters.AddWithValue("id", reservationId);
+            var updated = await updateReservation.ExecuteNonQueryAsync(cancellationToken);
+            if (updated != 1)
+            {
+                return new ReservationOperationResult(ReservationOperationStatus.Conflict);
+            }
+        }
+
+        await using (var insertLedger = new NpgsqlCommand("""
+            INSERT INTO billing.credit_ledger_entries
+                (wallet_id, tenant_id, reservation_id, entry_type, amount,
+                 balance_after, idempotency_key, request_fingerprint, metadata)
+            VALUES
+                (@wallet_id, @tenant_id, @reservation_id, @entry_type, @amount,
+                 @balance_after, @idempotency_key, @request_fingerprint, @metadata)
+            """, connection, transaction))
+        {
+            insertLedger.Parameters.AddWithValue("wallet_id", stored.WalletId);
+            insertLedger.Parameters.AddWithValue("tenant_id", stored.TenantId);
+            insertLedger.Parameters.AddWithValue("reservation_id", reservationId);
+            insertLedger.Parameters.AddWithValue("entry_type", operation);
+            insertLedger.Parameters.AddWithValue("amount", operation == "CAPTURE" ? 0 : stored.Units);
+            insertLedger.Parameters.AddWithValue("balance_after", balanceAfter);
+            insertLedger.Parameters.AddWithValue("idempotency_key", idempotencyKey);
+            insertLedger.Parameters.AddWithValue("request_fingerprint", fingerprint);
+            insertLedger.Parameters.Add("metadata", NpgsqlDbType.Jsonb).Value = JsonSerializer.Serialize(new
+            {
+                operation,
+                releaseReason,
+                environment = stored.Environment,
+                isMock = stored.IsMock
+            });
+            await insertLedger.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // Return the known terminal state without opening a second connection.
+        // The outer transaction may still roll back if the inbox update fails.
+        var finalResponse = stored.Response with { State = finalState };
+        return new ReservationOperationResult(ReservationOperationStatus.Changed, finalResponse);
+    }
     private async Task<ReservationStoredRecord?> FindByIdempotencyKeyAsync(
         Guid tenantId, Guid idempotencyKey, CancellationToken cancellationToken)
     {
@@ -503,6 +590,7 @@ public sealed class CreditReservationRepository(
     string? ReleaseReason,
     string Fingerprint,
     string State);
+
     public async Task<IReadOnlyList<StaleReservationRecord>> GetStaleReservationsAsync(
         int thresholdMinutes,
         int limit,
@@ -546,3 +634,4 @@ public sealed record StaleReservationRecord(
     Guid WalletId,
     int Units,
     DateTimeOffset UpdatedAt);
+

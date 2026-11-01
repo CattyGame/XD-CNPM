@@ -70,3 +70,24 @@ public class AnalysisFailedData
     [JsonPropertyName("terminalStatus")]
     public string TerminalStatus { get; set; } = "FAILED";
 }
+
+public class BatchCompletedData
+{
+    [JsonPropertyName("batchId")]
+    public Guid BatchId { get; set; }
+
+    [JsonPropertyName("patientId")]
+    public Guid PatientId { get; set; }
+
+    [JsonPropertyName("batchStatus")]
+    public string BatchStatus { get; set; } = "COMPLETED";
+
+    [JsonPropertyName("totalImages")]
+    public int TotalImages { get; set; }
+
+    [JsonPropertyName("completedImages")]
+    public int CompletedImages { get; set; }
+
+    [JsonPropertyName("failedImages")]
+    public int FailedImages { get; set; }
+}

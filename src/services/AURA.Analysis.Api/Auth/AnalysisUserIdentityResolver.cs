@@ -92,6 +92,14 @@ public sealed class AnalysisUserIdentityResolver(IHttpClientFactory clients, ISe
 /// This is not the separate DOCTOR review policy or a service/NiFi ingest policy.</summary>
 public static class AnalysisUserPolicy
 {
+    public static void RequireDoctor(AnalysisUserContext context)
+    {
+        if (context.AccountId == Guid.Empty || context.Roles is null)
+            throw new UploadFailure(401, "ERR_UNAUTHORIZED", "Cần xác thực tài khoản.");
+        if (!context.Roles.Contains("DOCTOR", StringComparer.Ordinal))
+            throw new UploadFailure(403, "ERR_FORBIDDEN", "Chức năng này chỉ dành cho bác sĩ.");
+    }
+
     public static void RequireClinicalRole(AnalysisUserContext context)
     {
         if (context.AccountId == Guid.Empty || context.Roles is null)

@@ -20,6 +20,7 @@ internal static class OutboxContractValidator
     private static string? Str(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
     private static bool Uuid(JsonElement e, string n) => Str(e,n) is { } s && Guid.TryParseExact(s,"D",out var g) && g!=Guid.Empty && g.ToString("D")==s;
     private static bool Integer(JsonElement e, string n) => e.TryGetProperty(n,out var p) && p.ValueKind==JsonValueKind.Number && p.TryGetInt32(out var v) && v>=1;
+    private static bool NonNegativeInteger(JsonElement e, string n) => e.TryGetProperty(n,out var p) && p.ValueKind==JsonValueKind.Number && p.TryGetInt32(out var v) && v>=0;
     private static bool Boolean(JsonElement e, string n) => e.TryGetProperty(n,out var p) && p.ValueKind is JsonValueKind.True or JsonValueKind.False;
     public static bool IsValid(JsonElement e, bool job)
     {
@@ -41,6 +42,21 @@ internal static class OutboxContractValidator
                 return Keys(d,"patientId","errorCode","retryable","terminalStatus") && Uuid(d,"patientId") && d.GetProperty("retryable").ValueKind==JsonValueKind.False
                     && (Str(d,"terminalStatus") is "FAILED" or "LOW_QUALITY" or "REJECTED")
                     && (Str(d,"errorCode") is "ERR_AI_FAILED" or "ERR_TIMEOUT" or "ERR_NETWORK" or "ERR_IMAGE_LOW_QUALITY" or "ERR_IMAGE_MISSING" or "ERR_UNAUTHORIZED" or "ERR_VALIDATION" or "ERR_AI_OUTPUT_INVALID");
+            case "batch.completed":
+                if (!Keys(d,"batchId","patientId","batchStatus","totalImages","completedImages","failedImages")
+                    || !Uuid(d,"batchId") || !Uuid(d,"patientId")
+                    || Str(d,"batchStatus") is not ("COMPLETED" or "PARTIAL_COMPLETED" or "FAILED")
+                    || !NonNegativeInteger(d,"completedImages") || !NonNegativeInteger(d,"failedImages")
+                    || !Integer(d,"totalImages") || d.GetProperty("totalImages").GetInt32() > 100) return false;
+                return d.GetProperty("completedImages").GetInt32() + d.GetProperty("failedImages").GetInt32()
+                    == d.GetProperty("totalImages").GetInt32()
+                    && Uuid(e,"analysisId") && (Str(d,"batchStatus") switch
+                    {
+                        "COMPLETED" => d.GetProperty("failedImages").GetInt32() == 0,
+                        "PARTIAL_COMPLETED" => d.GetProperty("completedImages").GetInt32() > 0 && d.GetProperty("failedImages").GetInt32() > 0,
+                        "FAILED" => d.GetProperty("completedImages").GetInt32() == 0 && d.GetProperty("failedImages").GetInt32() > 0,
+                        _ => false
+                    });
             default: return false;
         }
     }

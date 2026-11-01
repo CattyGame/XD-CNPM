@@ -135,6 +135,14 @@ services:
       ASPNETCORE_HTTP_PORTS: "8080"
       Billing__Environment: "TEST"
       Billing__IsMock: "false"
+      BillingSettlement__Enabled: "${BILLING_SETTLEMENT_ENABLED:-false}"
+      BillingSettlement__ConsumerName: "s3-billing"
+      BillingSettlement__Host: "rabbitmq"
+      BillingSettlement__Port: "5672"
+      BillingSettlement__VirtualHost: "/aura-s3"
+      BillingSettlement__User: "${BILLING_RABBITMQ_USER:-s3-billing}"
+      BillingSettlement__Password: "${BILLING_RABBITMQ_PASSWORD:-}"
+      BillingSettlement__Queue: "aura.s3.billing.events"
       ConnectionStrings__Postgres: >-
         Host=postgres;Port=5432;Database=${POSTGRES_DB};
         Username=aura_billing_app;
@@ -145,6 +153,7 @@ services:
       Cache__PackageCatalogTtlSeconds: "60"
       Services__Identity__BaseUrl: "http://identity-api:8080"
       Services__Profile__BaseUrl: "http://profile-api:8080"
+      Services__Analysis__BaseUrl: "http://analysis-api:8080"
       ServiceAuth__Issuer: "aura-identity-local"
       ServiceAuth__Audience: "aura-billing"
       ServiceAuth__ClientId: "billing-api"
@@ -158,6 +167,10 @@ services:
         condition: service_started
       profile-api:
         condition: service_started
+      analysis-api:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
     networks:
       - aura_network
     restart: unless-stopped

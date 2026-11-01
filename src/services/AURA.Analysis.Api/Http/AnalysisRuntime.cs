@@ -1,6 +1,8 @@
 using AURA.Analysis.Api.Upload;
+using AURA.Common.Cache;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
+using StackExchange.Redis;
 
 namespace AURA.Analysis.Api.Http;
 
@@ -9,6 +11,8 @@ public static class AnalysisRuntime
     public static IServiceCollection AddAnalysisRuntime(this IServiceCollection services,IConfiguration configuration,IHostEnvironment environment)
     {
         var raw=configuration.GetConnectionString("Postgres");
+        var redisConnection=configuration.GetConnectionString("Redis");
+        if(string.IsNullOrWhiteSpace(redisConnection))throw new InvalidOperationException("Analysis Redis configuration is required.");
         if(string.IsNullOrWhiteSpace(raw))throw new InvalidOperationException("Analysis PostgreSQL configuration is required.");
         NpgsqlConnectionStringBuilder db;
         try{db=new NpgsqlConnectionStringBuilder(raw);}
@@ -31,18 +35,25 @@ public static class AnalysisRuntime
         if(options.MaxImageBytes is <1 or >10485760||options.MaxImagePixels is <1 or >16000000||options.MaxImagesPerRequest is <1 or >100
             ||options.MaxRequestBytes<options.MaxImageBytes||options.MaxRequestBytes>1101004800||options.OriginalsContainer!="aura-originals")
             throw new InvalidOperationException("Invalid Analysis upload limits.");
-        services.AddSingleton(options);services.AddSingleton(new StorageOptions());
+        services.AddSingleton(options);services.AddSingleton(configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>()??new());
         services.AddSingleton(new AnalysisUploadGate(capacity));services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton(_=>NpgsqlDataSource.Create(db.ConnectionString));
+        services.AddSingleton<IConnectionMultiplexer>(_=>ConnectionMultiplexer.Connect(redisConnection));
+        services.AddSingleton<IBatchRedisProgressService,BatchRedisProgressService>();
         services.AddAnalysisServiceClients(configuration);services.AddAnalysisPrivateStorage(configuration,environment);
         services.AddTransient<IUploadRepository,PostgresUploadRepository>();services.AddTransient<IUploadRecoveryJournal,PostgresUploadRecoveryRepository>();
         services.AddTransient<IFileAccessRepository,PostgresFileAccessRepository>();services.AddTransient<IBatchStatusRepository,PostgresBatchStatusRepository>();
         services.AddTransient<IAnalysisQueryRepository,PostgresAnalysisQueryRepository>();
+        services.AddTransient<IDoctorWorklistRepository,PostgresAnalysisQueryRepository>();
+        services.AddTransient<IDoctorReviewRepository,PostgresDoctorReviewRepository>();
+        services.AddTransient<IDoctorAssignmentClient,ProfileDoctorAssignmentClient>();
         services.AddTransient<IInternalResolversRepository,PostgresInternalResolversRepository>();
         services.AddTransient<UploadPlanningService>();services.AddTransient<IAnalysisUploadHandler,DurableUploadService>();
         services.AddTransient<IAnalysisReadinessChecks,AnalysisReadinessChecks>();
         services.AddTransient<BatchStatusService>();services.AddTransient<FileAccessService>();
+        services.AddTransient<AnalysisReportService>();
         services.AddTransient<AnalysisQueryService>();services.AddTransient<InternalResolversService>();
+        services.AddTransient<DoctorReviewService>();services.AddTransient<DoctorWorklistService>();
         return services;
     }
 }

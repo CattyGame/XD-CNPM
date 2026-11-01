@@ -134,6 +134,21 @@ public sealed class PostgresUploadRepository(NpgsqlDataSource dataSource) : IUpl
             else
                 await PostgresUploadRecoveryRepository.RejectUnjournaledCommitAsync(connection, transaction, plan, ct);
             await using (var command = new NpgsqlCommand("""
+                INSERT INTO analysis.batches
+                    (id,tenant_id,owner_id,requester_id,patient_id,total_images,status,created_at,updated_at)
+                VALUES ($1,$2,$3,$4,$5,$6,'IN_PROGRESS',$7,$7);
+                """, connection, transaction))
+            {
+                command.Parameters.AddWithValue(plan.BatchId);
+                command.Parameters.AddWithValue(plan.TenantId);
+                command.Parameters.AddWithValue(plan.OwnerId);
+                command.Parameters.AddWithValue(plan.RequesterId);
+                command.Parameters.AddWithValue(plan.PatientId);
+                command.Parameters.AddWithValue(plan.Images.Count);
+                command.Parameters.AddWithValue(plan.CreatedAt.UtcDateTime);
+                await command.ExecuteNonQueryAsync(ct);
+            }
+            await using (var command = new NpgsqlCommand("""
                 INSERT INTO analysis.analysis_requests
                     (id,tenant_id,owner_id,requester_id,patient_id,idempotency_key,request_fingerprint,
                      request_schema_version,accepted_response,correlation_id,created_at,updated_at)
@@ -157,9 +172,9 @@ public sealed class PostgresUploadRepository(NpgsqlDataSource dataSource) : IUpl
             {
                 await using (var command = new NpgsqlCommand("""
                     INSERT INTO analysis.images
-                      (id,tenant_id,analysis_request_id,file_id,modality,eye_side,object_key,mime_type,
+                      (id,tenant_id,analysis_request_id,batch_id,file_id,modality,eye_side,object_key,mime_type,
                        size_bytes,width,height,sha256,processing_status,existing_analysis_id,created_at,updated_at)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15);
+                    VALUES ($1,$2,$3,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$15);
                     """, connection, transaction))
                 {
                     command.Parameters.AddWithValue(image.AnalysisId);

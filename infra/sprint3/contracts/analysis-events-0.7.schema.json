@@ -24,7 +24,8 @@
         "analysis.requested",
         "analysis.completed",
         "analysis.failed",
-        "analysis.reviewed"
+        "analysis.reviewed",
+        "batch.completed"
       ]
     },
     "schemaVersion": {
@@ -260,6 +261,32 @@
                 "type": "integer",
                 "minimum": 1
               }
+            },
+            "additionalProperties": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "eventType": {
+            "const": "batch.completed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "data": {
+            "type": "object",
+            "required": ["batchId", "patientId", "batchStatus", "totalImages", "completedImages", "failedImages"],
+            "properties": {
+              "batchId": { "type": "string", "format": "uuid" },
+              "patientId": { "type": "string", "format": "uuid" },
+              "batchStatus": { "enum": ["COMPLETED", "PARTIAL_COMPLETED", "FAILED"] },
+              "totalImages": { "type": "integer", "minimum": 1, "maximum": 100 },
+              "completedImages": { "type": "integer", "minimum": 0 },
+              "failedImages": { "type": "integer", "minimum": 0 }
             },
             "additionalProperties": false
           }

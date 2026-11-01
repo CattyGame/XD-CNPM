@@ -1,10 +1,127 @@
 using AURA.Analysis.Api.Upload;
 using Xunit;
+using AURA.Common.Cache;
 
 namespace AURA.Analysis.Api.Tests;
 
 public sealed class DurableUploadTests
 {
+
+        private sealed class BatchProgressStub : IBatchRedisProgressService
+    {
+        private sealed class BatchState
+        {
+            public BatchState(int total)
+            {
+                Total = total;
+                CreatedAt = DateTime.UtcNow;
+            }
+
+            public int Total { get; }
+            public int Completed { get; set; }
+            public int Failed { get; set; }
+            public DateTime CreatedAt { get; }
+            public HashSet<Guid> RecordedImages { get; } = new();
+        }
+
+        private readonly Dictionary<Guid, BatchState> _states = new();
+
+
+        public Task InitializeBatchAsync(
+            Guid batchId,
+            int totalImages,
+            TimeSpan? expiry = null)
+        {
+            if (batchId == Guid.Empty || totalImages is < 1 or > 100)
+            {
+                throw new ArgumentException("Invalid batch initialization.");
+            }
+
+            // Idempotent initialization for upload retries.
+            _states.TryAdd(batchId, new BatchState(totalImages));
+            return Task.CompletedTask;
+        }
+
+        public Task<BatchProgressSnapshot?> GetProgressAsync(Guid batchId)
+        {
+            if (!_states.TryGetValue(batchId, out var state))
+            {
+                return Task.FromResult<BatchProgressSnapshot?>(null);
+            }
+
+            var processing = state.Total - state.Completed - state.Failed;
+            var status = GetStatus(state, processing);
+
+            return Task.FromResult<BatchProgressSnapshot?>(
+                new BatchProgressSnapshot(
+                    batchId,
+                    state.Total,
+                    processing,
+                    state.Completed,
+                    state.Failed,
+                    status,
+                    state.CreatedAt,
+                    DateTime.UtcNow));
+        }
+
+        public Task<BatchImageCompletionResult> RecordImageOutcomeAsync(
+            Guid batchId,
+            Guid imageId,
+            bool isSuccess)
+        {
+            if (!_states.TryGetValue(batchId, out var state))
+            {
+                throw new InvalidOperationException(
+                    "Batch progress has not been initialized.");
+            }
+
+            if (imageId == Guid.Empty)
+            {
+                throw new ArgumentException("Image ID is required.");
+            }
+
+            // Avoid counting the same image outcome twice.
+            if (state.RecordedImages.Add(imageId))
+            {
+                if (isSuccess)
+                {
+                    state.Completed++;
+                }
+                else
+                {
+                    state.Failed++;
+                }
+            }
+
+            var processing = state.Total - state.Completed - state.Failed;
+            var status = GetStatus(state, processing);
+
+            return Task.FromResult(
+                new BatchImageCompletionResult(
+                    batchId,
+                    state.Total,
+                    state.Completed,
+                    state.Failed,
+                    processing,
+                    processing == 0,
+                    status));
+        }
+
+        private static string GetStatus(BatchState state, int processing)
+        {
+            if (processing > 0)
+                return "IN_PROGRESS";
+
+            if (state.Failed == 0)
+                return "COMPLETED";
+
+            if (state.Completed == 0)
+                return "FAILED";
+
+            return "PARTIAL_COMPLETED";
+        }
+    }
+
     private sealed class Journal : IUploadRecoveryJournal
     {
         public UploadRecoveryRecord? Current;
@@ -73,10 +190,17 @@ public sealed class DurableUploadTests
     }
     private sealed class Rig
     {
+        public readonly BatchProgressStub BatchProgress = new();
         public readonly FakeAccess Access=new();public readonly Journal Journal=new();public readonly Billing Billing=new();public readonly Storage Storage=new();
         public readonly Repository Repo;
         public Rig()=>Repo=new(Journal);
-        public DurableUploadService Service()=>new(new(new UploadOptions(),Access,Repo,TimeProvider.System),Journal,Billing,Storage);
+        public DurableUploadService Service() =>
+            new(
+                new(new UploadOptions(), Access, Repo, TimeProvider.System),
+                Journal,
+                Billing,
+                Storage,
+                BatchProgress);
         public readonly Guid Requester=Guid.NewGuid(),Patient=Guid.NewGuid(),Key=Guid.NewGuid();
         public UploadCommand Command(int count=1,int seed=1)=>new(Requester,null,Key,"durable-check",Patient.ToString(),"FUNDUS","left",
             Enumerable.Range(0,count).Select(i=>(IUploadedFile)new MemFile("synthetic.jpg",TestImages.Jpeg(32,32,seed:seed+i),"image/jpeg")).ToArray());

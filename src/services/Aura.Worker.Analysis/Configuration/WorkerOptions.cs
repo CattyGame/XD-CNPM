@@ -26,6 +26,7 @@ public class RabbitMqOptions
     public string QueueName { get; set; } = "aura.s3.analysis.jobs";
     public string RetryExchange { get; set; } = "aura.s3.retry";
     public string DeadExchange { get; set; } = "aura.s3.dead";
+    public string EventsExchange { get; set; } = "aura.s3.events";
 }
 
 public class BlobStorageOptions

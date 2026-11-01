@@ -2,8 +2,29 @@ using Npgsql;
 
 namespace AURA.Analysis.Api.Upload;
 
-public sealed class PostgresAnalysisQueryRepository(NpgsqlDataSource dataSource) : IAnalysisQueryRepository
+public sealed class PostgresAnalysisQueryRepository(NpgsqlDataSource dataSource) : IAnalysisQueryRepository, IDoctorWorklistRepository
 {
+    public async Task<IReadOnlyList<AnalysisIdentity>> ListDoctorWorklistAsync(Guid tenantId, Guid patientId, CancellationToken ct)
+    {
+        if (tenantId == Guid.Empty || patientId == Guid.Empty) return Array.Empty<AnalysisIdentity>();
+        await using var command = dataSource.CreateCommand("""
+            SELECT i.id, i.analysis_request_id, i.tenant_id, r.patient_id, r.owner_id
+            FROM analysis.images i
+            JOIN analysis.analysis_requests r ON r.tenant_id = i.tenant_id AND r.id = i.analysis_request_id
+            WHERE i.tenant_id = $1 AND r.patient_id = $2
+              AND i.processing_status = 'COMPLETED' AND i.review_status = 'PENDING'
+            ORDER BY i.created_at
+            LIMIT 100;
+            """);
+        command.Parameters.AddWithValue(tenantId);
+        command.Parameters.AddWithValue(patientId);
+        var identities = new List<AnalysisIdentity>();
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+            identities.Add(new(reader.GetGuid(0), reader.GetGuid(1), reader.GetGuid(2), reader.GetGuid(3), reader.GetGuid(4)));
+        return identities;
+    }
+
     public async Task<AnalysisIdentity?> FindIdentityAsync(Guid analysisId, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
@@ -35,7 +56,7 @@ public sealed class PostgresAnalysisQueryRepository(NpgsqlDataSource dataSource)
                    j.id AS job_id, j.status AS job_status, j.attempt_no, j.retryable, j.error_code,
                    ar.id AS result_id, ar.version, ar.risk_assessment::text, ar.metrics::text, ar.warnings::text,
                    ar.is_mock, ar.model_version, ar.config_version, ar.threshold_version,
-                   ar.processing_time_ms, ar.limitations
+                   ar.processing_time_ms, ar.limitations, i.row_version
             FROM analysis.images i
             JOIN analysis.analysis_requests r ON r.tenant_id = i.tenant_id AND r.id = i.analysis_request_id
             LEFT JOIN LATERAL (
@@ -71,6 +92,7 @@ public sealed class PostgresAnalysisQueryRepository(NpgsqlDataSource dataSource)
         var requesterId = reader.GetGuid(8);
         var fileId = reader.GetGuid(9);
         var existingAnalysisId = reader.IsDBNull(10) ? (Guid?)null : reader.GetGuid(10);
+        var reviewVersion = reader.GetInt32(27);
 
         AnalysisJobDetail? job = null;
         bool jobRetryable = false;
@@ -143,6 +165,6 @@ public sealed class PostgresAnalysisQueryRepository(NpgsqlDataSource dataSource)
             analysisId, batchId, patientId, processingStatus, reviewStatus,
             createdAt, updatedAt, ownerId, requesterId,
             new AnalysisImageRef(fileId, "original"),
-            job, result, error, existingAnalysisId);
+            job, result, error, existingAnalysisId, reviewVersion);
     }
 }
