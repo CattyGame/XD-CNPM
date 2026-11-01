@@ -1,6 +1,6 @@
 # Tài liệu Hợp đồng Phân giải Quyền Tài nguyên (Resource Authorization Contract)
-**Module Cung cấp:** M6 — Identity & Profile Service  
-**Module Tiêu thụ:** M2 — Analysis Service / AI Worker / API Gateway  
+**Module Cung cấp:** M6 — Identity & Profile Service
+**Module Tiêu thụ:** M2 — Analysis Service / AI Worker / API Gateway
 **Mục tiêu:** Kiểm tra và cấp phép cho Actor (Bác sĩ, Kỹ thuật viên, Bệnh nhân) khi thực hiện các thao tác: truy xuất kết quả phân tích ảnh đáy mắt (`ANALYSIS_READ`), tải tệp ảnh gốc/mask (`ANALYSIS_FILE_READ`), hoặc nộp kết luận chuyên môn bác sĩ (`DOCTOR_REVIEW`).
 
 ---
