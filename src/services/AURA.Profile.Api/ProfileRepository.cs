@@ -18,7 +18,7 @@ public class ProfileRepository
 
         const string sql = @"
             SELECT p.account_id, p.display_name, p.phone, p.personal_tenant_id, p.profile_version,
-                   pt.patient_id
+                   pt.patient_id, p.email
             FROM profile.profiles p
             LEFT JOIN profile.patients pt ON pt.linked_account_id = p.account_id
             WHERE p.account_id = $1
@@ -36,8 +36,9 @@ public class ProfileRepository
             var personalTenantId = reader.IsDBNull(3) ? (Guid?)null : reader.GetGuid(3);
             var profileVersion = reader.GetInt32(4);
             var patientId = reader.IsDBNull(5) ? (Guid?)null : reader.GetGuid(5);
+            var email = reader.IsDBNull(6) ? null : reader.GetString(6);
 
-            return new UserProfileResponse(accId, displayName, phone, patientId, personalTenantId, profileVersion);
+            return new UserProfileResponse(accId, displayName, phone, patientId, personalTenantId, profileVersion, email);
         }
 
         return null;

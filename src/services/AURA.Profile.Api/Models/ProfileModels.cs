@@ -19,7 +19,8 @@ public sealed record UserProfileResponse(
     [property: JsonPropertyName("phone")] string? Phone,
     [property: JsonPropertyName("patientId")] Guid? PatientId,
     [property: JsonPropertyName("personalTenantId")] Guid? PersonalTenantId,
-    [property: JsonPropertyName("profileVersion")] int ProfileVersion
+    [property: JsonPropertyName("profileVersion")] int ProfileVersion,
+    [property: JsonPropertyName("email")] string? Email = null
 );
 
 // CHÚ Ý AN TOÀN: Request cập nhật hồ sơ TUYỆT ĐỐI KHÔNG chứa role, accountId, tenantId, patientId.
