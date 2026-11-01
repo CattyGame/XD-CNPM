@@ -229,7 +229,7 @@ jobs:
             -f compose.yaml -f compose.dev.yaml config -q
 
       - name: Start clean PostgreSQL and Redis
-        run: docker compose --env-file .env.example up -d --wait postgres redis
+        run: docker compose --env-file .env.example up -d --wait postgres redis rabbitmq
 
       - name: Apply all service migrations
         shell: pwsh
@@ -246,6 +246,7 @@ jobs:
             psql -X -v ON_ERROR_STOP=1 -U aura_dev -d aura_dev <<'SQL'
           ALTER ROLE aura_identity_app LOGIN PASSWORD 'replace_with_identity_runtime_password';
           ALTER ROLE aura_profile_app LOGIN PASSWORD 'replace_with_profile_runtime_password';
+          ALTER ROLE aura_analysis_app LOGIN PASSWORD 'replace_with_analysis_runtime_password';
           ALTER ROLE aura_billing_app LOGIN PASSWORD 'ci-placeholder-not-a-real-password';
           SQL
 
