@@ -1,3 +1,4 @@
+using System.Text.Json;
 using AURA.Profile.Api.Models;
 using Npgsql;
 
@@ -199,8 +200,12 @@ public class ProfileRepository
         return (false, null, false);
     }
 
-    public async Task<AccessResolveResponse> ResolveAccessAsync(
+    public Task<AccessResolveResponse> ResolveAccessAsync(
         Guid actorAccountId, Guid patientId, Guid? clinicContextId, string action, CancellationToken cancellationToken = default)
+        => ResolveAccessAsync(actorAccountId, patientId, clinicContextId, action, null, cancellationToken);
+
+    public async Task<AccessResolveResponse> ResolveAccessAsync(
+        Guid actorAccountId, Guid patientId, Guid? clinicContextId, string action, Guid? analysisId, CancellationToken cancellationToken = default)
     {
         var allowedActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -383,12 +388,19 @@ public class ProfileRepository
         {
             const string assignSql = @"
                 SELECT assignment_id FROM profile.doctor_assignments
-                WHERE clinic_id = $1 AND doctor_account_id = $2 AND patient_id = $3 AND status = 'ACTIVE';";
+                WHERE clinic_id = $1 AND doctor_account_id = $2
+                  AND (
+                    (patient_id = $3 AND analysis_id IS NULL)
+                    OR ($4::uuid IS NOT NULL AND analysis_id = $4::uuid)
+                  )
+                  AND status = 'ACTIVE'
+                LIMIT 1;";
 
             await using var aCmd = new NpgsqlCommand(assignSql, connection);
             aCmd.Parameters.AddWithValue(clinicId);
             aCmd.Parameters.AddWithValue(actorAccountId);
             aCmd.Parameters.AddWithValue(patientId);
+            aCmd.Parameters.AddWithValue((object?)analysisId ?? DBNull.Value);
 
             var assignObj = await aCmd.ExecuteScalarAsync(cancellationToken);
             if (assignObj is Guid)
@@ -953,6 +965,47 @@ public class ProfileRepository
         }
     }
 
+    public async Task<(bool Allowed, string? FailureReason)> CheckClinicAccessAuthorityAsync(
+        Guid actorAccountId, Guid clinicId, IReadOnlyList<string> actorRoles, CancellationToken cancellationToken = default)
+    {
+        if (actorRoles.Contains("SYSTEM_ADMIN", StringComparer.OrdinalIgnoreCase))
+        {
+            return (true, null);
+        }
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        const string clinicSql = "SELECT tenant_id FROM profile.clinics WHERE clinic_id = $1 AND status = 'ACTIVE' LIMIT 1;";
+        await using (var clinicCmd = new NpgsqlCommand(clinicSql, connection))
+        {
+            clinicCmd.Parameters.AddWithValue(clinicId);
+            var tenantObj = await clinicCmd.ExecuteScalarAsync(cancellationToken);
+            if (tenantObj is not Guid)
+            {
+                return (false, "CLINIC_NOT_FOUND");
+            }
+        }
+
+        const string memberSql = @"
+            SELECT role FROM profile.memberships
+            WHERE clinic_id = $1 AND account_id = $2 AND status = 'ACTIVE'
+            LIMIT 1;";
+
+        await using (var memberCmd = new NpgsqlCommand(memberSql, connection))
+        {
+            memberCmd.Parameters.AddWithValue(clinicId);
+            memberCmd.Parameters.AddWithValue(actorAccountId);
+            var roleObj = await memberCmd.ExecuteScalarAsync(cancellationToken);
+            if (roleObj is not string)
+            {
+                return (false, "NOT_A_MEMBER");
+            }
+
+            return (true, null);
+        }
+    }
+
+
     public async Task<IReadOnlyList<ClinicMembershipDto>> GetClinicMembersAsync(
         Guid clinicId, string? statusFilter = null, CancellationToken cancellationToken = default)
     {
@@ -1154,8 +1207,12 @@ public class ProfileRepository
     // DOCTOR ASSIGNMENT MANAGEMENT (Task W3-M6-02 / AC2)
     // ====================================================================
 
-    public async Task<(bool Success, DoctorAssignmentDto? Assignment, string? ErrorCode, string? ErrorMessage)> CreateOrReactivateDoctorAssignmentAsync(
+    public Task<(bool Success, DoctorAssignmentDto? Assignment, string? ErrorCode, string? ErrorMessage)> CreateOrReactivateDoctorAssignmentAsync(
         Guid clinicId, Guid doctorId, Guid patientId, CancellationToken cancellationToken = default)
+        => CreateOrReactivateDoctorAssignmentAsync(clinicId, doctorId, patientId, null, null, null, cancellationToken);
+
+    public async Task<(bool Success, DoctorAssignmentDto? Assignment, string? ErrorCode, string? ErrorMessage)> CreateOrReactivateDoctorAssignmentAsync(
+        Guid clinicId, Guid doctorId, Guid patientId, Guid? analysisId, string? notes = null, Guid? transferredFromAssignmentId = null, CancellationToken cancellationToken = default)
     {
         await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
 
@@ -1213,11 +1270,23 @@ public class ProfileRepository
         }
 
         // 4. Kiểm tra phân công đã tồn tại chưa
-        const string checkAssignSql = @"
-            SELECT assignment_id, status
-            FROM profile.doctor_assignments
-            WHERE clinic_id = $1 AND doctor_account_id = $2 AND patient_id = $3
-            LIMIT 1;";
+        string checkAssignSql;
+        if (analysisId.HasValue)
+        {
+            checkAssignSql = @"
+                SELECT assignment_id, status
+                FROM profile.doctor_assignments
+                WHERE clinic_id = $1 AND doctor_account_id = $2 AND analysis_id = $3
+                LIMIT 1;";
+        }
+        else
+        {
+            checkAssignSql = @"
+                SELECT assignment_id, status
+                FROM profile.doctor_assignments
+                WHERE clinic_id = $1 AND doctor_account_id = $2 AND patient_id = $3 AND analysis_id IS NULL
+                LIMIT 1;";
+        }
 
         Guid? existingAssignId = null;
         string? existingStatus = null;
@@ -1226,7 +1295,7 @@ public class ProfileRepository
         {
             checkCmd.Parameters.AddWithValue(clinicId);
             checkCmd.Parameters.AddWithValue(doctorId);
-            checkCmd.Parameters.AddWithValue(patientId);
+            checkCmd.Parameters.AddWithValue(analysisId.HasValue ? analysisId.Value : patientId);
             await using var reader = await checkCmd.ExecuteReaderAsync(cancellationToken);
             if (await reader.ReadAsync(cancellationToken))
             {
@@ -1237,7 +1306,7 @@ public class ProfileRepository
 
         if (existingAssignId.HasValue && string.Equals(existingStatus, DoctorAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase))
         {
-            return (false, null, "ERR_ASSIGNMENT_ALREADY_EXISTS", "Phân công bác sĩ cho bệnh nhân này đã tồn tại và đang hoạt động.");
+            return (false, null, "ERR_ASSIGNMENT_ALREADY_EXISTS", "Phân công bác sĩ cho ca chụp/bệnh nhân này đã tồn tại và đang hoạt động.");
         }
 
         if (existingAssignId.HasValue)
@@ -1245,12 +1314,15 @@ public class ProfileRepository
             // Tái kích hoạt phân công đã bị thu hồi trước đó
             const string reactivateSql = @"
                 UPDATE profile.doctor_assignments
-                SET status = 'ACTIVE', revoked_at = NULL, assigned_at = NOW(), updated_at = NOW()
+                SET status = 'ACTIVE', revoked_at = NULL, assigned_at = NOW(), updated_at = NOW(),
+                    notes = COALESCE($2, notes), transferred_from_assignment_id = $3
                 WHERE assignment_id = $1
                 RETURNING assigned_at, created_at, updated_at;";
 
             await using var reactivateCmd = new NpgsqlCommand(reactivateSql, connection);
             reactivateCmd.Parameters.AddWithValue(existingAssignId.Value);
+            reactivateCmd.Parameters.AddWithValue((object?)notes ?? DBNull.Value);
+            reactivateCmd.Parameters.AddWithValue((object?)transferredFromAssignmentId ?? DBNull.Value);
 
             await using var reader = await reactivateCmd.ExecuteReaderAsync(cancellationToken);
             if (await reader.ReadAsync(cancellationToken))
@@ -1260,7 +1332,8 @@ public class ProfileRepository
                 var updatedAt = reader.GetFieldValue<DateTimeOffset>(2);
 
                 return (true, new DoctorAssignmentDto(
-                    existingAssignId.Value, clinicId, doctorId, doctorName, patientId, DoctorAssignmentStatuses.Active, assignedAt, null, createdAt, updatedAt), null, null);
+                    existingAssignId.Value, clinicId, doctorId, doctorName, patientId, DoctorAssignmentStatuses.Active,
+                    assignedAt, null, createdAt, updatedAt, analysisId, transferredFromAssignmentId, notes), null, null);
             }
         }
         else
@@ -1268,8 +1341,10 @@ public class ProfileRepository
             // Tạo mới phân công
             var newAssignId = Guid.NewGuid();
             const string insertSql = @"
-                INSERT INTO profile.doctor_assignments (assignment_id, clinic_id, doctor_account_id, patient_id, status, assigned_at, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, 'ACTIVE', NOW(), NOW(), NOW())
+                INSERT INTO profile.doctor_assignments (
+                    assignment_id, clinic_id, doctor_account_id, patient_id, analysis_id,
+                    transferred_from_assignment_id, notes, status, assigned_at, created_at, updated_at
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'ACTIVE', NOW(), NOW(), NOW())
                 RETURNING assigned_at, created_at, updated_at;";
 
             await using var insertCmd = new NpgsqlCommand(insertSql, connection);
@@ -1277,6 +1352,9 @@ public class ProfileRepository
             insertCmd.Parameters.AddWithValue(clinicId);
             insertCmd.Parameters.AddWithValue(doctorId);
             insertCmd.Parameters.AddWithValue(patientId);
+            insertCmd.Parameters.AddWithValue((object?)analysisId ?? DBNull.Value);
+            insertCmd.Parameters.AddWithValue((object?)transferredFromAssignmentId ?? DBNull.Value);
+            insertCmd.Parameters.AddWithValue((object?)notes ?? DBNull.Value);
 
             await using var reader = await insertCmd.ExecuteReaderAsync(cancellationToken);
             if (await reader.ReadAsync(cancellationToken))
@@ -1286,7 +1364,8 @@ public class ProfileRepository
                 var updatedAt = reader.GetFieldValue<DateTimeOffset>(2);
 
                 return (true, new DoctorAssignmentDto(
-                    newAssignId, clinicId, doctorId, doctorName, patientId, DoctorAssignmentStatuses.Active, assignedAt, null, createdAt, updatedAt), null, null);
+                    newAssignId, clinicId, doctorId, doctorName, patientId, DoctorAssignmentStatuses.Active,
+                    assignedAt, null, createdAt, updatedAt, analysisId, transferredFromAssignmentId, notes), null, null);
             }
         }
 
@@ -1348,7 +1427,8 @@ public class ProfileRepository
 
         const string sql = @"
             SELECT a.assignment_id, a.clinic_id, a.doctor_account_id, COALESCE(p.display_name, 'Bác sĩ'),
-                   a.patient_id, a.status, a.assigned_at, a.revoked_at, a.created_at, a.updated_at
+                   a.patient_id, a.status, a.assigned_at, a.revoked_at, a.created_at, a.updated_at,
+                   a.analysis_id, a.transferred_from_assignment_id, a.notes
             FROM profile.doctor_assignments a
             LEFT JOIN profile.profiles p ON p.account_id = a.doctor_account_id
             WHERE a.clinic_id = $1
@@ -1429,4 +1509,350 @@ public class ProfileRepository
 
         return (false, "ERR_ASSIGNMENT_NOT_FOUND", "Không tìm thấy phân công trong phòng khám.");
     }
+
+    public async Task<(bool Success, IReadOnlyList<DoctorAssignmentDto>? Assignments, string? ErrorCode, string? ErrorMessage)> BatchAssignDoctorAsync(
+        Guid clinicId, Guid doctorId, IReadOnlyList<Guid> patientIds, string? notes = null, CancellationToken cancellationToken = default)
+    {
+        if (patientIds == null || patientIds.Count == 0)
+        {
+            return (false, null, "ERR_VALIDATION", "Danh sách bệnh nhân không được để trống.");
+        }
+
+        var results = new List<DoctorAssignmentDto>();
+        foreach (var pId in patientIds)
+        {
+            var (success, dto, errCode, errMsg) = await CreateOrReactivateDoctorAssignmentAsync(
+                clinicId, doctorId, pId, null, notes, null, cancellationToken);
+            if (!success)
+            {
+                // Bỏ qua lỗi trùng phân công, tiếp tục phân công các bệnh nhân khác
+                if (errCode == "ERR_ASSIGNMENT_ALREADY_EXISTS") continue;
+                return (false, null, errCode, errMsg);
+            }
+            if (dto != null) results.Add(dto);
+        }
+
+        return (true, results, null, null);
+    }
+
+    public async Task<(bool Success, DoctorAssignmentDto? NewAssignment, string? ErrorCode, string? ErrorMessage)> TransferDoctorAssignmentAsync(
+        Guid clinicId, Guid assignmentId, Guid newDoctorId, string? notes = null, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        // 1. Tìm thông tin phân công hiện tại
+        const string findSql = @"
+            SELECT patient_id, analysis_id, status, doctor_account_id
+            FROM profile.doctor_assignments
+            WHERE clinic_id = $1 AND assignment_id = $2
+            LIMIT 1;";
+
+        Guid patientId;
+        Guid? analysisId = null;
+        string status;
+        Guid currentDoctorId;
+
+        await using (var cmd = new NpgsqlCommand(findSql, connection))
+        {
+            cmd.Parameters.AddWithValue(clinicId);
+            cmd.Parameters.AddWithValue(assignmentId);
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
+            {
+                return (false, null, "ERR_ASSIGNMENT_NOT_FOUND", "Không tìm thấy phân công chỉ định.");
+            }
+            patientId = reader.GetGuid(0);
+            analysisId = reader.IsDBNull(1) ? (Guid?)null : reader.GetGuid(1);
+            status = reader.GetString(2);
+            currentDoctorId = reader.GetGuid(3);
+        }
+
+        if (!string.Equals(status, DoctorAssignmentStatuses.Active, StringComparison.OrdinalIgnoreCase))
+        {
+            return (false, null, "ERR_ASSIGNMENT_NOT_ACTIVE", "Phân công không ở trạng thái ACTIVE nên không thể chuyển giao.");
+        }
+
+        if (currentDoctorId == newDoctorId)
+        {
+            return (false, null, "ERR_SAME_DOCTOR", "Bác sĩ mới phải khác bác sĩ hiện tại được phân công.");
+        }
+
+        // 2. Thu hồi phân công cũ (status = REVOKED)
+        const string revokeSql = @"
+            UPDATE profile.doctor_assignments
+            SET status = 'REVOKED', revoked_at = NOW(), updated_at = NOW()
+            WHERE assignment_id = $1;";
+        await using (var rCmd = new NpgsqlCommand(revokeSql, connection))
+        {
+            rCmd.Parameters.AddWithValue(assignmentId);
+            await rCmd.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        // 3. Tạo phân công mới cho Bác sĩ mới (ghi nhận transferred_from_assignment_id)
+        return await CreateOrReactivateDoctorAssignmentAsync(
+            clinicId, newDoctorId, patientId, analysisId, notes, assignmentId, cancellationToken);
+    }
+
+    // ====================================================================
+    // CLINIC PATIENT REGISTRY (Task W4-M6-02 / AC1)
+    // ====================================================================
+
+    public async Task<(bool Success, ClinicPatientDto? Patient, string? ErrorCode, string? ErrorMessage)> RegisterClinicPatientAsync(
+        Guid clinicId, RegisterClinicPatientRequest request, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(request.FullName))
+        {
+            return (false, null, "ERR_VALIDATION", "Họ và tên bệnh nhân không được để trống.");
+        }
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        // 1. Xác định tenant_id của phòng khám
+        const string clinicSql = "SELECT tenant_id FROM profile.clinics WHERE clinic_id = $1 AND status = 'ACTIVE' LIMIT 1;";
+        Guid tenantId;
+        await using (var cCmd = new NpgsqlCommand(clinicSql, connection))
+        {
+            cCmd.Parameters.AddWithValue(clinicId);
+            var tObj = await cCmd.ExecuteScalarAsync(cancellationToken);
+            if (tObj is not Guid tId)
+            {
+                return (false, null, "ERR_CLINIC_NOT_FOUND", "Không tìm thấy phòng khám hoạt động.");
+            }
+            tenantId = tId;
+        }
+
+        var patientId = Guid.NewGuid();
+        var medicalHistoryJson = request.MedicalHistory != null
+            ? JsonSerializer.Serialize(request.MedicalHistory)
+            : null;
+
+        const string insertSql = @"
+            INSERT INTO profile.patients (
+                patient_id, tenant_id, linked_account_id, owner_principal_id,
+                patient_type, full_name, date_of_birth, gender, phone,
+                health_insurance_number, medical_history, status, created_at, updated_at
+            ) VALUES (
+                $1, $2, NULL, $3,
+                'CLINIC_MANAGED', $4, $5, $6, $7,
+                $8, $9::jsonb, 'ACTIVE', NOW(), NOW()
+            )
+            RETURNING created_at, updated_at;";
+
+        await using var insertCmd = new NpgsqlCommand(insertSql, connection);
+        insertCmd.Parameters.AddWithValue(patientId);
+        insertCmd.Parameters.AddWithValue(tenantId);
+        insertCmd.Parameters.AddWithValue(clinicId);
+        insertCmd.Parameters.AddWithValue(request.FullName.Trim());
+        insertCmd.Parameters.AddWithValue((object?)request.DateOfBirth ?? DBNull.Value);
+        insertCmd.Parameters.AddWithValue((object?)request.Gender?.Trim() ?? DBNull.Value);
+        insertCmd.Parameters.AddWithValue((object?)request.Phone?.Trim() ?? DBNull.Value);
+        insertCmd.Parameters.AddWithValue((object?)request.HealthInsuranceNumber?.Trim() ?? DBNull.Value);
+        insertCmd.Parameters.AddWithValue((object?)medicalHistoryJson ?? DBNull.Value);
+
+        await using var reader = await insertCmd.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            var createdAt = reader.GetFieldValue<DateTimeOffset>(0);
+            var updatedAt = reader.GetFieldValue<DateTimeOffset>(1);
+
+            return (true, new ClinicPatientDto(
+                patientId, clinicId, tenantId, PatientTypes.ClinicManaged, request.FullName.Trim(),
+                request.DateOfBirth, request.Gender?.Trim(), request.Phone?.Trim(),
+                request.HealthInsuranceNumber?.Trim(), request.MedicalHistory, "ACTIVE",
+                createdAt, updatedAt), null, null);
+        }
+
+        return (false, null, "ERR_INTERNAL_DB", "Không thể lưu hồ sơ bệnh nhân.");
+    }
+
+    public async Task<(bool Success, ClinicPatientListResponse? Response, string? ErrorCode, string? ErrorMessage)> GetClinicPatientsAsync(
+        Guid clinicId, string? search, string? status, int limit, int offset, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        const string checkSql = "SELECT tenant_id FROM profile.clinics WHERE clinic_id = $1 LIMIT 1;";
+        await using (var cCmd = new NpgsqlCommand(checkSql, connection))
+        {
+            cCmd.Parameters.AddWithValue(clinicId);
+            var obj = await cCmd.ExecuteScalarAsync(cancellationToken);
+            if (obj is not Guid)
+            {
+                return (false, null, "ERR_CLINIC_NOT_FOUND", "Không tìm thấy phòng khám.");
+            }
+        }
+
+        var filterStatus = string.IsNullOrWhiteSpace(status) || status.Equals("ALL", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : status.Trim().ToUpperInvariant();
+
+        var searchTrim = string.IsNullOrWhiteSpace(search) ? null : search.Trim();
+
+        // Đếm tổng số bản ghi
+        const string countSql = @"
+            SELECT COUNT(*) FROM profile.patients
+            WHERE owner_principal_id = $1
+              AND ($2::text IS NULL OR status = $2)
+              AND ($3::text IS NULL OR full_name ILIKE ('%' || $3 || '%') OR health_insurance_number ILIKE ('%' || $3 || '%'));";
+
+        long totalCount = 0;
+        await using (var countCmd = new NpgsqlCommand(countSql, connection))
+        {
+            countCmd.Parameters.AddWithValue(clinicId);
+            countCmd.Parameters.AddWithValue((object?)filterStatus ?? DBNull.Value);
+            countCmd.Parameters.AddWithValue((object?)searchTrim ?? DBNull.Value);
+            totalCount = (long)(await countCmd.ExecuteScalarAsync(cancellationToken))!;
+        }
+
+        const string listSql = @"
+            SELECT patient_id, clinic_id_val, tenant_id, patient_type, full_name,
+                   date_of_birth, gender, phone, health_insurance_number, medical_history,
+                   status, created_at, updated_at
+            FROM (
+                SELECT patient_id, owner_principal_id as clinic_id_val, tenant_id, patient_type, full_name,
+                       date_of_birth, gender, phone, health_insurance_number, medical_history,
+                       status, created_at, updated_at
+                FROM profile.patients
+                WHERE owner_principal_id = $1
+                  AND ($2::text IS NULL OR status = $2)
+                  AND ($3::text IS NULL OR full_name ILIKE ('%' || $3 || '%') OR health_insurance_number ILIKE ('%' || $3 || '%'))
+                ORDER BY created_at DESC
+                LIMIT $4 OFFSET $5
+            ) sub;";
+
+        var list = new List<ClinicPatientDto>();
+        await using (var listCmd = new NpgsqlCommand(listSql, connection))
+        {
+            listCmd.Parameters.AddWithValue(clinicId);
+            listCmd.Parameters.AddWithValue((object?)filterStatus ?? DBNull.Value);
+            listCmd.Parameters.AddWithValue((object?)searchTrim ?? DBNull.Value);
+            listCmd.Parameters.AddWithValue(Math.Clamp(limit, 1, 100));
+            listCmd.Parameters.AddWithValue(Math.Max(0, offset));
+
+            await using var reader = await listCmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                var pId = reader.GetGuid(0);
+                var cId = reader.GetGuid(1);
+                var tId = reader.GetGuid(2);
+                var pType = reader.GetString(3);
+                var fn = reader.IsDBNull(4) ? null : reader.GetString(4);
+                var dob = reader.IsDBNull(5) ? (DateOnly?)null : reader.GetFieldValue<DateOnly>(5);
+                var gen = reader.IsDBNull(6) ? null : reader.GetString(6);
+                var ph = reader.IsDBNull(7) ? null : reader.GetString(7);
+                var ins = reader.IsDBNull(8) ? null : reader.GetString(8);
+                var medStr = reader.IsDBNull(9) ? null : reader.GetString(9);
+                var st = reader.GetString(10);
+                var ca = reader.GetFieldValue<DateTimeOffset>(11);
+                var ua = reader.GetFieldValue<DateTimeOffset>(12);
+
+                ClinicPatientMedicalHistoryDto? med = null;
+                if (!string.IsNullOrEmpty(medStr))
+                {
+                    try { med = JsonSerializer.Deserialize<ClinicPatientMedicalHistoryDto>(medStr); } catch { }
+                }
+
+                list.Add(new ClinicPatientDto(
+                    pId, cId, tId, pType, fn, dob, gen, ph, ins, med, st, ca, ua));
+            }
+        }
+
+        return (true, new ClinicPatientListResponse(clinicId, list, (int)totalCount), null, null);
+    }
+
+    public async Task<(bool Success, ClinicPatientDto? Patient, string? ErrorCode, string? ErrorMessage)> GetClinicPatientByIdAsync(
+        Guid clinicId, Guid patientId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        const string sql = @"
+            SELECT patient_id, owner_principal_id, tenant_id, patient_type, full_name,
+                   date_of_birth, gender, phone, health_insurance_number, medical_history,
+                   status, created_at, updated_at
+            FROM profile.patients
+            WHERE owner_principal_id = $1 AND patient_id = $2
+            LIMIT 1;";
+
+        await using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue(clinicId);
+        cmd.Parameters.AddWithValue(patientId);
+
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            var pId = reader.GetGuid(0);
+            var cId = reader.GetGuid(1);
+            var tId = reader.GetGuid(2);
+            var pType = reader.GetString(3);
+            var fn = reader.IsDBNull(4) ? null : reader.GetString(4);
+            var dob = reader.IsDBNull(5) ? (DateOnly?)null : reader.GetFieldValue<DateOnly>(5);
+            var gen = reader.IsDBNull(6) ? null : reader.GetString(6);
+            var ph = reader.IsDBNull(7) ? null : reader.GetString(7);
+            var ins = reader.IsDBNull(8) ? null : reader.GetString(8);
+            var medStr = reader.IsDBNull(9) ? null : reader.GetString(9);
+            var st = reader.GetString(10);
+            var ca = reader.GetFieldValue<DateTimeOffset>(11);
+            var ua = reader.GetFieldValue<DateTimeOffset>(12);
+
+            ClinicPatientMedicalHistoryDto? med = null;
+            if (!string.IsNullOrEmpty(medStr))
+            {
+                try { med = JsonSerializer.Deserialize<ClinicPatientMedicalHistoryDto>(medStr); } catch { }
+            }
+
+            return (true, new ClinicPatientDto(
+                pId, cId, tId, pType, fn, dob, gen, ph, ins, med, st, ca, ua), null, null);
+        }
+
+        return (false, null, "ERR_PATIENT_NOT_FOUND", "Không tìm thấy hồ sơ bệnh nhân trong phòng khám.");
+    }
+
+    public async Task<(bool Success, ClinicPatientDto? Patient, string? ErrorCode, string? ErrorMessage)> UpdateClinicPatientAsync(
+        Guid clinicId, Guid patientId, UpdateClinicPatientRequest request, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        var (found, existing, errCode, errMsg) = await GetClinicPatientByIdAsync(clinicId, patientId, cancellationToken);
+        if (!found || existing == null)
+        {
+            return (false, null, errCode ?? "ERR_PATIENT_NOT_FOUND", errMsg ?? "Không tìm thấy bệnh nhân.");
+        }
+
+        var newFullName = request.FullName?.Trim() ?? existing.FullName;
+        var newDob = request.DateOfBirth ?? existing.DateOfBirth;
+        var newGender = request.Gender?.Trim() ?? existing.Gender;
+        var newPhone = request.Phone?.Trim() ?? existing.Phone;
+        var newInsurance = request.HealthInsuranceNumber?.Trim() ?? existing.HealthInsuranceNumber;
+        var newMedHistory = request.MedicalHistory ?? existing.MedicalHistory;
+        var medJson = newMedHistory != null ? JsonSerializer.Serialize(newMedHistory) : null;
+
+        const string updateSql = @"
+            UPDATE profile.patients
+            SET full_name = $3, date_of_birth = $4, gender = $5, phone = $6,
+                health_insurance_number = $7, medical_history = $8::jsonb, updated_at = NOW()
+            WHERE owner_principal_id = $1 AND patient_id = $2
+            RETURNING updated_at;";
+
+        await using var cmd = new NpgsqlCommand(updateSql, connection);
+        cmd.Parameters.AddWithValue(clinicId);
+        cmd.Parameters.AddWithValue(patientId);
+        cmd.Parameters.AddWithValue((object?)newFullName ?? DBNull.Value);
+        cmd.Parameters.AddWithValue((object?)newDob ?? DBNull.Value);
+        cmd.Parameters.AddWithValue((object?)newGender ?? DBNull.Value);
+        cmd.Parameters.AddWithValue((object?)newPhone ?? DBNull.Value);
+        cmd.Parameters.AddWithValue((object?)newInsurance ?? DBNull.Value);
+        cmd.Parameters.AddWithValue((object?)medJson ?? DBNull.Value);
+
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (await reader.ReadAsync(cancellationToken))
+        {
+            var ua = reader.GetFieldValue<DateTimeOffset>(0);
+            return (true, new ClinicPatientDto(
+                patientId, clinicId, existing.TenantId, existing.PatientType, newFullName,
+                newDob, newGender, newPhone, newInsurance, newMedHistory, existing.Status,
+                existing.CreatedAt, ua), null, null);
+        }
+
+        return (false, null, "ERR_INTERNAL_DB", "Không thể cập nhật hồ sơ bệnh nhân.");
+    }
+
 }

@@ -41,7 +41,8 @@ public sealed record AccessResolveRequest(
     [property: JsonPropertyName("actorAccountId")] Guid ActorAccountId,
     [property: JsonPropertyName("patientId")] Guid PatientId,
     [property: JsonPropertyName("clinicContextId")] Guid? ClinicContextId,
-    [property: JsonPropertyName("action")] string Action
+    [property: JsonPropertyName("action")] string Action,
+    [property: JsonPropertyName("analysisId")] Guid? AnalysisId = null
 );
 
 public sealed record BillingOwnerDto(
@@ -197,7 +198,9 @@ public sealed record CameraDelegationResolveResponse(
 
 public sealed record CreateDoctorAssignmentRequest(
     [property: JsonPropertyName("doctorId")] Guid DoctorId,
-    [property: JsonPropertyName("patientId")] Guid PatientId
+    [property: JsonPropertyName("patientId")] Guid PatientId,
+    [property: JsonPropertyName("analysisId")] Guid? AnalysisId = null,
+    [property: JsonPropertyName("notes")] string? Notes = null
 );
 
 public sealed record DoctorAssignmentDto(
@@ -210,10 +213,79 @@ public sealed record DoctorAssignmentDto(
     [property: JsonPropertyName("assignedAt")] DateTimeOffset AssignedAt,
     [property: JsonPropertyName("revokedAt")] DateTimeOffset? RevokedAt,
     [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
-    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt,
+    [property: JsonPropertyName("analysisId")] Guid? AnalysisId = null,
+    [property: JsonPropertyName("transferredFromAssignmentId")] Guid? TransferredFromAssignmentId = null,
+    [property: JsonPropertyName("notes")] string? Notes = null
 );
 
 public sealed record DoctorAssignmentListResponse(
     [property: JsonPropertyName("clinicId")] Guid ClinicId,
     [property: JsonPropertyName("items")] IReadOnlyList<DoctorAssignmentDto> Items
+);
+
+// --- Models cho Clinic Patients Registry & Doctor Assignment Engine (Task W4-M6-02) ---
+
+public static class PatientTypes
+{
+    public const string Personal = "PERSONAL";
+    public const string ClinicManaged = "CLINIC_MANAGED";
+}
+
+public sealed record ClinicPatientMedicalHistoryDto(
+    [property: JsonPropertyName("hasDiabetes")] bool? HasDiabetes = null,
+    [property: JsonPropertyName("hasHypertension")] bool? HasHypertension = null,
+    [property: JsonPropertyName("notes")] string? Notes = null,
+    [property: JsonPropertyName("otherConditions")] string? OtherConditions = null
+);
+
+public sealed record RegisterClinicPatientRequest(
+    [property: JsonPropertyName("fullName")] string FullName,
+    [property: JsonPropertyName("dateOfBirth")] DateOnly? DateOfBirth = null,
+    [property: JsonPropertyName("gender")] string? Gender = null,
+    [property: JsonPropertyName("phone")] string? Phone = null,
+    [property: JsonPropertyName("healthInsuranceNumber")] string? HealthInsuranceNumber = null,
+    [property: JsonPropertyName("medicalHistory")] ClinicPatientMedicalHistoryDto? MedicalHistory = null
+);
+
+public sealed record UpdateClinicPatientRequest(
+    [property: JsonPropertyName("fullName")] string? FullName = null,
+    [property: JsonPropertyName("dateOfBirth")] DateOnly? DateOfBirth = null,
+    [property: JsonPropertyName("gender")] string? Gender = null,
+    [property: JsonPropertyName("phone")] string? Phone = null,
+    [property: JsonPropertyName("healthInsuranceNumber")] string? HealthInsuranceNumber = null,
+    [property: JsonPropertyName("medicalHistory")] ClinicPatientMedicalHistoryDto? MedicalHistory = null
+);
+
+public sealed record ClinicPatientDto(
+    [property: JsonPropertyName("patientId")] Guid PatientId,
+    [property: JsonPropertyName("clinicId")] Guid ClinicId,
+    [property: JsonPropertyName("tenantId")] Guid TenantId,
+    [property: JsonPropertyName("patientType")] string PatientType,
+    [property: JsonPropertyName("fullName")] string? FullName,
+    [property: JsonPropertyName("dateOfBirth")] DateOnly? DateOfBirth,
+    [property: JsonPropertyName("gender")] string? Gender,
+    [property: JsonPropertyName("phone")] string? Phone,
+    [property: JsonPropertyName("healthInsuranceNumber")] string? HealthInsuranceNumber,
+    [property: JsonPropertyName("medicalHistory")] ClinicPatientMedicalHistoryDto? MedicalHistory,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt
+);
+
+public sealed record ClinicPatientListResponse(
+    [property: JsonPropertyName("clinicId")] Guid ClinicId,
+    [property: JsonPropertyName("items")] IReadOnlyList<ClinicPatientDto> Items,
+    [property: JsonPropertyName("totalCount")] int TotalCount
+);
+
+public sealed record BatchAssignDoctorRequest(
+    [property: JsonPropertyName("doctorId")] Guid DoctorId,
+    [property: JsonPropertyName("patientIds")] IReadOnlyList<Guid> PatientIds,
+    [property: JsonPropertyName("notes")] string? Notes = null
+);
+
+public sealed record TransferDoctorAssignmentRequest(
+    [property: JsonPropertyName("newDoctorId")] Guid NewDoctorId,
+    [property: JsonPropertyName("notes")] string? Notes = null
 );
