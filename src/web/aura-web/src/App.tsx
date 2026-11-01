@@ -518,7 +518,7 @@ async function handleLogout() {
 
             <button
               className="quick-action"
-              onClick={() => navigate('/upload')}
+              onClick={() => setShowUpload(true)}
             >
               <span className="quick-icon">⇧</span>
               <span>

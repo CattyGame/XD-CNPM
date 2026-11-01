@@ -122,7 +122,7 @@ public sealed class NotificationEventConsumer(
             }
 
             var eventType = eventTypeProp.GetString();
-            if (eventType is not ("analysis.completed" or "analysis.failed"))
+            if (eventType is not ("analysis.completed" or "analysis.failed" or "billing.payment.success"))
             {
                 logger.LogInformation("Ignoring non-terminal event type {EventType}", eventType);
                 _channel?.BasicAck(deliveryTag, false);
@@ -137,14 +137,27 @@ public sealed class NotificationEventConsumer(
                 return;
             }
 
-            var inboxType = eventType == "analysis.completed" ? "ANALYSIS_COMPLETED" : "ANALYSIS_FAILED";
-            var title = eventType == "analysis.completed"
-                ? "Phân tích ảnh đáy mắt hoàn tất"
-                : "Phân tích ảnh đáy mắt không thành công";
-            var bodyText = eventType == "analysis.completed"
-                ? "Kết quả phân tích mắt của bạn đã có! Bấm để xem chi tiết."
-                : "Không thể phân tích ảnh đáy mắt do chất lượng ảnh không đạt tiêu chuẩn.";
-            var targetPath = $"/analyses/{analysisId:D}";
+            var inboxType = eventType switch
+            {
+                "analysis.completed" => "ANALYSIS_COMPLETED",
+                "billing.payment.success" => "PAYMENT_SUCCESS",
+                _ => "ANALYSIS_FAILED"
+            };
+            var title = eventType switch
+            {
+                "analysis.completed" => "Phân tích ảnh đáy mắt hoàn tất",
+                "billing.payment.success" => "Thanh toán thành công",
+                _ => "Phân tích ảnh đáy mắt không thành công"
+            };
+            var bodyText = eventType switch
+            {
+                "analysis.completed" => "Kết quả phân tích mắt của bạn đã có! Bấm để xem chi tiết.",
+                "billing.payment.success" => "Giao dịch thanh toán đã được xác nhận. Bấm để xem gói cước.",
+                _ => "Không thể phân tích ảnh đáy mắt do chất lượng ảnh không đạt tiêu chuẩn."
+            };
+            var targetPath = eventType == "billing.payment.success"
+                ? "/billing/packages"
+                : $"/analyses/{analysisId:D}";
 
             foreach (var recipientId in recipients)
             {
@@ -275,10 +288,17 @@ public sealed class NotificationEventConsumer(
                             logger.LogWarning(cleanupEx, "Failed to delete expired token for Device {DeviceId}", device.DeviceId);
                         }
                     }
+                    else
+                    {
+                        // Transient FCM error: rethrow to trigger broker retry / DLQ routing
+                        logger.LogError(ex, "Transient FCM error for Device {DeviceId}, will trigger DLQ/retry", device.DeviceId);
+                        throw;
+                    }
                 }
-                catch (Exception pushEx)
+                catch (Exception pushEx) when (pushEx is not FirebaseMessagingException)
                 {
-                    logger.LogWarning(pushEx, "Unexpected error delivering FCM Push to Device {DeviceId}", device.DeviceId);
+                    logger.LogError(pushEx, "Unexpected delivery failure for Device {DeviceId}", device.DeviceId);
+                    throw;
                 }
             }
         }

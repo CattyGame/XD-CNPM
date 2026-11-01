@@ -49,8 +49,9 @@ public class ProfileResolveClient : IProfileResolveClient
 
             var body = new
             {
-                tenantId = tenantId,
+                actorAccountId = patientId,
                 patientId = patientId,
+                clinicContextId = (Guid?)null,
                 action = action
             };
             request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
@@ -58,7 +59,16 @@ public class ProfileResolveClient : IProfileResolveClient
             using var response = await _httpClient.SendAsync(request, cancellationToken);
             if (response.IsSuccessStatusCode)
             {
-                return new ProfileResolveResult { Allowed = true };
+                var content = await response.Content.ReadAsStringAsync(cancellationToken);
+                using var doc = JsonDocument.Parse(content);
+                var isAllowed = doc.RootElement.TryGetProperty("allowed", out var allowedProp) && allowedProp.GetBoolean();
+                var reason = doc.RootElement.TryGetProperty("reason", out var reasonProp) ? reasonProp.GetString() : null;
+                return new ProfileResolveResult
+                {
+                    Allowed = isAllowed,
+                    IsTransientError = false,
+                    Reason = reason ?? (isAllowed ? null : "Access denied by Profile policy")
+                };
             }
 
             if ((int)response.StatusCode >= 500 || response.StatusCode == System.Net.HttpStatusCode.RequestTimeout)

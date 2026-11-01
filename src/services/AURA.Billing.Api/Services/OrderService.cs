@@ -173,6 +173,12 @@ public sealed class OrderService
                 request.OrderId, string.Empty, "NOT_FOUND", "Không tìm thấy đơn hàng.", 0, 0, false);
         }
 
+        if (!string.Equals(order.Environment, "TEST", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SandboxPaymentResponse(
+                request.OrderId, string.Empty, "FORBIDDEN", "Cổng thanh toán Sandbox chỉ áp dụng cho đơn hàng trong môi trường TEST.", 0, 0, false);
+        }
+
         var transactionId = $"SANDBOX-TX-{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}-{RandomNumberGenerator.GetInt32(1000, 9999)}";
         var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var status = request.SimulateFailure ? "FAILED" : "SUCCESS";

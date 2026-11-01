@@ -54,7 +54,7 @@ function createWorkspace(context: BackendContext) {
             }
           } finally { bitmap.close() }
         } catch {
-          // Bỏ qua lỗi đọc bitmap ở client để cho phép gửi ảnh lên hệ thống kiểm định và cách ly Quarantine
+          problem = `Không thể đọc ảnh "${file.name}".`
         }
         if (revision !== selection) return
         if (problem) break

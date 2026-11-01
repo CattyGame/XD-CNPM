@@ -37,7 +37,7 @@ jobs:
       - name: Check unresolved conflict markers
         shell: bash
         run: |
-          if git grep -n -I -E '^(<<<<<<< |=======|>>>>>>> )' -- .; then
+          if git grep -n -I -E '^(<<<<<<< |=======\r?$|>>>>>>> )' -- .; then
             echo "::error::Found possible unresolved merge conflict markers."
             exit 1
           else

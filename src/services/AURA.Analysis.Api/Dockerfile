@@ -1,9 +1,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
+COPY src/common/AURA.Common.Cache/AURA.Common.Cache.csproj src/common/AURA.Common.Cache/
 COPY src/services/AURA.Analysis.Api/AURA.Analysis.Api.csproj src/services/AURA.Analysis.Api/
 RUN dotnet restore src/services/AURA.Analysis.Api/AURA.Analysis.Api.csproj
 
+COPY src/common/AURA.Common.Cache/ src/common/AURA.Common.Cache/
 COPY src/services/AURA.Analysis.Api/ src/services/AURA.Analysis.Api/
 RUN dotnet publish src/services/AURA.Analysis.Api/AURA.Analysis.Api.csproj \
     -c Release -o /app/publish --no-restore

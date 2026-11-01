@@ -375,6 +375,10 @@ app.MapPost("/api/v1/billing/sandbox/pay", async Task<IResult> (
     {
         return BillingError(context, StatusCodes.Status404NotFound, "ERR_NOT_FOUND", result.Message);
     }
+    if (result.Status == "FORBIDDEN")
+    {
+        return BillingError(context, StatusCodes.Status403Forbidden, "ERR_FORBIDDEN", result.Message);
+    }
 
     if (result.Replayed)
     {
