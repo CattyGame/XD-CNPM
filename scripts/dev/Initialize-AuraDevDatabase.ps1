@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [string]$EnvFile = ".env",
     [string]$ComposeProject = "aura",
@@ -21,7 +21,11 @@ $migrations = @(
     "infra/postgres/migrations/analysis/002_upload_recovery.sql",
     "infra/postgres/migrations/analysis/004_batch_processing.sql",
     "infra/postgres/migrations/analysis/005_doctor_review_concurrency.sql",
+    "infra/postgres/migrations/005_camera_grants.sql",
+    "infra/postgres/migrations/005_notification_inbox.sql",
     "infra/postgres/migrations/006_billing_settlement_inbox.sql",
+    "infra/postgres/migrations/008_billing_payments.sql",
+    "infra/postgres/migrations/009_billing_clinic_and_reconciliation.sql",
     "infra/postgres/migrations/002_service_database_roles.sql"
 )
 

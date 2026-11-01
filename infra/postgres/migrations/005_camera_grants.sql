@@ -3,6 +3,16 @@
 -- Specs: docs/superpowers/specs/2026-10-30-w3-m6-02-patient-doctor-camera-authorization-design.md
 -- ====================================================================
 
+BEGIN;
+
+DO $$
+BEGIN
+    IF current_database() <> 'aura_dev' THEN
+        RAISE EXCEPTION 'Run this migration only on aura_dev';
+    END IF;
+END
+$$;
+
 -- 1. BẢNG CAMERA DELEGATION GRANTS TRONG SCHEMA PROFILE
 -- Quản lý ủy quyền thiết bị camera chụp đáy mắt gửi ảnh cho bệnh nhân
 CREATE TABLE IF NOT EXISTS profile.camera_grants (
@@ -33,3 +43,5 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE profile.camera_grants TO aura_prof
 -- Cho phép Profile Service kiểm tra account_status trực tiếp (fail-closed)
 GRANT USAGE ON SCHEMA identity TO aura_profile_app;
 GRANT SELECT ON TABLE identity.accounts TO aura_profile_app;
+
+COMMIT;
