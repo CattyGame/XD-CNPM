@@ -2,7 +2,7 @@ import { getFirebaseAuth } from '../firebase/config'
 import { isMockEnabled } from './client'
 import type { BackendContext } from './backendContext'
 
-export type EyeSide = 'left' | 'right' | 'unknown'
+export type EyeSide = 'left' | 'right' | 'unknown' | 'corrupted' | 'retry'
 export type UploadAttempt = Readonly<{
   key: string
   context: BackendContext
@@ -12,7 +12,7 @@ export type UploadAttempt = Readonly<{
 export type UploadItem = Readonly<{
   analysisId: string
   fileName: string
-  processingStatus: 'QUEUED' | 'DUPLICATE'
+  processingStatus: 'QUEUED' | 'DUPLICATE' | 'QUARANTINE' | 'RETRY'
   existingAnalysisId?: string
 }>
 export type UploadReceipt = Readonly<{

@@ -503,4 +503,46 @@ public sealed class CreditReservationRepository(
     string? ReleaseReason,
     string Fingerprint,
     string State);
+    public async Task<IReadOnlyList<StaleReservationRecord>> GetStaleReservationsAsync(
+        int thresholdMinutes,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        const string sql = """
+            SELECT id, tenant_id, analysis_id, wallet_id, units, updated_at
+            FROM billing.credit_reservations
+            WHERE state = 'RESERVED'
+              AND updated_at < now() - (@threshold_minutes * interval '1 minute')
+            ORDER BY updated_at ASC
+            LIMIT @limit;
+            """;
+
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue("threshold_minutes", thresholdMinutes);
+        command.Parameters.AddWithValue("limit", limit);
+
+        var list = new List<StaleReservationRecord>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            list.Add(new StaleReservationRecord(
+                reader.GetGuid(0),
+                reader.GetGuid(1),
+                reader.GetGuid(2),
+                reader.GetGuid(3),
+                reader.GetInt32(4),
+                reader.GetFieldValue<DateTimeOffset>(5)));
+        }
+
+        return list;
+    }
 }
+
+public sealed record StaleReservationRecord(
+    Guid ReservationId,
+    Guid TenantId,
+    Guid AnalysisId,
+    Guid WalletId,
+    int Units,
+    DateTimeOffset UpdatedAt);

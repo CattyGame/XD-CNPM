@@ -365,7 +365,18 @@ public class FirebaseAuthProvider
 
     public FirebaseAuthProvider(IConfiguration config)
     {
-        var projectId = config["Firebase:ProjectId"] ?? "aura-dev-project";
+        var projectId = config["Firebase:ProjectId"] ?? "aura-dev-97716";
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS")))
+        {
+            var defaultCredPath = config["Firebase:CredentialPath"]
+                ?? Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".aura", "credentials", "aura-dev-service-account.json");
+            if (File.Exists(defaultCredPath))
+            {
+                Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", defaultCredPath);
+            }
+        }
         try
         {
             var app = FirebaseApp.DefaultInstance ?? FirebaseApp.Create(new AppOptions

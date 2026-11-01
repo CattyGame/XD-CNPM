@@ -49,3 +49,10 @@ ConfigChung/
 **/ConfigChung/
 *configchung*
 *ConfigChung*
+
+# Temporary logs and backups
+*.log
+*.backup
+
+# Never commit master instructions
+README_PROJECT_MASTER.md

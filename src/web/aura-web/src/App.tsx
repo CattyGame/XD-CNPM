@@ -275,6 +275,10 @@ async function handleLogout() {
   }
 
   function choosePage(page: string) {
+    if (page === 'Tải dữ liệu lên') {
+      navigate('/upload')
+      return
+    }
     setActivePage(page)
     setSidebarOpen(false)
     setSelectedPatient(null)
@@ -514,7 +518,7 @@ async function handleLogout() {
 
             <button
               className="quick-action"
-              onClick={() => setShowUpload(true)}
+              onClick={() => navigate('/upload')}
             >
               <span className="quick-icon">⇧</span>
               <span>

@@ -3,11 +3,13 @@ using Npgsql;
 
 namespace AURA.Notification.Api;
 
-public enum RegistrationOutcome
-{
-    Registered,
-    Conflict
-}
+public enum RegistrationOutcome
+{
+    Registered,
+    Conflict
+}
+
+public sealed record ActiveDeviceToken(Guid DeviceId, string Token);
 
 public sealed class DeviceRegistrationRepository
 {
@@ -210,6 +212,65 @@ public sealed class DeviceRegistrationRepository
         }
 
         return token;
+    }
+
+    public async Task<List<ActiveDeviceToken>> GetTokensForUserAsync(
+        string projectId,
+        string firebaseUid,
+        CancellationToken cancellationToken)
+    {
+        const string sql = """
+            SELECT
+                device_id,
+                token_ciphertext,
+                token_nonce,
+                token_tag,
+                encryption_key_id,
+                token_hash
+            FROM notification.device_registrations
+            WHERE project_id = @project_id
+              AND firebase_uid = @firebase_uid;
+            """;
+
+        await using var command = dataSource.CreateCommand(sql);
+        command.Parameters.AddWithValue("project_id", projectId);
+        command.Parameters.AddWithValue("firebase_uid", firebaseUid);
+
+        var list = new List<ActiveDeviceToken>();
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            try
+            {
+                var deviceId = reader.GetGuid(0);
+                var encrypted = new EncryptedToken(
+                    reader.GetFieldValue<byte[]>(1),
+                    reader.GetFieldValue<byte[]>(2),
+                    reader.GetFieldValue<byte[]>(3),
+                    reader.GetString(4));
+
+                var storedFingerprint = reader.GetFieldValue<byte[]>(5);
+
+                var token = cipher.Decrypt(
+                    encrypted,
+                    projectId,
+                    deviceId,
+                    firebaseUid);
+
+                var actualFingerprint = TokenCipher.Fingerprint(token);
+                if (CryptographicOperations.FixedTimeEquals(storedFingerprint, actualFingerprint))
+                {
+                    list.Add(new ActiveDeviceToken(deviceId, token));
+                }
+            }
+            catch
+            {
+                // Skip invalid/unreadable token
+            }
+        }
+
+        return list;
     }
 
     public async Task<bool> CanConnectAsync(

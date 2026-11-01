@@ -48,9 +48,9 @@ function PersonalUploadForm({ context }: { context: BackendContext }) {
           <select id="eyeSide" value={state.eyeSide} disabled={locked}
             onChange={(event) => workspace.setEyeSide(event.target.value as EyeSide)}
             style={{ display: 'block', width: '100%', padding: 10 }}>
-            <option value="unknown">Chưa xác định</option>
             <option value="left">Mắt trái</option>
             <option value="right">Mắt phải</option>
+            <option value="unknown">Chưa xác định</option>
           </select>
         </div>
         <div style={{ marginBottom: 20 }}>

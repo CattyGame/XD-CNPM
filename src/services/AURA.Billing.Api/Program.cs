@@ -77,7 +77,13 @@ builder.Services.AddHttpClient("ProfileApi", client =>
 
 builder.Services.AddSingleton<PackageRepository>();
 builder.Services.AddSingleton<PackageCatalogService>();
+builder.Services.AddSingleton<OrderRepository>();
+builder.Services.AddSingleton<PaymentSignatureService>();
+builder.Services.AddSingleton<OrderService>();
 builder.Services.AddSingleton<CreditReservationRepository>();
+builder.Services.AddSingleton<CreditSettlementService>();
+builder.Services.AddSingleton<StaleReservationReconciliationService>();
+builder.Services.AddHostedService<StaleReservationReconciliationWorker>();
 builder.Services.AddSingleton<ServiceTokenValidator>();
 builder.Services.AddSingleton<SystemAdminAuthorizer>();
 builder.Services.AddSingleton<ProfileAccessClient>();
@@ -151,6 +157,8 @@ static IResult ReservationConflict(HttpContext context, ReservationOperationResu
 
 await app.Services.GetRequiredService<PackageRepository>()
     .VerifyDatabaseAsync(CancellationToken.None);
+await app.Services.GetRequiredService<OrderRepository>()
+    .VerifyDatabaseAsync(CancellationToken.None);
 await app.Services.GetRequiredService<CreditReservationRepository>()
     .VerifyDatabaseAsync(CancellationToken.None);
 
@@ -204,6 +212,169 @@ app.MapPut("/api/v1/billing/packages/{id:int}", async Task<IResult> (
 .Produces(StatusCodes.Status400BadRequest)
 .Produces(StatusCodes.Status401Unauthorized)
 .Produces(StatusCodes.Status403Forbidden)
+.Produces(StatusCodes.Status404NotFound);
+
+// =============================================================================
+// SCRUM-346: Cổng Thanh toán Sandbox, Gói cước và Cấp Credit Idempotent
+// =============================================================================
+
+app.MapPost("/api/v1/billing/orders", async Task<IResult> (
+    CreateOrderRequest request,
+    HttpContext context,
+    OrderService orderService,
+    BillingRuntimeOptions runtimeOptions,
+    CancellationToken cancellationToken) =>
+{
+    if (!TryReadIdempotencyKey(context, out var idempotencyKey))
+    {
+        return BillingError(context, StatusCodes.Status400BadRequest, "ERR_VALIDATION",
+            "Header Idempotency-Key hợp lệ dạng UUID là bắt buộc.");
+    }
+
+    if (request.PackageId <= 0 ||
+        request.BillingOwner is null ||
+        request.BillingOwner.Id == Guid.Empty ||
+        !(string.Equals(request.BillingOwner.Type, "ACCOUNT", StringComparison.OrdinalIgnoreCase) ||
+          string.Equals(request.BillingOwner.Type, "CLINIC", StringComparison.OrdinalIgnoreCase)))
+    {
+        return BillingError(context, StatusCodes.Status400BadRequest, "ERR_VALIDATION",
+            "PackageId phải lớn hơn 0 và BillingOwner (ACCOUNT hoặc CLINIC) là bắt buộc.");
+    }
+
+    var result = await orderService.CreateOrderAsync(
+        request, idempotencyKey, runtimeOptions, cancellationToken);
+
+    if (result.Status == OrderOperationStatus.PackageNotFound)
+    {
+        return BillingError(context, StatusCodes.Status404NotFound, "ERR_PACKAGE_NOT_FOUND",
+            "Không tìm thấy gói cước hoặc phiên bản giá tương ứng đang kích hoạt.");
+    }
+
+    if (result.Status == OrderOperationStatus.IdempotencyConflict)
+    {
+        return BillingError(context, StatusCodes.Status409Conflict, "ERR_IDEMPOTENCY_CONFLICT",
+            "Idempotency-Key đã được sử dụng cho một đơn hàng khác.");
+    }
+
+    if (result.Status == OrderOperationStatus.Replayed && result.Order is not null)
+    {
+        context.Response.Headers["Idempotent-Replayed"] = "true";
+        return Results.Ok(result.Order);
+    }
+
+    context.Response.Headers["Location"] = $"/api/v1/billing/orders/{result.Order!.OrderId:D}";
+    return Results.Created($"/api/v1/billing/orders/{result.Order!.OrderId:D}", result.Order);
+})
+.WithName("CreateBillingOrder")
+.WithTags("Billing Orders")
+.Produces<CreateOrderResponse>(StatusCodes.Status201Created)
+.Produces<CreateOrderResponse>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status400BadRequest)
+.Produces(StatusCodes.Status404NotFound)
+.Produces(StatusCodes.Status409Conflict);
+
+app.MapGet("/api/v1/billing/orders/{orderId:guid}", async Task<IResult> (
+    Guid orderId,
+    HttpContext context,
+    OrderRepository repository,
+    CancellationToken cancellationToken) =>
+{
+    var order = await repository.GetOrderByIdAsync(orderId, cancellationToken);
+    return order is null
+        ? BillingError(context, StatusCodes.Status404NotFound, "ERR_NOT_FOUND", "Không tìm thấy đơn hàng.")
+        : Results.Ok(order);
+})
+.WithName("GetBillingOrder")
+.WithTags("Billing Orders")
+.Produces<OrderRecord>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status404NotFound);
+
+app.MapPost("/api/v1/billing/payments/callback", async Task<IResult> (
+    PaymentCallbackPayload payload,
+    HttpContext context,
+    OrderService orderService,
+    CancellationToken cancellationToken) =>
+{
+    if (payload.OrderId == Guid.Empty ||
+        string.IsNullOrWhiteSpace(payload.TransactionId) ||
+        payload.Amount <= 0 ||
+        string.IsNullOrWhiteSpace(payload.Currency) ||
+        string.IsNullOrWhiteSpace(payload.Signature))
+    {
+        return BillingError(context, StatusCodes.Status400BadRequest, "ERR_VALIDATION",
+            "Payload callback thiếu thông tin bắt buộc hoặc chữ ký không hợp lệ.");
+    }
+
+    var paymentMethod = context.Request.Headers["X-Payment-Method"].FirstOrDefault() ?? "SANDBOX_MOCK";
+    var result = await orderService.ProcessCallbackAsync(payload, paymentMethod, cancellationToken);
+
+    if (!result.Success)
+    {
+        if (result.Status == "ERR_INVALID_SIGNATURE")
+        {
+            return BillingError(context, StatusCodes.Status400BadRequest, "ERR_INVALID_SIGNATURE",
+                result.Message);
+        }
+
+        if (result.Status == "NOT_FOUND")
+        {
+            return BillingError(context, StatusCodes.Status404NotFound, "ERR_NOT_FOUND",
+                result.Message);
+        }
+
+        if (result.Status == "ERR_CONCURRENT_PROCESSING")
+        {
+            return BillingError(context, StatusCodes.Status409Conflict, "ERR_CONCURRENT_PROCESSING",
+                result.Message, retryable: true);
+        }
+
+        return BillingError(context, StatusCodes.Status400BadRequest, "ERR_PAYMENT_FAILED",
+            result.Message);
+    }
+
+    if (result.Replayed)
+    {
+        context.Response.Headers["Idempotent-Replayed"] = "true";
+    }
+
+    return Results.Ok(result);
+})
+.WithName("PaymentWebhookCallback")
+.WithTags("Billing Payments")
+.Produces<PaymentCallbackResult>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status400BadRequest)
+.Produces(StatusCodes.Status404NotFound)
+.Produces(StatusCodes.Status409Conflict);
+
+app.MapPost("/api/v1/billing/sandbox/pay", async Task<IResult> (
+    SandboxPaymentRequest request,
+    HttpContext context,
+    OrderService orderService,
+    CancellationToken cancellationToken) =>
+{
+    if (request.OrderId == Guid.Empty)
+    {
+        return BillingError(context, StatusCodes.Status400BadRequest, "ERR_VALIDATION",
+            "OrderId là bắt buộc.");
+    }
+
+    var result = await orderService.SimulateSandboxPaymentAsync(request, cancellationToken);
+    if (result.Status == "NOT_FOUND")
+    {
+        return BillingError(context, StatusCodes.Status404NotFound, "ERR_NOT_FOUND", result.Message);
+    }
+
+    if (result.Replayed)
+    {
+        context.Response.Headers["Idempotent-Replayed"] = "true";
+    }
+
+    return Results.Ok(result);
+})
+.WithName("SimulateSandboxPayment")
+.WithTags("Billing Sandbox")
+.Produces<SandboxPaymentResponse>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status400BadRequest)
 .Produces(StatusCodes.Status404NotFound);
 
 app.MapPost("/internal/v1/billing/reservations", async Task<IResult> (
@@ -405,13 +576,14 @@ app.MapPost("/internal/v1/billing/reservations/{reservationId:guid}/release", as
 
     var allowedReasons = new HashSet<string>(StringComparer.Ordinal)
     {
-        "VALIDATION_ABORT", "STORAGE_ABORT", "ANALYSIS_ABORT", "FINAL_FAILURE", "LOW_QUALITY"
+        "VALIDATION_ABORT", "STORAGE_ABORT", "ANALYSIS_ABORT", "FINAL_FAILURE", "LOW_QUALITY",
+        "STALE_RESERVATION_AUTO_REFUND", "BATCH_PARTIAL_REFUND"
     };
     var reason = request.Reason?.Trim().ToUpperInvariant();
     if (string.IsNullOrWhiteSpace(reason) || !allowedReasons.Contains(reason))
     {
         return BillingError(context, StatusCodes.Status400BadRequest, "ERR_VALIDATION",
-            "reason phải là VALIDATION_ABORT, STORAGE_ABORT, ANALYSIS_ABORT, FINAL_FAILURE hoặc LOW_QUALITY.");
+            "reason phải là VALIDATION_ABORT, STORAGE_ABORT, ANALYSIS_ABORT, FINAL_FAILURE, LOW_QUALITY, STALE_RESERVATION_AUTO_REFUND hoặc BATCH_PARTIAL_REFUND.");
     }
 
     var result = await repository.ReleaseAsync(
@@ -441,6 +613,123 @@ app.MapPost("/internal/v1/billing/reservations/{reservationId:guid}/release", as
 .Produces(StatusCodes.Status404NotFound)
 .Produces(StatusCodes.Status409Conflict)
 .Produces(StatusCodes.Status503ServiceUnavailable);
+
+// =============================================================================
+// SCRUM-348: Billing Cấp Tổ chức, Reconciliation Engine & Batch Partial Refund
+// =============================================================================
+
+app.MapPost("/internal/v1/billing/reservations/batch-refund", async Task<IResult> (
+    BatchRefundRequest request,
+    HttpContext context,
+    ServiceTokenValidator tokenValidator,
+    CreditReservationRepository repository,
+    CancellationToken cancellationToken) =>
+{
+    var tokenResult = await tokenValidator.ValidateAsync(
+        context.Request, "billing:release", "analysis-api", cancellationToken);
+    if (!tokenResult.Succeeded)
+    {
+        return BillingError(context, tokenResult.StatusCode, tokenResult.Code,
+            tokenResult.Message, tokenResult.Retryable);
+    }
+
+    if (!TryReadIdempotencyKey(context, out var batchIdempotencyKey))
+    {
+        return BillingError(context, StatusCodes.Status400BadRequest, "ERR_VALIDATION",
+            "Header Idempotency-Key hợp lệ dạng UUID là bắt buộc.");
+    }
+
+    if (request.TenantId == Guid.Empty || request.Items is null || request.Items.Count == 0)
+    {
+        return BillingError(context, StatusCodes.Status400BadRequest, "ERR_VALIDATION",
+            "TenantId và danh sách items cần hoàn credit không được rỗng.");
+    }
+
+    var results = new List<BatchRefundItemResult>();
+    var refundedCount = 0;
+    var creditsRefunded = 0;
+
+    foreach (var item in request.Items)
+    {
+        if (item.ReservationId == Guid.Empty)
+        {
+            results.Add(new BatchRefundItemResult(item.ReservationId, "INVALID_ID", false, "ReservationId rỗng."));
+            continue;
+        }
+
+        var itemReason = string.IsNullOrWhiteSpace(item.Reason) ? "BATCH_PARTIAL_REFUND" : item.Reason.Trim().ToUpperInvariant();
+        var itemKeyBytes = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes($"{batchIdempotencyKey:D}|{item.ReservationId:D}"));
+        var itemGuidBytes = new byte[16];
+        Array.Copy(itemKeyBytes, itemGuidBytes, 16);
+        var itemKey = new Guid(itemGuidBytes);
+
+        var fingerprint = ReservationFingerprint.ForRelease(item.ReservationId, itemReason);
+        var result = await repository.ReleaseAsync(item.ReservationId, itemKey, fingerprint, itemReason, cancellationToken);
+
+        if (result.Status == ReservationOperationStatus.Changed && result.Reservation is not null)
+        {
+            refundedCount++;
+            creditsRefunded += result.Reservation.Units;
+            results.Add(new BatchRefundItemResult(item.ReservationId, "RELEASED", true));
+        }
+        else if (result.Status == ReservationOperationStatus.Replayed && result.Reservation is not null)
+        {
+            results.Add(new BatchRefundItemResult(item.ReservationId, "ALREADY_RELEASED", false, "Đã được hoàn credit trước đó (Replayed)."));
+        }
+        else if (result.Status == ReservationOperationStatus.NotFound)
+        {
+            results.Add(new BatchRefundItemResult(item.ReservationId, "NOT_FOUND", false, "Không tìm thấy reservation."));
+        }
+        else
+        {
+            results.Add(new BatchRefundItemResult(item.ReservationId, "CONFLICT", false, "Trạng thái không cho phép hoàn credit."));
+        }
+    }
+
+    var response = new BatchRefundResponse(
+        request.TenantId,
+        request.BatchId,
+        request.Items.Count,
+        refundedCount,
+        creditsRefunded,
+        results);
+
+    return Results.Ok(response);
+})
+.WithName("BatchRefundReservations")
+.WithTags("Billing Internal")
+.Produces<BatchRefundResponse>(StatusCodes.Status200OK)
+.Produces(StatusCodes.Status400BadRequest)
+.Produces(StatusCodes.Status401Unauthorized)
+.Produces(StatusCodes.Status403Forbidden);
+
+app.MapPost("/internal/v1/billing/reconcile-stale", async Task<IResult> (
+    ReconcileStaleRequest? request,
+    HttpContext context,
+    ServiceTokenValidator tokenValidator,
+    StaleReservationReconciliationService reconciliationService,
+    CancellationToken cancellationToken) =>
+{
+    var tokenResult = await tokenValidator.ValidateAsync(
+        context.Request, "billing:release", null, cancellationToken);
+    if (!tokenResult.Succeeded)
+    {
+        return BillingError(context, tokenResult.StatusCode, tokenResult.Code,
+            tokenResult.Message, tokenResult.Retryable);
+    }
+
+    var threshold = request?.OlderThanMinutes ?? 30;
+    var limit = request?.Limit ?? 100;
+
+    var report = await reconciliationService.ReconcileStaleReservationsAsync(
+        threshold, limit, cancellationToken);
+
+    return Results.Ok(report);
+})
+.WithName("TriggerStaleReconciliation")
+.WithTags("Billing Internal")
+.Produces<ReconciliationReport>(StatusCodes.Status200OK);
 
 app.UseAuraPrometheusMetrics();
 

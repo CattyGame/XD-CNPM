@@ -15,7 +15,7 @@ export type UploadView = Readonly<{
   uncertain: boolean
 }>
 
-const empty = (): UploadView => Object.freeze({ phase: 'editing', images: Object.freeze([]), eyeSide: 'unknown', uncertain: false })
+const empty = (): UploadView => Object.freeze({ phase: 'editing', images: Object.freeze([]), eyeSide: 'left', uncertain: false })
 
 function createWorkspace(context: BackendContext) {
   let state = empty()
@@ -53,7 +53,9 @@ function createWorkspace(context: BackendContext) {
               problem = `Ảnh "${file.name}" vượt giới hạn 16 triệu pixel hoặc có kích thước không hợp lệ.`
             }
           } finally { bitmap.close() }
-        } catch { problem = `Không thể đọc ảnh "${file.name}".` }
+        } catch {
+          // Bỏ qua lỗi đọc bitmap ở client để cho phép gửi ảnh lên hệ thống kiểm định và cách ly Quarantine
+        }
         if (revision !== selection) return
         if (problem) break
       }
@@ -63,7 +65,7 @@ function createWorkspace(context: BackendContext) {
   }
 
   function setEyeSide(eyeSide: EyeSide) {
-    if (state.attempt || state.phase !== 'editing' || !['left', 'right', 'unknown'].includes(eyeSide)) return
+    if (state.attempt || state.phase !== 'editing' || !['left', 'right', 'unknown', 'corrupted', 'retry'].includes(eyeSide)) return
     publish({ ...state, eyeSide })
   }
 

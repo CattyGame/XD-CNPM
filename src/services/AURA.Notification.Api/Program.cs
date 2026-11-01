@@ -47,6 +47,10 @@ builder.Services.AddSingleton<NpgsqlDataSource>(_ =>
 
 builder.Services.AddSingleton<TokenCipher>();
 builder.Services.AddSingleton<DeviceRegistrationRepository>();
+builder.Services.AddSingleton<NotificationInboxRepository>();
+builder.Services.AddSingleton<IAccountResolver, AccountResolver>();
+builder.Services.Configure<RabbitMqConsumerOptions>(builder.Configuration.GetSection(RabbitMqConsumerOptions.SectionName));
+builder.Services.AddHostedService<NotificationEventConsumer>();
 builder.Services.AddNotificationTestPush();
 
 var app = builder.Build();
@@ -345,6 +349,116 @@ app.MapDelete(
                 "ERR_STORAGE_UNAVAILABLE",
                 "Chưa xác nhận hủy đăng ký thiết bị. Hãy thử lại.",
                 true);
+        }
+    });
+
+app.MapGet(
+    "/api/v1/notifications/inbox",
+    async Task<IResult> (
+        int? limit,
+        string? cursor,
+        bool? unreadOnly,
+        NotificationInboxRepository repository,
+        IAccountResolver accountResolver,
+        HttpContext context) =>
+    {
+        var uid = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(uid))
+        {
+            return ApiError(context, 401, "ERR_UNAUTHORIZED", "Cần đăng nhập để sử dụng thông báo.", false);
+        }
+
+        var accountId = await accountResolver.ResolveAccountIdAsync(uid, context.RequestAborted);
+        if (accountId is null || accountId == Guid.Empty)
+        {
+            return ApiError(context, 401, "ERR_UNAUTHORIZED", "Không thể xác định tài khoản người dùng.", false);
+        }
+
+        try
+        {
+            var response = await repository.GetInboxAsync(
+                accountId.Value,
+                limit ?? 20,
+                cursor,
+                unreadOnly ?? false,
+                context.RequestAborted);
+
+            return Results.Ok(response);
+        }
+        catch (NpgsqlException)
+        {
+            return ApiError(context, 503, "ERR_STORAGE_UNAVAILABLE", "Dịch vụ thông báo tạm thời không khả dụng.", true);
+        }
+    });
+
+app.MapGet(
+    "/api/v1/notifications/inbox/unread-count",
+    async Task<IResult> (
+        NotificationInboxRepository repository,
+        IAccountResolver accountResolver,
+        HttpContext context) =>
+    {
+        var uid = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(uid))
+        {
+            return ApiError(context, 401, "ERR_UNAUTHORIZED", "Cần đăng nhập để sử dụng thông báo.", false);
+        }
+
+        var accountId = await accountResolver.ResolveAccountIdAsync(uid, context.RequestAborted);
+        if (accountId is null || accountId == Guid.Empty)
+        {
+            return ApiError(context, 401, "ERR_UNAUTHORIZED", "Không thể xác định tài khoản người dùng.", false);
+        }
+
+        try
+        {
+            var count = await repository.GetUnreadCountAsync(accountId.Value, context.RequestAborted);
+            return Results.Ok(new UnreadCountResponse(count));
+        }
+        catch (NpgsqlException)
+        {
+            return ApiError(context, 503, "ERR_STORAGE_UNAVAILABLE", "Dịch vụ thông báo tạm thời không khả dụng.", true);
+        }
+    });
+
+app.MapPost(
+    "/api/v1/notifications/inbox/{notificationId:guid}/read",
+    async Task<IResult> (
+        Guid notificationId,
+        NotificationInboxRepository repository,
+        IAccountResolver accountResolver,
+        HttpContext context) =>
+    {
+        if (notificationId == Guid.Empty)
+        {
+            return ApiError(context, 400, "ERR_VALIDATION", "NotificationId không hợp lệ.", false);
+        }
+
+        var uid = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrWhiteSpace(uid))
+        {
+            return ApiError(context, 401, "ERR_UNAUTHORIZED", "Cần đăng nhập để sử dụng thông báo.", false);
+        }
+
+        var accountId = await accountResolver.ResolveAccountIdAsync(uid, context.RequestAborted);
+        if (accountId is null || accountId == Guid.Empty)
+        {
+            return ApiError(context, 401, "ERR_UNAUTHORIZED", "Không thể xác định tài khoản người dùng.", false);
+        }
+
+        try
+        {
+            var outcome = await repository.MarkAsReadAsync(notificationId, accountId.Value, context.RequestAborted);
+            if (outcome == MarkReadOutcome.NotFound || outcome == MarkReadOutcome.Forbidden)
+            {
+                return ApiError(context, 404, "ERR_NOT_FOUND", "Không tìm thấy thông báo.", false);
+            }
+
+            return Results.NoContent();
+        }
+        catch (NpgsqlException)
+        {
+            return ApiError(context, 503, "ERR_STORAGE_UNAVAILABLE", "Dịch vụ thông báo tạm thời không khả dụng.", true);
         }
     });
 

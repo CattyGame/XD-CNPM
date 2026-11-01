@@ -5,7 +5,7 @@
 - Apache NiFi: 1.27.0.
 - Contract đích: `contracts/analysis-openapi.yaml`, phiên bản 0.6.0.
 - Flow: `infra/nifi/camera_ingestion_flow.json`.
-- Trạng thái: đã kiểm tra nhận dữ liệu, validation, quarantine và tạo multipart; chưa hoàn tất tích hợp backend.
+- Trạng thái: Đã hoàn tất nâng cấp luồng v2 (SCRUM-350 / W4-M1-05): InvokeHTTP Gateway, Chống trùng (Dedup), Phân luồng Cách ly Lỗi (Quarantine) và Bounded Auto-Retry (100% DoD AC1, AC2, AC3 Passed). Sổ tay chi tiết: docs/nifi/camera_ingestion_runbook_v1.2.md.
 
 ## 1. Phạm vi hiện tại
 

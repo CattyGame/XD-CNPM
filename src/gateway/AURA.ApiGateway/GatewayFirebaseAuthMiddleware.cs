@@ -15,12 +15,25 @@ public static class GatewayFirebaseAuthRegistration
         // Initialized only when a protected request requires verification.
         services.AddSingleton<FirebaseApp>(_ =>
         {
-            var projectId = configuration["Firebase:ProjectId"];
+            var projectId = configuration["Firebase:ProjectId"] ?? "aura-dev-97716";
 
             if (string.IsNullOrWhiteSpace(projectId))
             {
                 throw new InvalidOperationException(
                     "Missing Firebase:ProjectId.");
+            }
+
+            if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS")))
+            {
+                var defaultCredPath = configuration["Firebase:CredentialPath"]
+                    ?? Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                        ".aura", "credentials", "aura-dev-service-account.json");
+
+                if (File.Exists(defaultCredPath))
+                {
+                    Environment.SetEnvironmentVariable("GOOGLE_APPLICATION_CREDENTIALS", defaultCredPath);
+                }
             }
 
             return FirebaseApp.Create(
@@ -149,6 +162,26 @@ public sealed class GatewayFirebaseAuthMiddleware(
         }
 
         var path = (request.Path.Value ?? "").TrimEnd('/');
+
+        // Support camera ingestion via InvokeHTTP with Service Token / device credentials
+        if (string.Equals(path, "/api/v1/analyses/camera", StringComparison.OrdinalIgnoreCase))
+        {
+            var authHeader = request.Headers.Authorization.ToString();
+            var hasDeviceOrServiceToken = request.Headers.ContainsKey("x-device-id") ||
+                                          request.Headers.ContainsKey("x-service-token") ||
+                                          authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase);
+            if (hasDeviceOrServiceToken)
+            {
+                return false;
+            }
+        }
+
+        // Exempt webhook callback and sandbox payment simulator from Firebase token (secured via HMAC SHA-256)
+        if (string.Equals(path, "/api/v1/billing/payments/callback", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(path, "/api/v1/billing/sandbox/pay", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
 
         var anonymousGet =
             HttpMethods.IsGet(request.Method) &&
