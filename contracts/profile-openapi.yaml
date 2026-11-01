@@ -149,6 +149,168 @@ paths:
               correlationId: a0000000-0000-4000-8000-000000000001
               retryable: false
 
+  /api/v1/clinics:
+    post:
+      summary: Đăng ký thông tin phòng khám mới (Clinic Lifecycle)
+      description: |
+        Đăng ký một tổ chức y tế (phòng khám) mới vào hệ thống.
+        Phòng khám ban đầu có trạng thái PENDING và chờ SYSTEM_ADMIN phê duyệt.
+        Người đăng ký được tạo tenant phòng khám và được gán vai trò CLINIC_ADMIN đầu tiên.
+      operationId: registerClinic
+      tags:
+        - Clinic Lifecycle
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterClinicRequest'
+      responses:
+        '201':
+          description: Đăng ký phòng khám thành công (trạng thái PENDING).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClinicDto'
+        '400':
+          description: Dữ liệu đầu vào không hợp lệ.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '409':
+          description: Trùng mã số thuế hoặc thông tin phòng khám.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/500InternalError'
+
+  /api/v1/admin/clinics/{clinicId}/status:
+    patch:
+      summary: Xét duyệt trạng thái phòng khám dành cho Quản trị viên hệ thống (SYSTEM_ADMIN)
+      description: |
+        SYSTEM_ADMIN phê duyệt hoặc chuyển trạng thái phòng khám (PENDING -> ACTIVE, SUSPENDED, REJECTED).
+        Bắt buộc ghi nhận lý do xét duyệt (reason) và lưu vết audit log vào profile.clinic_audit_logs.
+      operationId: updateClinicStatus
+      tags:
+        - Clinic Lifecycle Admin
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: clinicId
+          in: path
+          required: true
+          description: Định danh phòng khám
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateClinicStatusRequest'
+      responses:
+        '200':
+          description: Cập nhật trạng thái phòng khám thành công.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClinicDto'
+        '400':
+          description: Trạng thái không hợp lệ hoặc dữ liệu sai định dạng.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '403':
+          description: Người dùng không phải SYSTEM_ADMIN.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Không tìm thấy phòng khám.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/500InternalError'
+
+  /api/v1/clinics/{clinicId}/memberships/invite:
+    post:
+      summary: Mời Bác sĩ / Kỹ thuật viên vào phòng khám bằng email
+      description: |
+        Mời thành viên mới vào phòng khám bằng email và gán vai trò (ClinicManager, ClinicDoctor, ClinicStaff).
+        Bản ghi membership được tạo ở trạng thái INVITED và sẽ tự động kích hoạt (chuyển sang ACTIVE) khi người dùng có email tương ứng đăng nhập vào hệ thống.
+      operationId: inviteClinicMember
+      tags:
+        - Clinic Memberships
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: clinicId
+          in: path
+          required: true
+          description: Định danh phòng khám
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/CorrelationIdHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteClinicMemberRequest'
+      responses:
+        '201':
+          description: Gửi lời mời thành viên thành công.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClinicMembershipDto'
+        '400':
+          description: Email không hợp lệ hoặc role không được phép.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          $ref: '#/components/responses/401Unauthorized'
+        '403':
+          description: Không đủ quyền quản trị phòng khám (chỉ SYSTEM_ADMIN hoặc CLINIC_ADMIN của chính phòng khám).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '404':
+          description: Không tìm thấy phòng khám.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '409':
+          description: Email đã là thành viên ACTIVE hoặc đã được mời.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          $ref: '#/components/responses/500InternalError'
+
   /api/v1/clinics/{clinicId}/memberships:
     get:
       summary: L?y danh s�ch th�nh vi�n ph�ng kh�m
@@ -806,7 +968,13 @@ components:
         accountId:
           type: string
           format: uuid
+          nullable: true
           example: a1111111-0000-0000-0000-000000000002
+        invitedEmail:
+          type: string
+          format: email
+          nullable: true
+          example: doctor.tran@auraclinic.vn
         displayName:
           type: string
           example: BS. Nh�n khoa Alpha
@@ -1032,3 +1200,104 @@ components:
         reason:
           type: string
           nullable: true
+
+    RegisterClinicRequest:
+      type: object
+      required:
+        - name
+        - taxId
+        - address
+        - representativeName
+      properties:
+        name:
+          type: string
+          example: Phòng khám Đa khoa Quốc tế AURA
+        taxId:
+          type: string
+          example: 0101234567
+        address:
+          type: string
+          example: 123 Đường Giải Phóng, Hà Nội
+        representativeName:
+          type: string
+          example: BS. Trần Văn A
+        phone:
+          type: string
+          nullable: true
+          example: 0987654321
+
+    UpdateClinicStatusRequest:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [PENDING, ACTIVE, SUSPENDED, REJECTED]
+          example: ACTIVE
+        reason:
+          type: string
+          nullable: true
+          example: Hồ sơ pháp lý đầy đủ và hợp lệ
+
+    InviteClinicMemberRequest:
+      type: object
+      required:
+        - email
+        - role
+      properties:
+        email:
+          type: string
+          format: email
+          example: doctor.tran@auraclinic.vn
+        role:
+          type: string
+          description: Vai trò trong phòng khám (ClinicManager, ClinicDoctor, ClinicStaff hoặc CLINIC_ADMIN, DOCTOR, STAFF)
+          example: ClinicDoctor
+
+    ClinicDto:
+      type: object
+      required:
+        - clinicId
+        - name
+        - status
+        - createdAt
+        - updatedAt
+      properties:
+        clinicId:
+          type: string
+          format: uuid
+          example: 11111111-1111-1111-1111-111111111111
+        name:
+          type: string
+          example: Phòng khám Đa khoa Quốc tế AURA
+        status:
+          type: string
+          enum: [PENDING, ACTIVE, SUSPENDED, REJECTED]
+          example: PENDING
+        taxId:
+          type: string
+          nullable: true
+          example: 0101234567
+        address:
+          type: string
+          nullable: true
+          example: 123 Đường Giải Phóng, Hà Nội
+        representativeName:
+          type: string
+          nullable: true
+          example: BS. Trần Văn A
+        phone:
+          type: string
+          nullable: true
+          example: 0987654321
+        auditReason:
+          type: string
+          nullable: true
+          example: Hồ sơ pháp lý đầy đủ
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
