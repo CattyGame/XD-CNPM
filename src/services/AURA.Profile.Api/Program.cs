@@ -102,7 +102,7 @@ app.MapPost("/internal/v1/profile/provision", async (
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var profile = await repository.ProvisionProfileAsync(body.AccountId, body.DisplayName, ct);
+        var profile = await repository.ProvisionProfileAsync(body.AccountId, body.DisplayName, body.Email, ct);
         return Results.Ok(profile);
     }
     catch (Exception ex)

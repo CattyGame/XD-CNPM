@@ -56,7 +56,8 @@ public sealed record AccessResolveResponse(
     [property: JsonPropertyName("tenantKind")] string? TenantKind,
     [property: JsonPropertyName("ownerPrincipalId")] Guid? OwnerPrincipalId,
     [property: JsonPropertyName("billingOwner")] BillingOwnerDto? BillingOwner,
-    [property: JsonPropertyName("permissionVersion")] int PermissionVersion
+    [property: JsonPropertyName("permissionVersion")] int PermissionVersion,
+    [property: JsonPropertyName("reason")] string? Reason = null
 );
 
 // --- Models cho Clinic Lifecycle & Memberships (Task W4-M6-01 / SCRUM-358) ---
