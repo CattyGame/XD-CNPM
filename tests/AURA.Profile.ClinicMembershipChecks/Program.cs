@@ -69,6 +69,31 @@ Check("AC1.3: Nhân viên trong phòng khám không phải CLINIC_ADMIN (ví d�
 // -----------------------------------------------------------------------------
 Console.WriteLine("\n--- [AC2] Chặn nâng quyền, validate roles & Idempotency ---");
 
+Check("AC2.0: Chuẩn hóa vai trò mở rộng (ClinicManager, ClinicDoctor, ClinicStaff)", () =>
+{
+    if (ClinicMemberRoles.NormalizeRole("ClinicManager") != ClinicMemberRoles.ClinicAdmin)
+        throw new Exception("ClinicManager phải chuẩn hóa thành CLINIC_ADMIN.");
+    if (ClinicMemberRoles.NormalizeRole("ClinicDoctor") != ClinicMemberRoles.Doctor)
+        throw new Exception("ClinicDoctor phải chuẩn hóa thành DOCTOR.");
+    if (ClinicMemberRoles.NormalizeRole("ClinicStaff") != ClinicMemberRoles.Staff)
+        throw new Exception("ClinicStaff phải chuẩn hóa thành STAFF.");
+    if (ClinicMemberRoles.NormalizeRole("CLINIC_ADMIN") != ClinicMemberRoles.ClinicAdmin)
+        throw new Exception("CLINIC_ADMIN phải giữ nguyên.");
+    if (ClinicMemberRoles.NormalizeRole("UNKNOWN") != null)
+        throw new Exception("Vai trò không hợp lệ phải trả về null.");
+});
+
+Check("AC2.0b: Khai báo đầy đủ các trạng thái Clinic (PENDING, ACTIVE, SUSPENDED, REJECTED)", () =>
+{
+    if (!ClinicStatuses.AllowedStatuses.Contains("PENDING") ||
+        !ClinicStatuses.AllowedStatuses.Contains("ACTIVE") ||
+        !ClinicStatuses.AllowedStatuses.Contains("SUSPENDED") ||
+        !ClinicStatuses.AllowedStatuses.Contains("REJECTED"))
+    {
+        throw new Exception("ClinicStatuses thiếu trạng thái quy định.");
+    }
+});
+
 Check("AC2.1: Danh sách AllowedRoles chỉ chứa đúng 3 vai trò: CLINIC_ADMIN, DOCTOR, STAFF", () =>
 {
     if (ClinicMemberRoles.AllowedRoles.Count != 3)
