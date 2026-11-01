@@ -18,7 +18,7 @@ public class ProfileRepository
 
         const string sql = @"
             SELECT p.account_id, p.display_name, p.phone, p.personal_tenant_id, p.profile_version,
-                   pt.patient_id
+                   pt.patient_id, p.email
             FROM profile.profiles p
             LEFT JOIN profile.patients pt ON pt.linked_account_id = p.account_id
             WHERE p.account_id = $1
@@ -36,18 +36,24 @@ public class ProfileRepository
             var personalTenantId = reader.IsDBNull(3) ? (Guid?)null : reader.GetGuid(3);
             var profileVersion = reader.GetInt32(4);
             var patientId = reader.IsDBNull(5) ? (Guid?)null : reader.GetGuid(5);
+            var email = reader.IsDBNull(6) ? null : reader.GetString(6);
 
-            return new UserProfileResponse(accId, displayName, phone, patientId, personalTenantId, profileVersion);
+            return new UserProfileResponse(accId, displayName, phone, patientId, personalTenantId, profileVersion, email);
         }
 
         return null;
     }
 
-    public async Task<UserProfileResponse> ProvisionProfileAsync(Guid accountId, string displayName, CancellationToken cancellationToken = default)
+    public async Task<UserProfileResponse> ProvisionProfileAsync(
+        Guid accountId, string displayName, string? email = null, CancellationToken cancellationToken = default)
     {
         var existing = await GetProfileByAccountIdAsync(accountId, cancellationToken);
         if (existing != null && existing.PersonalTenantId.HasValue && existing.PatientId.HasValue)
         {
+            if (!string.IsNullOrWhiteSpace(email))
+            {
+                await AutoActivatePendingMembershipsAsync(accountId, email, cancellationToken);
+            }
             return existing;
         }
 
@@ -94,10 +100,11 @@ public class ProfileRepository
             }
 
             const string insertProfileSql = @"
-                INSERT INTO profile.profiles (account_id, display_name, personal_tenant_id, profile_version)
-                VALUES ($1, $2, $3, 1)
+                INSERT INTO profile.profiles (account_id, display_name, personal_tenant_id, email, profile_version)
+                VALUES ($1, $2, $3, $4, 1)
                 ON CONFLICT (account_id) DO UPDATE
                     SET display_name = EXCLUDED.display_name,
+                        email = COALESCE(profile.profiles.email, EXCLUDED.email),
                         personal_tenant_id = COALESCE(profile.profiles.personal_tenant_id, EXCLUDED.personal_tenant_id);";
 
             await using (var profileCmd = new NpgsqlCommand(insertProfileSql, connection, transaction))
@@ -105,6 +112,7 @@ public class ProfileRepository
                 profileCmd.Parameters.AddWithValue(accountId);
                 profileCmd.Parameters.AddWithValue(displayName);
                 profileCmd.Parameters.AddWithValue(tenantId);
+                profileCmd.Parameters.AddWithValue((object?)email ?? DBNull.Value);
                 await profileCmd.ExecuteNonQueryAsync(cancellationToken);
             }
 
@@ -136,6 +144,11 @@ public class ProfileRepository
             }
 
             await transaction.CommitAsync(cancellationToken);
+
+            if (!string.IsNullOrWhiteSpace(email))
+            {
+                await AutoActivatePendingMembershipsAsync(accountId, email, cancellationToken);
+            }
 
             return (await GetProfileByAccountIdAsync(accountId, cancellationToken))!;
         }
@@ -278,17 +291,52 @@ public class ProfileRepository
         // 4. Ngữ cảnh phòng khám (Clinic context)
         var clinicId = clinicContextId.Value;
 
-        const string clinicSql = "SELECT tenant_id FROM profile.clinics WHERE clinic_id = $1 AND status = 'ACTIVE';";
+        const string clinicSql = "SELECT tenant_id, status FROM profile.clinics WHERE clinic_id = $1 LIMIT 1;";
         Guid clinicTenantId;
+        string clinicStatus = "ACTIVE";
         await using (var cCmd = new NpgsqlCommand(clinicSql, connection))
         {
             cCmd.Parameters.AddWithValue(clinicId);
-            var ctObj = await cCmd.ExecuteScalarAsync(cancellationToken);
-            if (ctObj is not Guid cTId)
+            await using var cReader = await cCmd.ExecuteReaderAsync(cancellationToken);
+            if (!await cReader.ReadAsync(cancellationToken))
             {
                 return new AccessResolveResponse(false, "ACTIVE", patientId, null, null, null, null, 1);
             }
-            clinicTenantId = cTId;
+            clinicTenantId = cReader.GetGuid(0);
+            clinicStatus = cReader.GetString(1);
+        }
+
+        // AC3: Khi Clinic bị SUSPENDED, phong tỏa quyền tạo ca chụp mới (ANALYSIS_CREATE)
+        if (clinicStatus.Equals(ClinicStatuses.Suspended, StringComparison.OrdinalIgnoreCase) &&
+            action.Equals("ANALYSIS_CREATE", StringComparison.OrdinalIgnoreCase))
+        {
+            return new AccessResolveResponse(
+                Allowed: false,
+                AccountStatus: "ACTIVE",
+                PatientId: patientId,
+                TenantId: clinicTenantId,
+                TenantKind: "CLINIC",
+                OwnerPrincipalId: clinicId,
+                BillingOwner: new BillingOwnerDto("CLINIC", clinicId),
+                PermissionVersion: 1,
+                Reason: "CLINIC_SUSPENDED"
+            );
+        }
+
+        if (!clinicStatus.Equals(ClinicStatuses.Active, StringComparison.OrdinalIgnoreCase) &&
+            action.Equals("ANALYSIS_CREATE", StringComparison.OrdinalIgnoreCase))
+        {
+            return new AccessResolveResponse(
+                Allowed: false,
+                AccountStatus: "ACTIVE",
+                PatientId: patientId,
+                TenantId: clinicTenantId,
+                TenantKind: "CLINIC",
+                OwnerPrincipalId: clinicId,
+                BillingOwner: new BillingOwnerDto("CLINIC", clinicId),
+                PermissionVersion: 1,
+                Reason: "CLINIC_" + clinicStatus.ToUpperInvariant()
+            );
         }
 
         var patientBelongsToClinic = (pTenantId == clinicTenantId || pOwnerPrincipalId == clinicId);
@@ -503,6 +551,360 @@ public class ProfileRepository
     }
 
     // ====================================================================
+    // CLINIC LIFECYCLE MANAGEMENT (Task W4-M6-01 / SCRUM-358)
+    // ====================================================================
+
+    public async Task<ClinicDto> RegisterClinicAsync(
+        Guid creatorAccountId,
+        RegisterClinicRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            var tenantId = Guid.NewGuid();
+            const string insertTenantSql = @"
+                INSERT INTO profile.tenants (tenant_id, tenant_kind, owner_principal_id)
+                VALUES ($1, 'CLINIC', $2);";
+
+            await using (var tenantCmd = new NpgsqlCommand(insertTenantSql, connection, transaction))
+            {
+                tenantCmd.Parameters.AddWithValue(tenantId);
+                tenantCmd.Parameters.AddWithValue(creatorAccountId);
+                await tenantCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            var clinicId = Guid.NewGuid();
+            var now = DateTimeOffset.UtcNow;
+            const string insertClinicSql = @"
+                INSERT INTO profile.clinics (
+                    clinic_id, tenant_id, name, tax_id, address, representative_name, phone, status, created_at, updated_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9);";
+
+            await using (var clinicCmd = new NpgsqlCommand(insertClinicSql, connection, transaction))
+            {
+                clinicCmd.Parameters.AddWithValue(clinicId);
+                clinicCmd.Parameters.AddWithValue(tenantId);
+                clinicCmd.Parameters.AddWithValue(request.Name.Trim());
+                clinicCmd.Parameters.AddWithValue((object?)request.TaxId ?? DBNull.Value);
+                clinicCmd.Parameters.AddWithValue((object?)request.Address ?? DBNull.Value);
+                clinicCmd.Parameters.AddWithValue((object?)request.RepresentativeName ?? DBNull.Value);
+                clinicCmd.Parameters.AddWithValue((object?)request.Phone ?? DBNull.Value);
+                clinicCmd.Parameters.AddWithValue(ClinicStatuses.Pending);
+                clinicCmd.Parameters.AddWithValue(now);
+                await clinicCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            // Gán creator làm CLINIC_ADMIN ban đầu
+            var membershipId = Guid.NewGuid();
+            const string insertMemberSql = @"
+                INSERT INTO profile.memberships (
+                    membership_id, clinic_id, account_id, role, status, created_at, updated_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $6);";
+
+            await using (var memberCmd = new NpgsqlCommand(insertMemberSql, connection, transaction))
+            {
+                memberCmd.Parameters.AddWithValue(membershipId);
+                memberCmd.Parameters.AddWithValue(clinicId);
+                memberCmd.Parameters.AddWithValue(creatorAccountId);
+                memberCmd.Parameters.AddWithValue(ClinicMemberRoles.ClinicAdmin);
+                memberCmd.Parameters.AddWithValue(MembershipStatuses.Active);
+                memberCmd.Parameters.AddWithValue(now);
+                await memberCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+
+            return new ClinicDto(
+                clinicId,
+                tenantId,
+                request.Name.Trim(),
+                request.TaxId,
+                request.Address,
+                request.RepresentativeName,
+                request.Phone,
+                ClinicStatuses.Pending,
+                null,
+                now,
+                now
+            );
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    public async Task<ClinicDto?> GetClinicByIdAsync(Guid clinicId, CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        const string sql = @"
+            SELECT clinic_id, tenant_id, name, tax_id, address, representative_name, phone, status, audit_reason, created_at, updated_at
+            FROM profile.clinics
+            WHERE clinic_id = $1
+            LIMIT 1;";
+
+        await using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue(clinicId);
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new ClinicDto(
+            reader.GetGuid(0),
+            reader.GetGuid(1),
+            reader.GetString(2),
+            reader.IsDBNull(3) ? null : reader.GetString(3),
+            reader.IsDBNull(4) ? null : reader.GetString(4),
+            reader.IsDBNull(5) ? null : reader.GetString(5),
+            reader.IsDBNull(6) ? null : reader.GetString(6),
+            reader.GetString(7),
+            reader.IsDBNull(8) ? null : reader.GetString(8),
+            reader.GetFieldValue<DateTimeOffset>(9),
+            reader.GetFieldValue<DateTimeOffset>(10)
+        );
+    }
+
+    public async Task<ClinicDto?> UpdateClinicStatusAsync(
+        Guid adminAccountId,
+        Guid clinicId,
+        string newStatus,
+        string? reason,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            const string selectSql = @"
+                SELECT status FROM profile.clinics
+                WHERE clinic_id = $1
+                FOR UPDATE;";
+
+            string? previousStatus = null;
+            await using (var selectCmd = new NpgsqlCommand(selectSql, connection, transaction))
+            {
+                selectCmd.Parameters.AddWithValue(clinicId);
+                var prevObj = await selectCmd.ExecuteScalarAsync(cancellationToken);
+                if (prevObj is string prev)
+                {
+                    previousStatus = prev;
+                }
+            }
+
+            if (previousStatus == null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return null;
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            const string updateSql = @"
+                UPDATE profile.clinics
+                SET status = $1, audit_reason = $2, updated_at = $3
+                WHERE clinic_id = $4;";
+
+            await using (var updateCmd = new NpgsqlCommand(updateSql, connection, transaction))
+            {
+                updateCmd.Parameters.AddWithValue(newStatus);
+                updateCmd.Parameters.AddWithValue((object?)reason ?? DBNull.Value);
+                updateCmd.Parameters.AddWithValue(now);
+                updateCmd.Parameters.AddWithValue(clinicId);
+                await updateCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            const string logSql = @"
+                INSERT INTO profile.clinic_audit_logs (
+                    clinic_id, previous_status, new_status, reason, changed_by, changed_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6);";
+
+            await using (var logCmd = new NpgsqlCommand(logSql, connection, transaction))
+            {
+                logCmd.Parameters.AddWithValue(clinicId);
+                logCmd.Parameters.AddWithValue(previousStatus);
+                logCmd.Parameters.AddWithValue(newStatus);
+                logCmd.Parameters.AddWithValue((object?)reason ?? DBNull.Value);
+                logCmd.Parameters.AddWithValue(adminAccountId);
+                logCmd.Parameters.AddWithValue(now);
+                await logCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+
+            return await GetClinicByIdAsync(clinicId, cancellationToken);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    public async Task<(ClinicMembershipDto? Result, string? ErrorCode)> InviteClinicMemberAsync(
+        Guid clinicId,
+        string email,
+        string role,
+        CancellationToken cancellationToken = default)
+    {
+        var normalizedRole = ClinicMemberRoles.NormalizeRole(role);
+        if (normalizedRole == null)
+        {
+            return (null, "ERR_INVALID_ROLE");
+        }
+
+        var cleanEmail = email.Trim().ToLowerInvariant();
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        try
+        {
+            // 1. Kiểm tra tài khoản đã tồn tại trong profile.profiles chưa
+            const string findProfileSql = @"
+                SELECT p.account_id, p.display_name
+                FROM profile.profiles p
+                WHERE LOWER(p.email) = $1
+                LIMIT 1;";
+
+            Guid? existingAccountId = null;
+            string? displayName = null;
+
+            await using (var findCmd = new NpgsqlCommand(findProfileSql, connection, transaction))
+            {
+                findCmd.Parameters.AddWithValue(cleanEmail);
+                await using var reader = await findCmd.ExecuteReaderAsync(cancellationToken);
+                if (await reader.ReadAsync(cancellationToken))
+                {
+                    existingAccountId = reader.GetGuid(0);
+                    displayName = reader.GetString(1);
+                }
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            var initialStatus = existingAccountId.HasValue ? MembershipStatuses.Active : MembershipStatuses.Invited;
+
+            // 2. Kiểm tra xem đã có membership với account_id hoặc email này trong clinic chưa
+            const string checkMembershipSql = @"
+                SELECT membership_id, status, role
+                FROM profile.memberships
+                WHERE clinic_id = $1 AND (
+                    (account_id IS NOT NULL AND account_id = $2) OR
+                    (invited_email IS NOT NULL AND LOWER(invited_email) = $3)
+                )
+                LIMIT 1;";
+
+            Guid? existingMembershipId = null;
+            string? currentStatus = null;
+
+            await using (var checkCmd = new NpgsqlCommand(checkMembershipSql, connection, transaction))
+            {
+                checkCmd.Parameters.AddWithValue(clinicId);
+                checkCmd.Parameters.AddWithValue((object?)existingAccountId ?? DBNull.Value);
+                checkCmd.Parameters.AddWithValue(cleanEmail);
+                await using var reader = await checkCmd.ExecuteReaderAsync(cancellationToken);
+                if (await reader.ReadAsync(cancellationToken))
+                {
+                    existingMembershipId = reader.GetGuid(0);
+                    currentStatus = reader.GetString(1);
+                }
+            }
+
+            if (existingMembershipId.HasValue && string.Equals(currentStatus, MembershipStatuses.Active, StringComparison.OrdinalIgnoreCase))
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return (null, "ERR_MEMBERSHIP_ALREADY_EXISTS");
+            }
+
+            Guid membershipId;
+            if (existingMembershipId.HasValue)
+            {
+                membershipId = existingMembershipId.Value;
+                const string updateSql = @"
+                    UPDATE profile.memberships
+                    SET role = $1, status = $2, account_id = COALESCE(account_id, $3),
+                        invited_email = $4, updated_at = $5
+                    WHERE membership_id = $6;";
+
+                await using var updateCmd = new NpgsqlCommand(updateSql, connection, transaction);
+                updateCmd.Parameters.AddWithValue(normalizedRole);
+                updateCmd.Parameters.AddWithValue(initialStatus);
+                updateCmd.Parameters.AddWithValue((object?)existingAccountId ?? DBNull.Value);
+                updateCmd.Parameters.AddWithValue(cleanEmail);
+                updateCmd.Parameters.AddWithValue(now);
+                updateCmd.Parameters.AddWithValue(membershipId);
+                await updateCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            else
+            {
+                membershipId = Guid.NewGuid();
+                const string insertSql = @"
+                    INSERT INTO profile.memberships (
+                        membership_id, clinic_id, account_id, role, status, invited_email, created_at, updated_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $7);";
+
+                await using var insertCmd = new NpgsqlCommand(insertSql, connection, transaction);
+                insertCmd.Parameters.AddWithValue(membershipId);
+                insertCmd.Parameters.AddWithValue(clinicId);
+                insertCmd.Parameters.AddWithValue((object?)existingAccountId ?? DBNull.Value);
+                insertCmd.Parameters.AddWithValue(normalizedRole);
+                insertCmd.Parameters.AddWithValue(initialStatus);
+                insertCmd.Parameters.AddWithValue(cleanEmail);
+                insertCmd.Parameters.AddWithValue(now);
+                await insertCmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+
+            return (new ClinicMembershipDto(
+                membershipId,
+                clinicId,
+                existingAccountId,
+                displayName ?? (cleanEmail.Split('@')[0]),
+                normalizedRole,
+                initialStatus,
+                now,
+                now,
+                cleanEmail
+            ), null);
+        }
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
+
+    public async Task<int> AutoActivatePendingMembershipsAsync(
+        Guid accountId,
+        string? email,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(email)) return 0;
+        var cleanEmail = email.Trim().ToLowerInvariant();
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        const string sql = @"
+            UPDATE profile.memberships
+            SET account_id = $1, status = 'ACTIVE', updated_at = NOW()
+            WHERE LOWER(invited_email) = $2 AND status = 'INVITED';";
+
+        await using var cmd = new NpgsqlCommand(sql, connection);
+        cmd.Parameters.AddWithValue(accountId);
+        cmd.Parameters.AddWithValue(cleanEmail);
+        return await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    // ====================================================================
     // CLINIC MEMBERSHIP MANAGEMENT (Task W3-M6-01)
     // ====================================================================
 
@@ -561,8 +963,9 @@ public class ProfileRepository
             : statusFilter.Trim().ToUpperInvariant();
 
         const string sql = @"
-            SELECT m.membership_id, m.clinic_id, m.account_id, COALESCE(p.display_name, 'Thành viên phòng khám'),
-                   m.role, m.status, m.created_at, m.updated_at
+            SELECT m.membership_id, m.clinic_id, m.account_id,
+                   COALESCE(p.display_name, m.invited_email, 'Thành viên phòng khám'),
+                   m.role, m.status, m.created_at, m.updated_at, m.invited_email
             FROM profile.memberships m
             LEFT JOIN profile.profiles p ON p.account_id = m.account_id
             WHERE m.clinic_id = $1
@@ -579,15 +982,16 @@ public class ProfileRepository
         {
             var membershipId = reader.GetGuid(0);
             var cId = reader.GetGuid(1);
-            var accId = reader.GetGuid(2);
-            var displayName = reader.GetString(3);
+            var accId = reader.IsDBNull(2) ? (Guid?)null : reader.GetGuid(2);
+            var displayName = reader.IsDBNull(3) ? null : reader.GetString(3);
             var role = reader.GetString(4);
             var status = reader.GetString(5);
             var createdAt = reader.GetFieldValue<DateTimeOffset>(6);
             var updatedAt = reader.GetFieldValue<DateTimeOffset>(7);
+            var invitedEmail = reader.IsDBNull(8) ? null : reader.GetString(8);
 
             items.Add(new ClinicMembershipDto(
-                membershipId, cId, accId, displayName, role, status, createdAt, updatedAt));
+                membershipId, cId, accId, displayName, role, status, createdAt, updatedAt, invitedEmail));
         }
 
         return items;

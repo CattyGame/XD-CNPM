@@ -102,7 +102,7 @@ app.MapPost("/internal/v1/profile/provision", async (
                 statusCode: StatusCodes.Status400BadRequest);
         }
 
-        var profile = await repository.ProvisionProfileAsync(body.AccountId, body.DisplayName, ct);
+        var profile = await repository.ProvisionProfileAsync(body.AccountId, body.DisplayName, body.Email, ct);
         return Results.Ok(profile);
     }
     catch (Exception ex)
@@ -138,6 +138,11 @@ app.MapGet("/api/v1/profiles/me", async (
         return Results.Json(
             new ErrorEnvelope(new ErrorDetails("ERR_PROFILE_NOT_READY", "Tài khoản chưa hoàn tất bootstrap hồ sơ.", correlationId, true)),
             statusCode: StatusCodes.Status409Conflict);
+    }
+
+    if (!string.IsNullOrWhiteSpace(profile.Email))
+    {
+        await repository.AutoActivatePendingMembershipsAsync(identity.AccountId, profile.Email, ct);
     }
 
     request.HttpContext.Response.Headers.ETag = $"\"{profile.ProfileVersion}\"";
@@ -279,6 +284,147 @@ app.MapPost("/internal/v1/profile/camera-delegation/resolve", async (
 .WithName("ResolveCameraDelegation")
 .WithTags("Internal");
 
+// --- CLINIC LIFECYCLE & MEMBERSHIP ENDPOINTS (Task W4-M6-01 / SCRUM-358) ---
+
+// POST /api/v1/clinics (Đăng ký phòng khám mới)
+app.MapPost("/api/v1/clinics", async (
+    RegisterClinicRequest body,
+    HttpRequest request,
+    ProfileRepository repository,
+    UserIdentityResolver identityResolver,
+    CancellationToken ct) =>
+{
+    var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
+    var identity = await identityResolver.ResolveAsync(request, ct);
+    if (!identity.Succeeded)
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(identity.Code, identity.Message, correlationId, identity.Retryable)),
+            statusCode: identity.StatusCode);
+    }
+
+    if (string.IsNullOrWhiteSpace(body.Name))
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "Tên phòng khám không được để trống.", correlationId, false)),
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var clinic = await repository.RegisterClinicAsync(identity.AccountId, body, ct);
+    return Results.Created($"/api/v1/clinics/{clinic.ClinicId}", clinic);
+})
+.WithName("RegisterClinic")
+.WithTags("Clinics");
+
+// PATCH /api/v1/admin/clinics/{clinicId:guid}/status (Admin xét duyệt trạng thái phòng khám)
+app.MapPatch("/api/v1/admin/clinics/{clinicId:guid}/status", async (
+    Guid clinicId,
+    UpdateClinicStatusRequest body,
+    HttpRequest request,
+    ProfileRepository repository,
+    UserIdentityResolver identityResolver,
+    CancellationToken ct) =>
+{
+    var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
+    var identity = await identityResolver.ResolveAsync(request, ct);
+    if (!identity.Succeeded)
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(identity.Code, identity.Message, correlationId, identity.Retryable)),
+            statusCode: identity.StatusCode);
+    }
+
+    if (!identity.Roles.Contains("SYSTEM_ADMIN", StringComparer.OrdinalIgnoreCase))
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_FORBIDDEN", "Chỉ Quản trị viên hệ thống mới có quyền xét duyệt phòng khám.", correlationId, false)),
+            statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    var normalizedStatus = body.Status?.Trim().ToUpperInvariant();
+    if (string.IsNullOrWhiteSpace(normalizedStatus) || !ClinicStatuses.AllowedStatuses.Contains(normalizedStatus))
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_INVALID_STATUS", "Trạng thái phòng khám không hợp lệ.", correlationId, false)),
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var updatedClinic = await repository.UpdateClinicStatusAsync(identity.AccountId, clinicId, normalizedStatus, body.Reason?.Trim(), ct);
+    if (updatedClinic == null)
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_CLINIC_NOT_FOUND", "Không tìm thấy phòng khám.", correlationId, false)),
+            statusCode: StatusCodes.Status404NotFound);
+    }
+
+    return Results.Ok(updatedClinic);
+})
+.WithName("UpdateClinicStatus")
+.WithTags("Admin");
+
+// POST /api/v1/clinics/{clinicId:guid}/memberships/invite (Mời hội viên qua email)
+app.MapPost("/api/v1/clinics/{clinicId:guid}/memberships/invite", async (
+    Guid clinicId,
+    InviteClinicMemberRequest body,
+    HttpRequest request,
+    ProfileRepository repository,
+    UserIdentityResolver identityResolver,
+    CancellationToken ct) =>
+{
+    var correlationId = (string)request.HttpContext.Items["CorrelationId"]!;
+    var identity = await identityResolver.ResolveAsync(request, ct);
+    if (!identity.Succeeded)
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(identity.Code, identity.Message, correlationId, identity.Retryable)),
+            statusCode: identity.StatusCode);
+    }
+
+    var (allowed, failureReason) = await repository.CheckClinicManagementAuthorityAsync(
+        identity.AccountId, clinicId, identity.Roles, ct);
+
+    if (!allowed)
+    {
+        if (failureReason == "CLINIC_NOT_FOUND")
+        {
+            return Results.Json(
+                new ErrorEnvelope(new ErrorDetails("ERR_CLINIC_NOT_FOUND", "Không tìm thấy phòng khám.", correlationId, false)),
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_FORBIDDEN", "Bạn không có quyền quản lý thành viên phòng khám này.", correlationId, false)),
+            statusCode: StatusCodes.Status403Forbidden);
+    }
+
+    if (string.IsNullOrWhiteSpace(body.Email) || !body.Email.Contains('@'))
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_VALIDATION", "Email không đúng định dạng.", correlationId, false)),
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var normalizedRole = ClinicMemberRoles.NormalizeRole(body.Role);
+    if (normalizedRole == null)
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails("ERR_INVALID_ROLE", "Vai trò thành viên không hợp lệ.", correlationId, false)),
+            statusCode: StatusCodes.Status400BadRequest);
+    }
+
+    var (result, errorCode) = await repository.InviteClinicMemberAsync(clinicId, body.Email, normalizedRole, ct);
+    if (errorCode == "ERR_MEMBERSHIP_ALREADY_EXISTS")
+    {
+        return Results.Json(
+            new ErrorEnvelope(new ErrorDetails(errorCode, "Thành viên này đã tham gia phòng khám.", correlationId, false)),
+            statusCode: StatusCodes.Status409Conflict);
+    }
+
+    return Results.Created($"/api/v1/clinics/{clinicId}/memberships", result);
+})
+.WithName("InviteClinicMember")
+.WithTags("Clinics");
+
 // 6. GET /api/v1/clinics/{clinicId:guid}/memberships
 app.MapGet("/api/v1/clinics/{clinicId:guid}/memberships", async (
     Guid clinicId,
@@ -302,7 +448,7 @@ app.MapGet("/api/v1/clinics/{clinicId:guid}/memberships", async (
 
     if (!allowed)
     {
-        if (failureReason == "CLINIC_NOT_FOUND" || failureReason == "NOT_A_MEMBER")
+        if (failureReason == "CLINIC_NOT_FOUND")
         {
             return Results.Json(
                 new ErrorEnvelope(new ErrorDetails("ERR_CLINIC_NOT_FOUND", "Không tìm thấy phòng khám.", correlationId, false)),
@@ -310,7 +456,7 @@ app.MapGet("/api/v1/clinics/{clinicId:guid}/memberships", async (
         }
 
         return Results.Json(
-            new ErrorEnvelope(new ErrorDetails("ERR_FORBIDDEN", "Bạn không có quyền quản lý thành viên phòng khám này.", correlationId, false)),
+            new ErrorEnvelope(new ErrorDetails("ERR_FORBIDDEN", "Bạn không có quyền truy cập thông tin phòng khám này.", correlationId, false)),
             statusCode: StatusCodes.Status403Forbidden);
     }
 

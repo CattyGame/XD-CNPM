@@ -19,7 +19,8 @@ public sealed record UserProfileResponse(
     [property: JsonPropertyName("phone")] string? Phone,
     [property: JsonPropertyName("patientId")] Guid? PatientId,
     [property: JsonPropertyName("personalTenantId")] Guid? PersonalTenantId,
-    [property: JsonPropertyName("profileVersion")] int ProfileVersion
+    [property: JsonPropertyName("profileVersion")] int ProfileVersion,
+    [property: JsonPropertyName("email")] string? Email = null
 );
 
 // CHÚ Ý AN TOÀN: Request cập nhật hồ sơ TUYỆT ĐỐI KHÔNG chứa role, accountId, tenantId, patientId.
@@ -56,10 +57,24 @@ public sealed record AccessResolveResponse(
     [property: JsonPropertyName("tenantKind")] string? TenantKind,
     [property: JsonPropertyName("ownerPrincipalId")] Guid? OwnerPrincipalId,
     [property: JsonPropertyName("billingOwner")] BillingOwnerDto? BillingOwner,
-    [property: JsonPropertyName("permissionVersion")] int PermissionVersion
+    [property: JsonPropertyName("permissionVersion")] int PermissionVersion,
+    [property: JsonPropertyName("reason")] string? Reason = null
 );
 
-// --- Models cho Clinic Memberships (Sprint 3 - Task W3-M6-01) ---
+// --- Models cho Clinic Lifecycle & Memberships (Task W4-M6-01 / SCRUM-358) ---
+
+public static class ClinicStatuses
+{
+    public const string Pending = "PENDING";
+    public const string Active = "ACTIVE";
+    public const string Suspended = "SUSPENDED";
+    public const string Rejected = "REJECTED";
+
+    public static readonly HashSet<string> AllowedStatuses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        Pending, Active, Suspended, Rejected
+    };
+}
 
 public static class ClinicMemberRoles
 {
@@ -71,13 +86,62 @@ public static class ClinicMemberRoles
     {
         ClinicAdmin, Doctor, Staff
     };
+
+    public static string? NormalizeRole(string? role)
+    {
+        if (string.IsNullOrWhiteSpace(role)) return null;
+        var trimmed = role.Trim();
+        if (string.Equals(trimmed, "ClinicManager", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(trimmed, ClinicAdmin, StringComparison.OrdinalIgnoreCase))
+            return ClinicAdmin;
+        if (string.Equals(trimmed, "ClinicDoctor", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(trimmed, Doctor, StringComparison.OrdinalIgnoreCase))
+            return Doctor;
+        if (string.Equals(trimmed, "ClinicStaff", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(trimmed, Staff, StringComparison.OrdinalIgnoreCase))
+            return Staff;
+        return null;
+    }
 }
 
 public static class MembershipStatuses
 {
     public const string Active = "ACTIVE";
     public const string Revoked = "REVOKED";
+    public const string Invited = "INVITED";
 }
+
+public sealed record RegisterClinicRequest(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("taxId")] string? TaxId,
+    [property: JsonPropertyName("address")] string? Address,
+    [property: JsonPropertyName("representativeName")] string? RepresentativeName,
+    [property: JsonPropertyName("phone")] string? Phone
+);
+
+public sealed record UpdateClinicStatusRequest(
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("reason")] string? Reason
+);
+
+public sealed record InviteClinicMemberRequest(
+    [property: JsonPropertyName("email")] string Email,
+    [property: JsonPropertyName("role")] string Role
+);
+
+public sealed record ClinicDto(
+    [property: JsonPropertyName("clinicId")] Guid ClinicId,
+    [property: JsonPropertyName("tenantId")] Guid TenantId,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("taxId")] string? TaxId,
+    [property: JsonPropertyName("address")] string? Address,
+    [property: JsonPropertyName("representativeName")] string? RepresentativeName,
+    [property: JsonPropertyName("phone")] string? Phone,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("auditReason")] string? AuditReason,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt
+);
 
 public sealed record AddClinicMemberRequest(
     [property: JsonPropertyName("accountId")] Guid AccountId,
@@ -87,12 +151,13 @@ public sealed record AddClinicMemberRequest(
 public sealed record ClinicMembershipDto(
     [property: JsonPropertyName("membershipId")] Guid MembershipId,
     [property: JsonPropertyName("clinicId")] Guid ClinicId,
-    [property: JsonPropertyName("accountId")] Guid AccountId,
-    [property: JsonPropertyName("displayName")] string DisplayName,
+    [property: JsonPropertyName("accountId")] Guid? AccountId,
+    [property: JsonPropertyName("displayName")] string? DisplayName,
     [property: JsonPropertyName("role")] string Role,
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt,
-    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt
+    [property: JsonPropertyName("updatedAt")] DateTimeOffset UpdatedAt,
+    [property: JsonPropertyName("invitedEmail")] string? InvitedEmail = null
 );
 
 public sealed record ClinicMemberListResponse(
