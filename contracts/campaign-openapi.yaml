@@ -1,0 +1,311 @@
+openapi: 3.1.0
+info:
+  title: AURA Screening Campaign API
+  version: 1.0.0
+  description: API quản lý Chiến dịch Tầm soát Sức khỏe Mắt, gắn kết nối Batch ảnh chụp và thống kê y tế cộng đồng.
+servers:
+  - url: http://127.0.0.1:5000
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/campaigns:
+    post:
+      summary: Tạo chiến dịch tầm soát sức khỏe mắt mới
+      parameters:
+        - $ref: '#/components/parameters/ClinicContextId'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCampaignRequest'
+      responses:
+        '201':
+          description: Chiến dịch tầm soát được khởi tạo thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CampaignResponse'
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+    get:
+      summary: Danh sách chiến dịch tầm soát của phòng khám
+      parameters:
+        - $ref: '#/components/parameters/ClinicContextId'
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [PLANNED, IN_PROGRESS, COMPLETED, CLOSED]
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Danh sách chiến dịch tầm soát
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CampaignResponse'
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+
+  /api/v1/campaigns/{campaignId}:
+    get:
+      summary: Lấy chi tiết chiến dịch tầm soát
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+        - $ref: '#/components/parameters/ClinicContextId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Chi tiết chiến dịch
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CampaignResponse'
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /api/v1/campaigns/{campaignId}/status:
+    patch:
+      summary: Cập nhật trạng thái chiến dịch tầm soát
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+        - $ref: '#/components/parameters/ClinicContextId'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateCampaignStatusRequest'
+      responses:
+        '200':
+          description: Trạng thái chiến dịch được cập nhật thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CampaignResponse'
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /api/v1/campaigns/{campaignId}/batches:
+    post:
+      summary: Gắn batch ảnh chụp vào chiến dịch tầm soát (Chặn nếu CLOSED)
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+        - $ref: '#/components/parameters/ClinicContextId'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinkBatchToCampaignRequest'
+      responses:
+        '200':
+          description: Gắn batch vào chiến dịch thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409':
+          description: Xung đột trạng thái (Chiến dịch đã đóng CLOSED)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/campaigns/{campaignId}/summary:
+    get:
+      summary: Thống kê tiến độ hoàn thành và phân loại tổn thương mạch máu chiến dịch
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+        - $ref: '#/components/parameters/ClinicContextId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Số liệu tổng kết tiến độ và phân loại rủi ro
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CampaignSummaryResponse'
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /api/v1/campaigns/{campaignId}/export:
+    get:
+      summary: Kết xuất báo cáo y tế cộng đồng định dạng CSV
+      parameters:
+        - $ref: '#/components/parameters/CampaignId'
+        - $ref: '#/components/parameters/ClinicContextId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Tệp CSV tổng hợp kết quả (được khử công thức an toàn)
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    CampaignId:
+      name: campaignId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ClinicContextId:
+      name: clinicContextId
+      in: query
+      required: false
+      description: Định danh phòng khám thực hiện chiến dịch
+      schema:
+        type: string
+        format: uuid
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      schema:
+        type: string
+        maxLength: 64
+
+  responses:
+    Error:
+      description: Phản hồi lỗi chuẩn AURA
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            correlationId: { type: string }
+            retryable: { type: boolean }
+
+    CreateCampaignRequest:
+      type: object
+      required:
+        - name
+        - location
+        - startDate
+        - endDate
+      properties:
+        name: { type: string }
+        description: { type: string, nullable: true }
+        location: { type: string }
+        doctorInChargeId: { type: string, format: uuid, nullable: true }
+        targetPatientCount: { type: integer, minimum: 0 }
+        startDate: { type: string, format: date-time }
+        endDate: { type: string, format: date-time }
+
+    UpdateCampaignStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [PLANNED, IN_PROGRESS, COMPLETED, CLOSED]
+
+    LinkBatchToCampaignRequest:
+      type: object
+      required: [batchId]
+      properties:
+        batchId: { type: string, format: uuid }
+
+    CampaignResponse:
+      type: object
+      required:
+        - id
+        - tenantId
+        - name
+        - location
+        - status
+        - startDate
+        - endDate
+        - createdAt
+        - updatedAt
+      properties:
+        id: { type: string, format: uuid }
+        tenantId: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        location: { type: string }
+        doctorInChargeId: { type: string, format: uuid, nullable: true }
+        targetPatientCount: { type: integer }
+        status:
+          type: string
+          enum: [PLANNED, IN_PROGRESS, COMPLETED, CLOSED]
+        startDate: { type: string, format: date-time }
+        endDate: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    CampaignSummaryResponse:
+      type: object
+      required:
+        - campaignId
+        - tenantId
+        - campaignName
+        - status
+        - targetPatientCount
+        - totalBatches
+        - totalImages
+        - completedImages
+        - pendingImages
+        - failedImages
+        - completionRatePercent
+        - normalCases
+        - suspectedCases
+        - highRiskCases
+        - uniquePatients
+      properties:
+        campaignId: { type: string, format: uuid }
+        tenantId: { type: string, format: uuid }
+        campaignName: { type: string }
+        status: { type: string }
+        targetPatientCount: { type: integer }
+        totalBatches: { type: integer }
+        totalImages: { type: integer }
+        completedImages: { type: integer }
+        pendingImages: { type: integer }
+        failedImages: { type: integer }
+        completionRatePercent: { type: number, format: double }
+        normalCases: { type: integer }
+        suspectedCases: { type: integer }
+        highRiskCases: { type: integer }
+        uniquePatients: { type: integer }
