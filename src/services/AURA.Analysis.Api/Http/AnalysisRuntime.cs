@@ -35,7 +35,7 @@ public static class AnalysisRuntime
         if(options.MaxImageBytes is <1 or >10485760||options.MaxImagePixels is <1 or >16000000||options.MaxImagesPerRequest is <1 or >100
             ||options.MaxRequestBytes<options.MaxImageBytes||options.MaxRequestBytes>1101004800||options.OriginalsContainer!="aura-originals")
             throw new InvalidOperationException("Invalid Analysis upload limits.");
-        services.AddSingleton(options);services.AddSingleton(new StorageOptions());
+        services.AddSingleton(options);services.AddSingleton(configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>()??new());
         services.AddSingleton(new AnalysisUploadGate(capacity));services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton(_=>NpgsqlDataSource.Create(db.ConnectionString));
         services.AddSingleton<IConnectionMultiplexer>(_=>ConnectionMultiplexer.Connect(redisConnection));
@@ -51,6 +51,7 @@ public static class AnalysisRuntime
         services.AddTransient<UploadPlanningService>();services.AddTransient<IAnalysisUploadHandler,DurableUploadService>();
         services.AddTransient<IAnalysisReadinessChecks,AnalysisReadinessChecks>();
         services.AddTransient<BatchStatusService>();services.AddTransient<FileAccessService>();
+        services.AddTransient<AnalysisReportService>();
         services.AddTransient<AnalysisQueryService>();services.AddTransient<InternalResolversService>();
         services.AddTransient<DoctorReviewService>();services.AddTransient<DoctorWorklistService>();
         return services;

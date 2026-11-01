@@ -82,7 +82,7 @@ public sealed class AzureBlobPrivateFileStorageTests
     [Theory]
     [InlineData(-1)]
     [InlineData(0)]
-    [InlineData(121)]
+    [InlineData(901)]
     public async Task Out_of_range_TTL_is_rejected_before_any_request(int seconds)
     {
         var storage = new AzureBlobPrivateFileStorage(Options(), true);

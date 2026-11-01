@@ -123,7 +123,7 @@ public sealed class AzureBlobPrivateFileStorage : IPrivateFileStorage, IPrivateS
     {
         ct.ThrowIfCancellationRequested();
         var target = Container(container, key);
-        if (contentType is not ("image/png" or "image/jpeg" or "application/pdf")
+        if (contentType is not ("image/png" or "image/jpeg" or "application/pdf" or "text/csv")
             || !content.CanRead || !content.CanSeek || content.Length <= content.Position)
             throw new ArgumentException("Invalid storage content.");
         var position = content.Position;
@@ -171,9 +171,9 @@ public sealed class AzureBlobPrivateFileStorage : IPrivateFileStorage, IPrivateS
     public async Task<FileReadAccess> CreateReadAccessAsync(string container, string key, TimeSpan ttl, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+        if (ttl <= TimeSpan.Zero || ttl > TimeSpan.FromMinutes(15) || ttl.Ticks % TimeSpan.TicksPerSecond != 0)
+            throw new ArgumentOutOfRangeException(nameof(ttl), "Read TTL must be 1..900 whole seconds.");
         var target = Container(container, key);
-        if (ttl <= TimeSpan.Zero || ttl > TimeSpan.FromSeconds(120) || ttl.Ticks % TimeSpan.TicksPerSecond != 0)
-            throw new ArgumentOutOfRangeException(nameof(ttl), "Read TTL must be 1..120 whole seconds.");
         await RequirePrivateAsync(target, ct);
         await target.GetBlobClient(key).GetPropertiesAsync(cancellationToken: ct);
         var now = DateTimeOffset.FromUnixTimeSeconds(_clock.GetUtcNow().ToUnixTimeSeconds());

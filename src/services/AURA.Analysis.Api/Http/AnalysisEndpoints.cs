@@ -28,6 +28,22 @@ public static class AnalysisEndpoints
             return Results.Json(await c.RequestServices.GetRequiredService<BatchStatusService>().GetAsync(user.AccountId,clinic,
                 ResourceId(batchId),c.RequestAborted,Correlation(c)),UploadJson.Options);
         }));
+        app.MapPost("/api/v1/analyses/{analysisId}/reports",(HttpContext c,string analysisId,ReportFormatRequest request)=>Handle(c,async()=>
+        {
+            var user=await User(c);var clinic=Clinic(c);
+            if (!string.Equals(request.Format,"pdf",StringComparison.OrdinalIgnoreCase))
+                throw UploadFailure.Validation(new ErrorDetail("format","must_be_pdf"));
+            var report=await c.RequestServices.GetRequiredService<AnalysisReportService>().CreateAnalysisPdfAsync(
+                user.AccountId,clinic,ResourceId(analysisId),Correlation(c),c.RequestAborted);
+            return Results.Json(report,UploadJson.Options,statusCode:StatusCodes.Status201Created);
+        }));
+        app.MapPost("/api/v1/batches/{batchId}/reports",(HttpContext c,string batchId,ReportFormatRequest request)=>Handle(c,async()=>
+        {
+            var user=await User(c);var clinic=Clinic(c);
+            var report=await c.RequestServices.GetRequiredService<AnalysisReportService>().CreateBatchReportAsync(
+                user.AccountId,clinic,ResourceId(batchId),request.Format,Correlation(c),c.RequestAborted);
+            return Results.Json(report,UploadJson.Options,statusCode:StatusCodes.Status201Created);
+        }));
         app.MapGet("/api/v1/analyses/{analysisId}",(HttpContext c,string analysisId)=>Handle(c,async()=>
         {
             var user=await User(c);var clinic=Clinic(c);

@@ -599,13 +599,14 @@ public sealed class SettlementInboxRepository(NpgsqlDataSource dataSource)
             throw new ArgumentException("A completed settlement requires a real, bound reservation and generation.", nameof(decision));
         }
 
-        var validCapture = claim.EventType == "analysis.completed"
-            && decision.SettlementAction == "CAPTURE"
+        // The event is only a reconciliation trigger. Analysis' authoritative state may have
+        // advanced since it was emitted, so stale/out-of-order event types must not override
+        // a valid resolved settlement decision.
+        var validCapture = decision.SettlementAction == "CAPTURE"
             && decision.SettlementReason == "VALID_RESULT"
             && decision.ProcessingStatus == "COMPLETED"
             && decision.ResultVersion is > 0;
-        var validRelease = claim.EventType == "analysis.failed"
-            && decision.SettlementAction == "RELEASE"
+        var validRelease = decision.SettlementAction == "RELEASE"
             && decision.SettlementReason is "VALIDATION_ABORT" or "STORAGE_ABORT" or "ANALYSIS_ABORT" or "FINAL_FAILURE" or "LOW_QUALITY"
             && decision.ProcessingStatus is "FAILED" or "LOW_QUALITY" or "REJECTED"
             && decision.ResultVersion is null;

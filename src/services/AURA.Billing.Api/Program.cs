@@ -89,6 +89,10 @@ builder.Services.AddSingleton<ServiceTokenValidator>();
 builder.Services.AddSingleton<SystemAdminAuthorizer>();
 builder.Services.AddSingleton<ProfileAccessClient>();
 builder.Services.AddSingleton<AnalysisSettlementResolverClient>();
+builder.Services.AddSingleton<SettlementInboxRepository>();
+builder.Services.Configure<BillingSettlementOptions>(
+    builder.Configuration.GetSection(BillingSettlementOptions.Section));
+builder.Services.AddHostedService<AnalysisSettlementWorker>();
 
 var app = builder.Build();
 
