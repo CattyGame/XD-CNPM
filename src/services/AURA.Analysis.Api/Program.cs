@@ -44,6 +44,7 @@ app.MapGet("/api/v1/platform/ping", () =>
 if (analysisHttpEnabled)
 {
     app.MapAnalysisEndpoints();
+    app.MapCampaignEndpoints();
 }
 else
 {
