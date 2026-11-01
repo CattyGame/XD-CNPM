@@ -965,6 +965,47 @@ public class ProfileRepository
         }
     }
 
+    public async Task<(bool Allowed, string? FailureReason)> CheckClinicAccessAuthorityAsync(
+        Guid actorAccountId, Guid clinicId, IReadOnlyList<string> actorRoles, CancellationToken cancellationToken = default)
+    {
+        if (actorRoles.Contains("SYSTEM_ADMIN", StringComparer.OrdinalIgnoreCase))
+        {
+            return (true, null);
+        }
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+
+        const string clinicSql = "SELECT tenant_id FROM profile.clinics WHERE clinic_id = $1 AND status = 'ACTIVE' LIMIT 1;";
+        await using (var clinicCmd = new NpgsqlCommand(clinicSql, connection))
+        {
+            clinicCmd.Parameters.AddWithValue(clinicId);
+            var tenantObj = await clinicCmd.ExecuteScalarAsync(cancellationToken);
+            if (tenantObj is not Guid)
+            {
+                return (false, "CLINIC_NOT_FOUND");
+            }
+        }
+
+        const string memberSql = @"
+            SELECT role FROM profile.memberships
+            WHERE clinic_id = $1 AND account_id = $2 AND status = 'ACTIVE'
+            LIMIT 1;";
+
+        await using (var memberCmd = new NpgsqlCommand(memberSql, connection))
+        {
+            memberCmd.Parameters.AddWithValue(clinicId);
+            memberCmd.Parameters.AddWithValue(actorAccountId);
+            var roleObj = await memberCmd.ExecuteScalarAsync(cancellationToken);
+            if (roleObj is not string)
+            {
+                return (false, "NOT_A_MEMBER");
+            }
+
+            return (true, null);
+        }
+    }
+
+
     public async Task<IReadOnlyList<ClinicMembershipDto>> GetClinicMembersAsync(
         Guid clinicId, string? statusFilter = null, CancellationToken cancellationToken = default)
     {
