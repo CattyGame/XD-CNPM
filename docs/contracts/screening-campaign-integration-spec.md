@@ -1,6 +1,6 @@
 # Tài liệu Tích hợp Phân hệ Chiến dịch Tầm soát Sức khỏe Mắt (Screening Campaign Integration Spec)
-**Module Cung cấp:** M6 / Analysis API  
-**Module Tiêu thụ / Phối hợp:** M2 (Batch Processing & Doctor Review), M5 (Frontend UI)  
+**Module Cung cấp:** M6 / Analysis API
+**Module Tiêu thụ / Phối hợp:** M2 (Batch Processing & Doctor Review), M5 (Frontend UI)
 **Mục tiêu:** Cung cấp đặc tả luồng nghiệp vụ, danh mục API, cấu trúc dữ liệu và các ràng buộc khi tích hợp Chiến dịch Tầm soát với Đợt xử lý hàng loạt (Batch Processing).
 
 ---
