@@ -114,8 +114,8 @@ public class Program
             DELETE FROM notification.inbox_items WHERE tenant_id IN ('c3010000-0000-4000-8000-000000000001', 'c3020000-0000-4000-8000-000000000002', 'c3030000-0000-4000-8000-000000000003', 'c3040000-0000-4000-8000-000000000004', 'c3050000-0000-4000-8000-000000000005');
             DELETE FROM billing.credit_ledger_entries WHERE reservation_id IN (SELECT id FROM billing.credit_reservations WHERE tenant_id IN ('c3010000-0000-4000-8000-000000000001', 'c3020000-0000-4000-8000-000000000002', 'c3030000-0000-4000-8000-000000000003', 'c3040000-0000-4000-8000-000000000004', 'c3050000-0000-4000-8000-000000000005')) OR (wallet_id IN ('a3010000-0000-4000-8000-000000000001', 'a3020000-0000-4000-8000-000000000002', 'a3030000-0000-4000-8000-000000000003', 'a3040000-0000-4000-8000-000000000004', 'a3050000-0000-4000-8000-000000000005') AND entry_type != 'CREDIT');
             DELETE FROM billing.credit_reservations WHERE tenant_id IN ('c3010000-0000-4000-8000-000000000001', 'c3020000-0000-4000-8000-000000000002', 'c3030000-0000-4000-8000-000000000003', 'c3040000-0000-4000-8000-000000000004', 'c3050000-0000-4000-8000-000000000005');
-            
-            
+
+
             -- Reset wallet balances to initial fixture baseline
             UPDATE billing.credit_wallets SET balance = 1, updated_at = NOW() WHERE id = 'a3010000-0000-4000-8000-000000000001';
             UPDATE billing.credit_wallets SET balance = 10, updated_at = NOW() WHERE id = 'a3020000-0000-4000-8000-000000000002';
@@ -725,7 +725,7 @@ public class Program
         await using var conn = await dataSource.OpenConnectionAsync();
 
         var sql = """
-            SELECT nspname FROM pg_namespace 
+            SELECT nspname FROM pg_namespace
             WHERE nspname IN ('analysis', 'billing', 'notification', 'identity')
             ORDER BY nspname;
             """;
@@ -748,7 +748,7 @@ public class Program
         // 1. Audit Wallet Balance vs Ledger Sum:
         // Final Balance = Initial Balance (from seed credit) + sum(ledger amount)
         var auditSql = """
-            SELECT 
+            SELECT
                 w.id,
                 w.balance AS current_balance,
                 COALESCE(SUM(l.amount), 0) AS net_ledger_flow
@@ -780,7 +780,7 @@ public class Program
         // 2. Audit Status Consistency:
         // Analysis COMPLETED images must have corresponding CAPTURED reservations
         var consistencySql = """
-            SELECT 
+            SELECT
                 i.id AS analysis_id,
                 i.processing_status,
                 r.state AS reservation_status
